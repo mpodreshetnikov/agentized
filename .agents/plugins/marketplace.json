@@ -1,0 +1,13 @@
+{
+  "name": "agentized-local",
+  "plugins": [
+    {
+      "name": "agentized",
+      "source": {
+        "source": "local",
+        "path": "./packages/agentized-codex"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

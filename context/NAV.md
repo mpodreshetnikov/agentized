@@ -10,10 +10,13 @@
 | Шаблон задачи | [`tasks/TEMPLATE.md`](tasks/TEMPLATE.md) | Поля статуса, родителя, Progress |
 | Решения | [`decisions/`](decisions/) | ADR / решения в силе |
 | Цели | [`goals/`](goals/) | Цели и приоритеты |
-| Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути |
+| Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути (warn-only) |
 | Дайджесты | [`digests/`](digests/) | development / management / releases / architecture |
-| Skills (pinned) | [`skills/`](skills/) | Закреплённая копия — позже |
-| Hooks (pinned) | [`hooks/`](hooks/) | Закреплённая копия — позже |
+| Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest |
+| Hooks (pinned) | [`hooks/`](hooks/) | session-start NAV check · lease-overlap warn |
+| Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / new / claim / lease / digest / check |
+| Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
+| Утренний прогон | [`../docs/morning-runbook.ru.md`](../docs/morning-runbook.ru.md) | Сценарий §9.4 |
 
 ## Как искать задачи
 
@@ -23,7 +26,11 @@
 
 ## Подзадачи
 
-Отдельные файлы рядом с родителем; один уровень вложенности; в файле ребёнка — ссылка на родителя. Claim / доска / leases — на детях. Не выдумывай бэклог: в skeleton нет реальных задач.
+Отдельные файлы рядом с родителем; один уровень вложенности; в файле ребёнка — ссылка на родителя. Claim / доска / leases — на детях. Не выдумывай бэклог: задачи появляются в сценарии работы, не как заранее закоммиченные примеры.
+
+## Connect и harness
+
+После `./bin/agentized connect` skills/hooks попадают в официальные project-пути Cursor / Claude Code / Codex. Подробности — в контракте connect. Leases только предупреждают, запись не блокируют.
 
 ## Два режима размещения Context
 

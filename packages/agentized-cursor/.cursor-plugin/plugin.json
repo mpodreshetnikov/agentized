@@ -1,0 +1,8 @@
+{
+  "name": "agentized",
+  "displayName": "Agentized",
+  "version": "0.1.0",
+  "description": "Pinned Agentized skills and hooks for Project Context connect (navigate, registry, lease-sync, digest).",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}

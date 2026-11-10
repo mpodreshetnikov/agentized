@@ -1,0 +1,125 @@
+# Контракт connect (V1)
+
+Дата: 2026-11-10.  
+Канон: [`target-architecture.md`](./target-architecture.md) §3, §6, §11.15–16.  
+Установка плагинов — **локально из этого репозитория**. Marketplace publish и свой updater — вне scope.
+
+---
+
+## 1. Что делает connect
+
+Команда:
+
+```bash
+python3 runtime/agentized_cli.py connect
+# или: ./bin/agentized connect
+```
+
+Идемпотентна. Повторный запуск дополняет/обновляет те же маркеры, не плодит дубликаты.
+
+### Обязательные эффекты
+
+| Артефакт | Поведение |
+|----------|-----------|
+| Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
+| `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
+| `{context}/skills/` | Pinned copy skills: `navigate`, `registry`, `lease-sync`, `digest` |
+| `{context}/hooks/scripts/` | Pinned copy hook-скриптов: `session_start.py`, `lease_warn.py` |
+| Session-start hook | Проверяет указатель Context/`NAV.md` и добавляет reminder в контекст сессии |
+| Lease-overlap hook | **Warn-only**: сообщает о пересечении write-paths, **не** блокирует запись |
+| `.agentized/connect.json` | Локальный маркер состояния (в `.gitignore`) |
+
+По умолчанию Context = вложенный каталог `context/` в этом репозитории.
+
+---
+
+## 2. Какие файлы появляются в workspace по harness
+
+Источник skills/hooks: `packages/shared/` → pinned в `context/` → wiring в официальные project-пути harness.
+
+### Cursor (основной утренний путь)
+
+Официальные поверхности ([Skills](https://cursor.com/docs/skills), [Hooks](https://cursor.com/docs/hooks), [Plugins](https://cursor.com/docs/reference/plugins)):
+
+| Путь | Назначение |
+|------|------------|
+| `.cursor/skills/*/SKILL.md` | Project skills |
+| `.cursor/hooks.json` | `sessionStart`, `preToolUse`, `afterFileEdit` |
+| `.cursor/hooks/*.py` | Скрипты hooks |
+
+Опционально официальный local plugin (без marketplace):
+
+```bash
+mkdir -p ~/.cursor/plugins/local
+rm -rf ~/.cursor/plugins/local/agentized
+cp -R packages/agentized-cursor ~/.cursor/plugins/local/agentized
+# или CLI: cursor-agent --plugin-dir packages/agentized-cursor
+```
+
+Манифест: `packages/agentized-cursor/.cursor-plugin/plugin.json`.
+
+### Claude Code
+
+Официальные поверхности ([`.claude` directory](https://code.claude.com/docs/en/claude-directory), [hooks](https://code.claude.com/docs/en/hooks), [plugins](https://code.claude.com/docs/en/plugins/overview)):
+
+| Путь | Назначение |
+|------|------------|
+| `.claude/skills/*/SKILL.md` | Project skills |
+| `.claude/settings.json` → `hooks` | `SessionStart`, `PreToolUse` |
+| `.claude/hooks/*.py` | Скрипты |
+
+Опционально session plugin без публикации:
+
+```bash
+claude --plugin-dir packages/agentized-claude
+```
+
+Манифест: `packages/agentized-claude/.claude-plugin/plugin.json`.
+
+### Codex
+
+Официальные поверхности ([AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [hooks](https://learn.chatgpt.com/docs/hooks.md), [plugins](https://developers.openai.com/plugins/build/plugins)):
+
+| Путь | Назначение |
+|------|------------|
+| `.agents/skills/*/SKILL.md` | Project skills (Codex также читает совместимые каталоги skills) |
+| `.codex/hooks.json` | Project hooks: `SessionStart`, `PreToolUse` |
+| `.codex/hooks/*.py` | Скрипты |
+| `.agents/plugins/marketplace.json` | Локальный marketplace → `packages/agentized-codex` |
+
+```bash
+# после connect:
+codex plugin marketplace add .
+# затем установка agentized@agentized-local через UI/CLI Codex
+```
+
+**Зазор:** у Codex нет стабильного `codex --plugin-dir` (feature request upstream). Connect поэтому обязательно пишет **project** `.codex/hooks.json` + skills — это тестовый путь без marketplace publish. Plugin-bundled hooks могут требовать user trust.
+
+Манифест: `packages/agentized-codex/.codex-plugin/plugin.json`.
+
+---
+
+## 3. Какое поведение обязано включиться
+
+После connect агент **должен**:
+
+1. В начале сессии опереться на `AGENTS.md` → `NAV.md` (hook напоминает; модель не гарантирована на 100%).
+2. Искать работу через живой `tasks/INDEX.md` + grep, **не** обходя весь `tasks/`.
+3. Создавать задачи с human confirmation; claim **до** правок кода.
+4. Публиковать path lease перед пересекающимися правками; при overlap — принять **warn**, не lock.
+5. Писать append-only Progress; участвовать в регулярном digest (development и/или management).
+6. Не перемещать файлы задач при смене статуса.
+
+Гарантия runtime/hooks: layout, индексы, warn-only leases, идемпотентность connect.  
+**Не** гарантия: что модель всегда подчинится skills.
+
+---
+
+## 4. Runtime CLI (минимум сценария §9.4)
+
+```text
+connect | new | claim | progress | status | index | check
+lease acquire|release|list|check | sync-status | digest
+```
+
+Подробный утренний сценарий: [`morning-runbook.ru.md`](./morning-runbook.ru.md).
