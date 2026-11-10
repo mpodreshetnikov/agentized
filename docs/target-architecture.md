@@ -54,7 +54,10 @@
 7. В v1 сразу три harness: Cursor, Claude Code, Codex.
 8. В v1 — и один code-репо, и несколько репо в одном контексте.
 9. Project Context — отдельная сущность, не Cursor Project Agent Store (Agent Store = файлы Cursor Project, не git).
-10. Skills: harness plugin/package ставит **закреплённую копию** skills в проект (простая установка + версия в git и на review).
+10. Harness plugin/package ставит **закреплённую копию** skills **и hooks** в проект (простая установка + версия в git и на review).
+11. В дереве Project Context `decisions/` и `goals/` — на одном уровне с `tasks/`, `leases/`, `digests/` (не внутри `tasks/`).
+12. Подзадачи в v1: отдельные файлы со ссылкой на родителя, один уровень вложенности; claim/доска/leases — на детях.
+13. Статус задачи — поле в начале файла задачи; при смене статуса файл не перемещается.
 
 ### Гипотезы этого черновика
 
@@ -99,8 +102,8 @@ Agentized — слой координации агентной команды п
 | **Registry** | Единица работы + доска + claim задачи. |
 | **Path Lease Board** | Публичные аренды путей/файлов до правок кода; в v1 — предупреждение при пересечении, без блокировки записи. |
 | **Runtime / Tools** | CLI/скрипты: connect, new/claim, index, check, lease, sync-status, digest. |
-| **Skills** | Поведение агента: registry, sync, steward, cognitive-digest, navigate. Поставка: plugin/package → pinned copy в проект. |
-| **Harness adapter** | v1: Cursor, Claude Code, Codex — правила/skills попадают в сессию при connect. |
+| **Skills + hooks** | Поведение агента: registry, sync, steward, cognitive-digest, navigate + hooks. Поставка: тот же plugin/package → pinned copy skills и hooks в проект. |
+| **Harness adapter** | v1: Cursor, Claude Code, Codex — skills/hooks/rules попадают в сессию при connect. |
 | **Code workspaces** | Обычные репозитории продукта (один или несколько на контекст); Agentized их не подменяет. |
 
 **Не входит в Agentized:** рантайм продукта пользователя, CI продукта (кроме опциональных проверок реестра), копирование содержимого Orbit/ProjectStore.
@@ -115,12 +118,12 @@ Agentized — слой координации агентной команды п
 2. Человек/агент выполняет **connect** code-репо → Project Context.
 3. Connect устанавливает:
    - связь workspace ↔ project id;
-   - skills/rules Agentized в harness (Cursor / Claude Code / Codex) через plugin/package с pinned copy skills в проекте;
-   - локальные hooks/validator (по возможности);
+   - skills/hooks/rules Agentized в harness (Cursor / Claude Code / Codex) через plugin/package с pinned copy skills и hooks в проекте;
+   - validator (по возможности);
    - указатель «текущий проект» для агента.
 4. С этого момента поведение агента меняется **без отдельного «не забудь про процесс»**: перед кодом — поиск/claim; во время — Progress/leases (с предупреждениями); после — sync + human digest по правилам регулярности.
 
-**Канал доставки skills (решение 2026-11-10):** harness plugin/package, который устанавливает закреплённую копию skills в проект — простая установка, версия видна в git и на review.
+**Канал доставки (решения 2026-11-10 / 2026-11-11):** один harness plugin/package устанавливает закреплённую копию **skills и hooks** в проект — простая установка, версия видна в git и на review. Отдельного механизма поставки hooks нет.
 
 ---
 
@@ -128,27 +131,32 @@ Agentized — слой координации агентной команды п
 
 ### 4.1. Что храним
 
-В Project Context (структура **[H]**, оптимизирована под агентную навигацию — принцип 6):
+В Project Context (оптимизировано под агентную навигацию — принцип 6).
+
+**Факт (2026-11-11):** верхний уровень — `tasks/`, `decisions/`, `goals/`, `leases/`, `digests/` как **соседи**; внутри `tasks/` только доска `INDEX.md` и файлы задач (без `tasks/items/`, без `decisions/`/`goals/` под `tasks/`). Skills и hooks — pinned copy от того же plugin/package.
+
+**[H]:** имена/детальная раскладка внутри `digests/` и прочих каталогов (кроме зафиксированного соседства верхнего уровня).
 
 ```
 project/
   NAV.md                 # входная карта для агента (1 экран)
   tasks/
     INDEX.md             # генерируемая доска
-    T-….md               # единицы работы
-    decisions/           # ADR / решения в силе
-    goals/               # цели и приоритеты (для менеджеров)
+    T-….md               # задачи и подзадачи (отдельные файлы)
+  decisions/             # ADR / решения в силе
+  goals/                 # цели и приоритеты (для менеджеров)
   leases/
     INDEX.md             # кто держит какие пути (генерируемо)
   digests/
-    development/         # регулярные дайджесты для разработки
-    management/          # регулярные дайджесты для менеджмента
-    releases/            # человекочитаемые релизы
-    architecture/        # изменения архитектуры
-  skills/                # pinned copy, поставленная plugin/package
+    development/         # регулярные дайджесты для разработки  [H] детали
+    management/          # регулярные дайджесты для менеджмента  [H] детали
+    releases/            # человекочитаемые релизы               [H] детали
+    architecture/        # изменения архитектуры                 [H] детали
+  skills/                # pinned copy от plugin/package
+  hooks/                 # pinned copy от того же plugin/package
 ```
 
-Файлы задач не перемещаются при смене статуса (как в Orbit Tasks): статус в front matter.
+Статус задачи — поле в начале файла задачи; при смене статуса файл **не перемещается** (как в Orbit Tasks по смыслу).
 
 ### 4.2. Единица работы
 
@@ -160,7 +168,14 @@ project/
 - ID без коллизий параллельных веток (`T-YYMMDD-xxx` или эквивалент);
 - мелкие коммиты статуса на основную ветку реестра; правила — через PR;
 - генерируемая доска + merge-driver / regenerate;
-- **human confirmation при создании задачи** (как в Orbit Tasks) — решение V1.
+- **human confirmation при создании задачи** (как в Orbit Tasks) — решение V1;
+- статус — поле в начале файла задачи; файл при смене статуса не двигается.
+
+**Подзадачи (факт V1, 2026-11-11):**
+
+- разрешены; отдельные файлы со ссылкой на родителя; **один** уровень вложенности (без глубоких деревьев);
+- claim, доска и leases работают по **детям**; родитель — рамка и критерии `done`;
+- короткий чеклист внутри небольшой задачи допустим; если задача крупная или несколько агентов работают параллельно — дробить на отдельные файлы.
 
 Не копируем: Orbit-specific env checks, private-registry+gitignore-in-public-Orbit, содержимое задач/целей Orbit.
 
@@ -218,8 +233,8 @@ Git остаётся источником истины по содержимом
 Минимальный контракт connect:
 
 1. **Обнаружение:** в workspace есть маркер Agentized project (файл связи / конфиг).
-2. **Инъекция поведения:** skills/rules требуют registry+lease workflow (через pinned copy от plugin/package).
-3. **Навигационный якорь:** агент начинает с `NAV.md` → `tasks/INDEX.md` → поиск по теме.
+2. **Инъекция поведения:** skills/hooks/rules требуют registry+lease workflow (через pinned copy skills и hooks от plugin/package).
+3. **Навигационный якорь:** агент начинает с `NAV.md` → `tasks/INDEX.md` (и при необходимости `decisions/`, `goals/`) → поиск по теме.
 4. **Проверка:** `doctor`/`check` говорит, связан ли репо и свежи ли индексы.
 5. **Статус в сессии [H]:** «проект X · задача Y · leases N» — чтобы человек видел, что connect сработал.
 
@@ -230,7 +245,7 @@ Connect не «ставит ещё один плагин ради плагина
 | Где живёт Project Context | **Оба режима:** каталог в code-репо **и** отдельный git-репо контекста | В Orbit разделение только из‑за public product / private tasks; Agentized обязан поддерживать оба |
 | Harnesses V1 | **Cursor + Claude Code + Codex** сразу | Не «Cursor-only until proven» |
 | Code workspaces на контекст | **1 и N** репо | Оба сценария в V1 |
-| Изменение поведения | Skills + rules (pinned copy) + checklists | Жёсткие editor hooks, блокирующие write — не опора V1 |
+| Изменение поведения | Skills + hooks + rules (pinned copy от одного plugin/package) | Блокировка write на уровне editor как опора V1 — нет; Agentized hooks — часть поставки, не fail-closed lock |
 | Agent Store vs Context | Project Context ≠ Cursor Project Agent Store | Agent Store = файлы Cursor Project, не git |
 
 ---
@@ -262,8 +277,8 @@ Connect не «ставит ещё один плагин ради плагина
 
 Жёсткие правила структуры:
 
-- Один вход: `NAV.md` (что это за проект, где доска, где решения, где digests, как claim/lease).
-- Одна доска задач, один lease index.
+- Один вход: `NAV.md` (что это за проект, где `tasks/` / `decisions/` / `goals/` / digests / leases, как claim/lease).
+- Одна доска задач, один lease index; `decisions/` и `goals/` — соседи `tasks/`, не внутри него.
 - Стабильные пути; без «картотек ради картотек».
 - Имена и id машинно-стабильны; grep/search по id/пути/тегу достаточны для v0 (без векторного memory как SoT).
 - Сгенерированные индексы можно пересобрать; источник — файлы единиц работы.
@@ -301,7 +316,7 @@ Connect не «ставит ещё один плагин ради плагина
 - `doctor` / `reconcile` для целостности.
 - Изоляция параллельных сессий / предупреждение о соседях.
 - Ориентация агента от записи проекта, не от «памяти модели».
-- Идея plugin/package-поставки (адаптируем под pinned copy skills в проекте).
+- Идея plugin/package-поставки (адаптируем под pinned copy skills и hooks в проекте).
 
 ### Из ProjectStore — не берём / меняем
 
@@ -310,7 +325,7 @@ Connect не «ставит ещё один плагин ради плагина
 | Копия vault/epic/story модели как продукт | Нужен свой вижен Agentized |
 | Ожидание Claude/Codex harness как единственного ядра | V1 сразу три harness, включая Cursor |
 | Тяжёлый multi-agent critic/planner loop как обязательный v0 | Сначала connect + sync + digests |
-| Memory/plugin-упаковка 1:1 без pinned copy в git | Нужны версия в git и review установленной копии skills |
+| Memory/plugin-упаковка 1:1 без pinned copy в git | Нужны версия в git и review установленной копии skills и hooks |
 
 ---
 
@@ -319,18 +334,18 @@ Connect не «ставит ещё один плагин ради плагина
 Проверяемая версия = команда из ≥2 людей (или 2 агентных сессий) на одном Project Context и одном или нескольких code-репо демонстрирует сценарий ниже. **Без production-кода продукта пользователей.** Первая версия живёт в eng-репозитории https://github.com/mpodreshetnikov/agentized (не docs-only в Agent Store).
 
 1. **Зафиксировать принципы, этот черновик и принятые решения §11** (сейчас; канон в `agentized` + sync в Agent Store).
-2. **Схематический skeleton Project Context** в репозитории Agentized: `NAV.md`, `tasks/`, `leases/`, `digests/{development,management}/` — без копирования Orbit content; поддержать оба размещения Context (in-repo / отдельный git).
-3. **Описать connect-контракт** для Cursor, Claude Code и Codex: какие файлы появляются в workspace и какое поведение обязано включиться; plugin/package → pinned skills.
+2. **Схематический skeleton Project Context** в репозитории Agentized: `NAV.md`, `tasks/`, `decisions/`, `goals/`, `leases/`, `digests/`, `skills/`, `hooks/` — без копирования Orbit content; поддержать оба размещения Context (in-repo / отдельный git).
+3. **Описать connect-контракт** для Cursor, Claude Code и Codex: какие файлы появляются в workspace и какое поведение обязано включиться; plugin/package → pinned skills **и** hooks.
 4. **Сценарий верификации V1:**
    - A connect → видит NAV/INDEX;
-   - A создаёт task с human confirmation + claim + lease path;
+   - A создаёт task с human confirmation + claim + lease path (при необходимости — дочерние файлы-подзадачи);
    - B connect → видит claim/lease и получает **warn** при пересечении write-paths (запись не блокируется; merge ожидается);
    - A пишет Progress + закрывает lease + участвует в регулярном digest (dev и/или management);
    - B продолжает с актуальным контекстом;
    - опционально: второй code-репо в том же контексте.
-5. **Минимальные skills (спеки → pinned copy в проекте):** registry, lease-sync, digest, navigate — для трёх harness.
+5. **Минимальные skills и hooks (спеки → pinned copy в проекте):** registry, lease-sync, digest, navigate + соответствующие hooks — для трёх harness.
 6. **Runtime / docs в `mpodreshetnikov/agentized`** — не ждать отдельного «docs-only» этапа в Agent Store как SoT.
-7. **Дальше по мере необходимости:** hooks harden, manager goals UI/flow, ужесточение lease-политики (если warn-only окажется недостаточным).
+7. **Дальше по мере необходимости:** усиление hooks, manager goals UI/flow, ужесточение lease-политики (если warn-only окажется недостаточным).
 
 Критерий успеха V1: принципы 1, 3, 4, 5, 6 наблюдаемы на сценарии; принцип 2 — артефакты и история в git.
 
@@ -349,13 +364,18 @@ Connect не «ставит ещё один плагин ради плагина
 7. **Связь с Orbit Tasks** — **решено по смыслу:** адаптировать механизм, жить отдельно от Orbit; не эволюционировать orbit-tasks в Agentized.
 8. **Multi-repo** — **решено:** в V1 и один code-репо, и несколько в одном контексте.
 9. **Agent Store** — **решено:** Project Context — отдельная сущность; Agent Store = файлы Cursor Project, не git.
-10. **Поставка skills** — **решено:** harness plugin/package ставит pinned copy skills в проект.
+10. **Поставка skills и hooks** — **решено:** один harness plugin/package ставит pinned copy skills **и** hooks в проект.
+11. **Дерево Context** — **решено:** `decisions/` и `goals/` — соседи `tasks/` (не внутри).
+12. **Подзадачи** — **решено:** отдельные файлы, один уровень; claim/доска/leases на детях.
+13. **Статус задачи** — **решено:** поле в начале файла; файл не перемещается.
 
 ---
 
-## 11. Принятые решения V1 (2026-11-10)
+## 11. Принятые решения V1
 
 Это **факты** (ответы Максима), не гипотезы и не открытые вопросы. Смысл зафиксирован без искажения.
+
+### 2026-11-10
 
 1. **Размещение Project Context.** Поддерживать **оба** варианта: каталог внутри code-репозитория **и** отдельный git-репозиторий. В Orbit они разделены только потому, что продукт публичный, а задачи приватные.
 2. **Где живёт первая версия.** Eng-репозиторий уже существует: https://github.com/mpodreshetnikov/agentized. Первая версия — там, а не docs-only в Agent Store.
@@ -366,9 +386,15 @@ Connect не «ставит ещё один плагин ради плагина
 7. **Harnesses.** В v1 сразу три: Cursor, Claude Code и Codex.
 8. **Число code-репо.** В v1 поддерживать и один code-репо, и несколько репозиториев в одном контексте.
 9. **Project Context vs Agent Store.** Project Context — **отдельная сущность**, не привязанная к Cursor Project Agent Store. Agent Store = файлы Cursor Project, не git.
-10. **Поставка skills.** Harness plugin/package, который устанавливает **закреплённую копию** skills в проект (простая установка + версия в git и на review). Согласовано Максимом 2026-11-10.
+10. **Поставка skills и hooks.** Harness plugin/package устанавливает **закреплённую копию** skills **и hooks** в проект (простая установка + версия в git и на review). Skills — решение от 2026-11-10; hooks в том же пакете — уточнение 2026-11-11. Отдельного механизма поставки hooks нет.
 
-Остаточные заметки (не решения V1): доступность/актуальность форка `mpodreshetnikov/ProjectStore` (ранее API 404) не блокирует ориентацию на полезные идеи ProjectStore; бренд/имена пакетов сверх модели «plugin → pinned copy» — **[H]** при реализации.
+### 2026-11-11
+
+11. **Дерево Project Context.** `decisions/` и `goals/` подняты на один уровень с `tasks/`, `leases/`, `digests/`. Внутри `tasks/` — только `INDEX.md` и файлы задач (без `tasks/items/`, без вложенных `decisions/`/`goals/`).
+12. **Подзадачи.** В v1 разрешены: отдельные файлы со ссылкой на родителя, один уровень вложенности. Claim, доска и leases работают по детям; родитель — рамка и критерии `done`. Короткий чеклист внутри небольшой задачи допустим; крупную или параллельную работу дробить на файлы. Глубоких деревьев нет.
+13. **Статус задачи.** Живёт в файле задачи как поле в начале файла; при смене статуса файл не перемещается.
+
+Остаточные заметки (не решения V1): доступность/актуальность форка `mpodreshetnikov/ProjectStore` (ранее API 404) не блокирует ориентацию на полезные идеи ProjectStore; бренд/имена пакетов сверх модели «plugin → pinned copy skills+hooks» — **[H]** при реализации.
 
 ---
 
