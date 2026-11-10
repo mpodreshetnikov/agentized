@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./scripts/session_start.py"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "./scripts/lease_warn.py",
+        "matcher": "Write|Edit|Shell|Bash"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "./scripts/lease_warn.py"
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "agentized",
+  "version": "0.1.0",
+  "description": "Pinned Agentized skills and hooks for Project Context connect.",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}

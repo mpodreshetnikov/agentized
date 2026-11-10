@@ -1,0 +1,11 @@
+.agentized/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+# Generated harness wiring from `agentized connect` (re-created locally).
+# Pinned SoT remains under context/skills and context/hooks.
+.cursor/
+.claude/
+.codex/
+.agents/skills/

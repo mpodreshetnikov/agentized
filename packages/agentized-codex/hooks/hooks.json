@@ -1,0 +1,31 @@
+{
+  "description": "Agentized Codex hooks (NAV reminder + warn-only leases).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/session_start.py\"",
+            "statusMessage": "Agentized NAV check",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/lease_warn.py\"",
+            "statusMessage": "Agentized lease warn",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
