@@ -84,19 +84,13 @@ def cmd_quality(args: argparse.Namespace) -> int:
         )
         return 0
     if args.quality_cmd == "check":
-        import subprocess
+        from agentized.coverage_check import run_coverage_check
+        from agentized.mutation import run_mutation
 
-        cov = subprocess.run(
-            [sys.executable, str(root / "scripts/quality/coverage_check.py"), "--context", ctx_rel],
-            cwd=root,
-        )
-        if cov.returncode != 0:
-            return cov.returncode
-        mut = subprocess.run(
-            [sys.executable, str(root / "scripts/quality/run_mutation.py"), "--context", ctx_rel],
-            cwd=root,
-        )
-        return mut.returncode
+        cov_rc = run_coverage_check(root, context=ctx_rel)
+        if cov_rc != 0:
+            return cov_rc
+        return run_mutation(root, context=ctx_rel)
     print("неизвестная подкоманда quality", file=sys.stderr)
     return 1
 

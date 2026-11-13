@@ -1,4 +1,4 @@
-# AGENTIZED:QUALITY — CI quality gates (coverage + incremental mutation hard gate).
+# AGENTIZED:QUALITY — CI quality gates via self-contained agentized CLI.
 name: CI
 
 on:
@@ -19,19 +19,31 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
+      - name: Install dev dependencies (if present)
+        run: |
+          if [[ -f requirements-dev.txt ]]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "no requirements-dev.txt — skip"
+          fi
 
-      - name: Mechanical checks
-        run: ./tests/test_mechanical.sh
+      - name: Mechanical checks (if present)
+        run: |
+          if [[ -x ./tests/test_mechanical.sh ]]; then
+            ./tests/test_mechanical.sh
+          else
+            echo "no ./tests/test_mechanical.sh — skip"
+          fi
 
-      - name: Module tests + coverage gate
-        run: python3 scripts/quality/coverage_check.py
-
-      - name: Incremental mutation hard gate
+      - name: Coverage + mutation hard gates
         env:
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
-        run: python3 scripts/quality/run_mutation.py
+        run: |
+          if [[ -x ./bin/agentized ]]; then
+            ./bin/agentized quality check
+          else
+            python3 runtime/agentized_cli.py quality check
+          fi
 
       - name: Upload coverage + mutation summaries
         if: always()

@@ -21,18 +21,21 @@ AGE-7: configurable multi-module coverage, incremental mutation as a **hard gate
 
 ## Commands
 
+Self-contained under `runtime/agentized/` (foreign connected repos do not need `scripts/quality/`).
+
 | Command | Role |
 |---------|------|
-| `python3 scripts/quality/coverage_check.py` | Module tests + threshold checks + combined ≥ threshold |
-| `python3 scripts/quality/coverage_report.py` | Combine → `coverage/combined-*` |
-| `python3 scripts/quality/run_mutation.py` | Incremental mutmut; **fails on survivors** |
-| `./tests/test_mechanical.sh` | Layout / connect / leases |
+| `./bin/agentized quality check` | Module tests + coverage thresholds + mutation hard gate |
+| `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
+| `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 
-Mechanisms adapted from Orbit (combiner + parallel thresholds + incremental mutate list) — not Orbit product content. Mutation follows the agreed **required** gate (Orbit #272 shipped advisory).
+Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation wipes `mutants/` before each run and fails closed on mutmut exit ≠ 0.
+
+Mechanisms adapted from Orbit (combiner + parallel thresholds + incremental mutate list) — not Orbit product content.
 
 ## Connect
 
-Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unrelated files). JS/TS guidance under `templates/quality/`.
+Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. JS/TS guidance under `templates/quality/`.
 
 ## Later slices
 

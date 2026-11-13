@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 from . import __version__
@@ -335,16 +336,52 @@ def _safe_install_template(src: Path, dst: Path) -> str:
     return "skipped-user-file"
 
 
+def ensure_githooks_path(root: Path) -> str:
+    """Activate `.githooks` via local core.hooksPath without clobbering user/Cursor config.
+
+    - unset → set to `.githooks`
+    - already `.githooks` (relative or absolute) → unchanged
+    - Cursor Cloud `~/.cursor/agent-hooks/...` → skip (AGE-8 wires the chain)
+    - any other existing value → preserve
+    """
+    proc = subprocess.run(
+        ["git", "config", "--local", "--get", "core.hooksPath"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    current = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+    wanted = ".githooks"
+    if not current:
+        set_proc = subprocess.run(
+            ["git", "config", "--local", "core.hooksPath", wanted],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        return "set" if set_proc.returncode == 0 else f"failed:{set_proc.stderr.strip()}"
+    norm = current.replace("\\", "/").rstrip("/")
+    if norm in {wanted, str((root / wanted).resolve()).replace("\\", "/")}:
+        return "unchanged"
+    if "agent-hooks" in norm:
+        return "skipped-cursor-agent-hooks"
+    return "preserved-user"
+
+
 def pin_quality_templates(root: Path) -> dict:
     """Pin pre-push / CI from templates/quality (no clobber of unmarked user files)."""
     templates = root / "templates" / "quality"
-    return {
+    result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
         "js_guidance": (templates / "stryker.config.mjs.example").exists(),
+        "hooks_path": "skipped-no-git",
     }
+    if (root / ".git").exists() or (root / ".git").is_file():
+        result["hooks_path"] = ensure_githooks_path(root)
+    return result
 
 
 def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | int | None = None) -> dict:

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from agentized.connect import (
     QUALITY_MARKER,
     _safe_install_template,
     connect,
+    ensure_githooks_path,
     ensure_quality_config,
     pin_quality_templates,
 )
@@ -13,7 +15,7 @@ from agentized.quality import load_quality
 
 
 def _skeleton(root: Path) -> None:
-    (root / ".git").mkdir()
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
     ctx = root / "context"
     for p in (
         ctx / "tasks",
@@ -95,6 +97,7 @@ def test_connect_pins_quality(tmp_path: Path, monkeypatch):
     assert (tmp_path / ".codex" / "hooks.json").exists()
     assert "NAV.md" in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
     assert result["quality_templates"]["pre_push"] in {"created", "updated", "unchanged"}
+    assert result["quality_templates"]["hooks_path"] in {"set", "unchanged"}
     assert pin_quality_templates(tmp_path)["pre_push"] in {"unchanged", "updated", "skipped-user-file"}
     # second connect keeps a single AGENTIZED marker block
     again = connect(tmp_path, context_rel="context", harnesses=["cursor"])
@@ -103,8 +106,28 @@ def test_connect_pins_quality(tmp_path: Path, monkeypatch):
     assert again["quality"]["path"].endswith("quality.json")
 
 
+def test_ensure_githooks_path_preserves_user(tmp_path: Path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "--local", "core.hooksPath", "custom-hooks"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert ensure_githooks_path(tmp_path) == "preserved-user"
+    assert ensure_githooks_path(tmp_path) == "preserved-user"
+    # Cursor agent-hooks path is left alone
+    subprocess.run(
+        ["git", "config", "--local", "core.hooksPath", "/home/u/.cursor/agent-hooks/abc"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert ensure_githooks_path(tmp_path) == "skipped-cursor-agent-hooks"
+
+
 def test_connect_requires_nav(tmp_path: Path):
-    (tmp_path / ".git").mkdir()
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     (tmp_path / "context").mkdir()
     try:
         connect(tmp_path, context_rel="context", harnesses=[])

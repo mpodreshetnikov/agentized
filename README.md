@@ -9,8 +9,8 @@
 ./bin/agentized check
 ./tests/test_mechanical.sh
 pip install -r requirements-dev.txt
-python3 scripts/quality/coverage_check.py
-python3 scripts/quality/run_mutation.py
+./bin/agentized quality check
+# optional dogfood wrappers still under scripts/quality/
 ```
 
 Утренний сценарий §9.4: [`docs/morning-runbook.ru.md`](docs/morning-runbook.ru.md).  

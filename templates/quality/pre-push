@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # AGENTIZED:QUALITY — safe template; connect installs when missing or marked.
+# Calls self-contained `agentized quality check` (runtime/agentized/). Optional
+# mechanical suite only when the target repo ships it.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-echo "[agentized pre-push] mechanical"
-./tests/test_mechanical.sh
+CLI=(python3 runtime/agentized_cli.py)
+if [[ -x ./bin/agentized ]]; then
+  CLI=(./bin/agentized)
+fi
 
-echo "[agentized pre-push] coverage gate"
-python3 scripts/quality/coverage_check.py
+if [[ -x ./tests/test_mechanical.sh ]]; then
+  echo "[agentized pre-push] mechanical"
+  ./tests/test_mechanical.sh
+else
+  echo "[agentized pre-push] mechanical skipped (no ./tests/test_mechanical.sh)"
+fi
 
-echo "[agentized pre-push] mutation hard gate (covered changed lines)"
-python3 scripts/quality/run_mutation.py
+echo "[agentized pre-push] quality check (coverage + mutation)"
+"${CLI[@]}" quality check
 
 echo "[agentized pre-push] OK"
