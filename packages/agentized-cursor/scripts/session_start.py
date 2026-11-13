@@ -48,6 +48,13 @@ def main() -> int:
         from agentized.hook_common import nav_reminder as nav_reminder  # noqa: F811
 
     text = nav_reminder(root)
+    try:
+        from agentized.env_check import check as env_check
+
+        env_result = env_check(repo_root=root)
+        text = text + "\n\n" + env_result["message"]
+    except Exception as exc:  # noqa: BLE001 — never break session start
+        text = text + f"\n\n[agent-env-check] unavailable: {exc}"
 
     # Cursor sessionStart
     cursor = {"additional_context": text}

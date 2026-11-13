@@ -30,6 +30,8 @@ python3 runtime/agentized_cli.py connect --coverage 85   # optional threshold pi
 | `.githooks/pre-push` | Шаблон quality gates → `agentized quality check` (ставится если нет файла или есть маркер `AGENTIZED:QUALITY`); mechanical / `requirements-dev.txt` — только если файлы есть в целевом репо |
 | `.github/workflows/ci.yml` | То же для CI workflow |
 | `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |
+| `{context}/env-check.json` | `cloud_git_hooks` warn\|refuse; connect создаёт default без clobber |
+| `scripts/cloud/configure-cursor-agent-hooks.sh` | 1-line Dashboard Install & Start (см. [`AGENT_ENVIRONMENT.md`](./AGENT_ENVIRONMENT.md)) |
 | Session-start hook | Проверяет указатель Context/`NAV.md` и добавляет reminder в контекст сессии |
 | Lease-overlap hook | **Warn-only**: сообщает о пересечении write-paths, **не** блокирует запись |
 | `.agentized/connect.json` | Локальный маркер состояния (в `.gitignore`) |

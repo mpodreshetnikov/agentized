@@ -130,6 +130,13 @@ assert "management digest exists" test -n "$mgmt_digest"
 "${CLI[@]}" sync-status >/tmp/sync.txt
 assert "sync-status runs" grep -q 'sync-status' /tmp/sync.txt
 
+echo "-- env-check --"
+# connect pins env-check.json; local (no agent markers) must pass cleanly
+assert "env-check config after connect" test -f context/env-check.json
+assert "env-check local human passes" \
+  env -u CURSOR_AGENT -u CURSOR_CODE_REMOTE -u CLAUDE_CODE_REMOTE -u AGENT \
+  "${CLI[@]}" env-check --context context
+
 echo
 echo "Result: $pass passed, $fail failed"
 if [[ "$fail" -ne 0 ]]; then

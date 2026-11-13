@@ -69,6 +69,19 @@ def cmd_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_env_check(args: argparse.Namespace) -> int:
+    from agentized.env_check import check
+
+    root = find_repo_root()
+    ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    result = check(repo_root=root, context_rel=ctx_rel)
+    stream = sys.stdout if result["ok"] else sys.stderr
+    stream.write(result["message"] + "\n")
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["ok"] else 1
+
+
 def cmd_quality(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
@@ -430,6 +443,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     c.add_argument("--json", action="store_true")
     c.set_defaults(func=cmd_connect)
+
+    ec = sub.add_parser("env-check", help="Fail-closed agent/cloud hook wiring check")
+    ec.add_argument("--context", default=None)
+    ec.add_argument("--json", action="store_true")
+    ec.set_defaults(func=cmd_env_check)
 
     q = sub.add_parser("quality", help="Пороги coverage / mutation / quality.json")
     q_sub = q.add_subparsers(dest="quality_cmd", required=True)
