@@ -296,3 +296,40 @@ def test_invalid_watermark_blocks_and_record_rejects(tmp_path: Path, monkeypatch
     assert blocked["ok"] is False
     assert blocked["action"] == "blocked"
     assert "unavailable" in blocked["message"] or "cannot compare" in blocked["message"]
+
+
+def test_unavailable_watermark_blocks_even_with_open_findings(
+    tmp_path: Path, monkeypatch
+):
+    """Fix-pack path must not skip watermark validation when open_findings > 0."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"version": 1, "reviewer": {"budget_max": 3, "delta_lines": 500}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    save_state(
+        tmp_path,
+        {
+            "used": 1,
+            "budget_max": 3,
+            "watermark": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "open_findings": 1,
+            "history": [],
+        },
+        scope="default",
+    )
+    (tmp_path / "NOTES.md").write_text("fix\n", encoding="utf-8")
+    subprocess.run(["git", "add", "NOTES.md"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "tiny"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    blocked = allow_review(tmp_path)
+    assert blocked["ok"] is False
+    assert blocked["action"] == "blocked"
+    assert blocked["open_findings"] == 1
+    assert "unavailable" in blocked["message"] or "cannot compare" in blocked["message"]

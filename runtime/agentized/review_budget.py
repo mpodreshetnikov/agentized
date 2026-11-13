@@ -338,19 +338,7 @@ def allow_review(
             **base,
         }
 
-    # Fix-pack re-review: open findings after watermark, new head, budget left.
-    if open_findings > 0 and head and watermark != head and not force:
-        return {
-            "ok": True,
-            "action": "request",
-            "message": (
-                f"review allow: open_findings={open_findings} since watermark "
-                f"{watermark[:12]} — re-review fix pack "
-                f"(budget {used}/{budget}) [scope={sid}]."
-            ),
-            **base,
-        }
-
+    # Always resolve the watermark before any allow path (including fix-pack).
     delta = evaluate_delta(root, watermark, cfg)
     if not delta.get("ok", True):
         return {
@@ -360,6 +348,21 @@ def allow_review(
                 f"review blocked: {delta.get('error')}. "
                 f"Recover: `agentized review reset --scope {sid}` or record a valid "
                 f"watermark. See {DOC}."
+            ),
+            "delta": delta,
+            **base,
+        }
+
+    # Fix-pack re-review: open findings after a valid watermark, new head, budget left.
+    # Small non-sensitive deltas still request when findings remain open.
+    if open_findings > 0 and head and watermark != head and not force:
+        return {
+            "ok": True,
+            "action": "request",
+            "message": (
+                f"review allow: open_findings={open_findings} since watermark "
+                f"{watermark[:12]} — re-review fix pack "
+                f"(budget {used}/{budget}) [scope={sid}]."
             ),
             "delta": delta,
             **base,
