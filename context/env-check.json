@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "cloud_git_hooks": "warn",
+  "unknown_agent": "refuse",
+  "_comment": "Flip cloud_git_hooks to refuse AFTER Maxim pastes bash /agent/repos/agentized/scripts/cloud/configure-cursor-agent-hooks.sh into Cursor Cloud Install AND Start. Hard refuse before that deadlocks this Project's workers (agent-hooks pre-push unwired)."
+}

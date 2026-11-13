@@ -22,6 +22,7 @@ AGENTS_BLOCK_TEMPLATE = """{begin}
 - Живой индекс задач: [`{context}/tasks/INDEX.md`]({context}/tasks/INDEX.md).
 - Path leases (warn-only): [`{context}/leases/INDEX.md`]({context}/leases/INDEX.md).
 - Runtime: `python3 runtime/agentized_cli.py` (см. `docs/morning-runbook.ru.md`).
+- Перед первой правкой в agent/cloud сессии: `./bin/agentized env-check` (REFUSED → стоп; см. `docs/AGENT_ENVIRONMENT.md`).
 {end}
 """
 
@@ -32,6 +33,7 @@ CLAUDE_BLOCK_TEMPLATE = """{begin}
 - Session start: read `{context}/NAV.md`, then follow only its links.
 - Live task board: `{context}/tasks/INDEX.md`
 - Leases (warn-only): `{context}/leases/INDEX.md`
+- Before the first change in an agent/cloud session: `./bin/agentized env-check` (REFUSED → stop; see `docs/AGENT_ENVIRONMENT.md`).
 {end}
 """
 
@@ -396,6 +398,21 @@ def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | in
     return {"path": str(path.relative_to(root)), "created": created, "coverage_pct": coverage_pct}
 
 
+def ensure_env_check_config(root: Path, context_rel: str) -> dict:
+    """Pin default env-check.json (cloud_git_hooks=warn) without clobbering edits."""
+    from .env_check import ENV_CHECK_FILENAME, default_env_check_config
+
+    path = root / context_rel / ENV_CHECK_FILENAME
+    created = not path.exists()
+    if created:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(default_env_check_config(), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return {"path": str(path.relative_to(root)), "created": created}
+
+
 def connect(
     root: Path,
     *,
@@ -432,10 +449,12 @@ def connect(
     pinned = pin_context_skills_hooks(root, context_rel)
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
     quality_templates = pin_quality_templates(root)
+    env_check = ensure_env_check_config(root, context_rel)
     results = {
         "pinned": pinned,
         "quality": quality,
         "quality_templates": quality_templates,
+        "env_check": env_check,
         "harnesses": {},
     }
     if "cursor" in harnesses:

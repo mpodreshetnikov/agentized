@@ -39,4 +39,4 @@ Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows
 
 ## Later slices
 
-AGE-8 env-check/cloud hooks; AGE-9 communication/autonomy skills.
+AGE-9 communication/autonomy skills. AGE-8 env-check: see [`AGENT_ENVIRONMENT.md`](./AGENT_ENVIRONMENT.md).

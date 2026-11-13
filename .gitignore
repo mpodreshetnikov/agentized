@@ -13,7 +13,12 @@ reports/mutation/
 /agentized
 # Generated harness wiring from `agentized connect` (re-created locally).
 # Pinned SoT remains under context/skills and context/hooks.
-.cursor/
+# AGE-8: track Cursor project hooks so cloud env-check can see them without a
+# fresh connect in every session (.cursor/skills stay local-only).
+.cursor/*
+!.cursor/hooks.json
+!.cursor/hooks/
+!.cursor/hooks/**
 .claude/
 .codex/
 .agents/skills/
