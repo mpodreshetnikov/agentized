@@ -25,7 +25,9 @@
 |----------|-----------|
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
-| `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts` |
+| `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
+| `{context}/agents/` | Pinned readonly `reviewer.md` (model from `quality.json` → `reviewer.model`) |
+| `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
 | `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
 | `{context}/quality.json` | Пороги coverage (default 80%) · modules · mutation hard gate; `connect --coverage <pct>` |
 | `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |

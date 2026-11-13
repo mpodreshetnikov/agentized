@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+from agentized.connect import _render_reviewer_agent, connect, pin_reviewer_agents
+from agentized.quality import load_quality, set_reviewer_options
+from agentized.review_budget import (
+    allow_review,
+    default_reviewer_config,
+    record_review,
+    status,
+)
+
+
+def _git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_default_reviewer_config():
+    cfg = default_reviewer_config()
+    assert cfg["budget_max"] == 3
+    assert cfg["effort"] == "high"
+    assert cfg["model"]
+
+
+def test_allow_first_then_budget(tmp_path: Path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"version": 1, "reviewer": {"budget_max": 2, "delta_lines": 1}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    first = allow_review(tmp_path)
+    assert first["ok"] is True
+    assert first["action"] == "request"
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=1)
+    # same head → skip
+    again = allow_review(tmp_path)
+    assert again["ok"] is False
+    assert again["action"] == "skip"
+    # new commit then second pass
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "c2"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "runtime" / "x.py").write_text("print(1)\n" * 50, encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/x.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "code"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    second = allow_review(tmp_path)
+    assert second["ok"] is True
+    record_review(tmp_path, status(tmp_path)["head"], findings=0)
+    # budget 2 exhausted
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "c3"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "runtime" / "y.py").write_text("print(2)\n" * 50, encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/y.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "more"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    blocked = allow_review(tmp_path)
+    assert blocked["ok"] is False
+    assert blocked["action"] == "escalate"
+
+
+def test_disabled_and_cli(tmp_path: Path, monkeypatch):
+    from agentized.connect import pin_reviewer_agents
+    from agentized.review_budget import (
+        evaluate_delta,
+        main as review_main,
+        load_state,
+        save_state,
+    )
+
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"version": 1, "reviewer": {"enabled": False}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("agentized.review_budget.find_repo_root", lambda: tmp_path)
+    off = allow_review(tmp_path)
+    assert off["action"] == "disabled"
+    assert review_main(["status", "--context", "context"]) == 0
+    assert review_main(["allow", "--context", "context"]) == 1
+    # corrupt state still loads defaults
+    save_state(tmp_path, {"used": 0})
+    (tmp_path / ".agentized" / "review-state.json").write_text("{nope", encoding="utf-8")
+    assert load_state(tmp_path)["used"] == 0
+    (tmp_path / ".agentized" / "review-state.json").write_text("[]\n", encoding="utf-8")
+    assert load_state(tmp_path)["used"] == 0
+    # record + status path
+    head = status(tmp_path)["head"]
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "enabled": True,
+                    "budget_max": 3,
+                    "sensitive_globs": ["runtime/**"],
+                    "trivial_globs": ["**/*.md"],
+                    "trivial_except_globs": ["docs/QUALITY.md"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert review_main(["record", "--sha", head, "--findings", "2", "--context", "context", "--json"]) == 0
+    assert review_main(["allow", "--force", "--context", "context", "--json"]) == 0
+    # delta with sensitive path
+    (tmp_path / "runtime").mkdir(exist_ok=True)
+    (tmp_path / "runtime" / "z.py").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/z.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "z"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    delta = evaluate_delta(tmp_path, head, default_reviewer_config())
+    assert delta["files"] >= 1
+    assert review_main([]) == 2
+    # missing agent src (local packages/shared without agents/ — no installed fallback write)
+    (tmp_path / "packages" / "shared").mkdir(parents=True, exist_ok=True)
+    assert pin_reviewer_agents(tmp_path, "context").get("skipped") == "missing-src"
+    bare = tmp_path / "bare.md"
+    bare.write_text("plain body\n", encoding="utf-8")
+    assert _render_reviewer_agent(bare, "x") == "plain body\n"
+    set_reviewer_options(tmp_path, effort="max", helper_model="composer-2")
+    assert load_quality(tmp_path)["reviewer"]["effort"] == "max"
+
+
+def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
+    _git_repo(tmp_path)
+    ctx = tmp_path / "context"
+    for p in (ctx / "tasks", ctx / "leases", tmp_path / "packages" / "shared" / "agents"):
+        p.mkdir(parents=True, exist_ok=True)
+    (ctx / "NAV.md").write_text("# NAV\n", encoding="utf-8")
+    (tmp_path / "packages" / "shared" / "skills" / "navigate").mkdir(parents=True)
+    (tmp_path / "packages" / "shared" / "skills" / "navigate" / "SKILL.md").write_text(
+        "---\nname: navigate\n---\n", encoding="utf-8"
+    )
+    (tmp_path / "packages" / "shared" / "hooks" / "scripts").mkdir(parents=True)
+    (tmp_path / "packages" / "shared" / "hooks" / "scripts" / "session_start.py").write_text(
+        "print(1)\n", encoding="utf-8"
+    )
+    (tmp_path / "packages" / "shared" / "agents" / "reviewer.md").write_text(
+        "---\nname: reviewer\nmodel: old\nreadonly: true\n---\nBody\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "templates" / "quality").mkdir(parents=True)
+    (tmp_path / "templates" / "quality" / "pre-push").write_text(
+        "#!/bin/sh\n# AGENTIZED:QUALITY\n", encoding="utf-8"
+    )
+    rendered = _render_reviewer_agent(
+        tmp_path / "packages" / "shared" / "agents" / "reviewer.md", "claude-opus-4.5"
+    )
+    assert "model: claude-opus-4.5" in rendered
+    assert "model: old" not in rendered
+    monkeypatch.chdir(tmp_path)
+    connect(tmp_path, context_rel="context", harnesses=["cursor"])
+    q = load_quality(tmp_path)
+    assert q["reviewer"]["budget_max"] == 3
+    assert (ctx / "agents" / "reviewer.md").exists()
+    assert (tmp_path / ".cursor" / "agents" / "reviewer.md").exists()
+    assert "claude-opus-4.5" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(
+        encoding="utf-8"
+    )
+    set_reviewer_options(tmp_path, model="gpt-5.4", budget_max=5)
+    pin_reviewer_agents(tmp_path, "context")
+    assert "gpt-5.4" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    assert load_quality(tmp_path)["reviewer"]["budget_max"] == 5

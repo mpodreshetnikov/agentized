@@ -117,6 +117,60 @@ def _shared_hook_scripts(root: Path) -> Path:
     return _repo_packages(root) / "shared" / "hooks" / "scripts"
 
 
+def _shared_agents(root: Path) -> Path:
+    return _repo_packages(root) / "shared" / "agents"
+
+
+def _render_reviewer_agent(src: Path, model: str) -> str:
+    text = src.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return text
+    front = []
+    replaced = False
+    for line in lines[1:end]:
+        if line.startswith("model:"):
+            front.append(f"model: {model}")
+            replaced = True
+        else:
+            front.append(line)
+    if not replaced:
+        front.append(f"model: {model}")
+    body = lines[end + 1 :]
+    return "---\n" + "\n".join(front) + "\n---\n" + "\n".join(body).lstrip("\n")
+
+
+def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
+    """Pin readonly reviewer agent into Cursor/Claude/Codex project agent dirs."""
+    from .quality import load_quality
+
+    src_dir = _shared_agents(root)
+    src = src_dir / "reviewer.md"
+    if not src.exists():
+        return {"installed": [], "skipped": "missing-src"}
+    model = str((load_quality(root, context_rel).get("reviewer") or {}).get("model") or "claude-opus-4.5")
+    body = _render_reviewer_agent(src, model)
+    # also pin under context for visibility
+    ctx_agents = root / context_rel / "agents"
+    ctx_agents.mkdir(parents=True, exist_ok=True)
+    (ctx_agents / "reviewer.md").write_text(body, encoding="utf-8")
+    installed: list[str] = [str(ctx_agents / "reviewer.md")]
+    for rel in (".cursor/agents", ".claude/agents", ".codex/agents"):
+        dest_dir = root / rel
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "reviewer.md"
+        dest.write_text(body, encoding="utf-8")
+        installed.append(str(dest))
+    return {"installed": installed, "model": model}
+
+
 def _refresh_local_plugin(root: Path, name: str, skills_src: Path) -> str | None:
     """Refresh plugin skills/scripts only when packages/ lives inside the target repo.
 
@@ -530,12 +584,14 @@ def connect(
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
     process = ensure_process_control_config(root, context_rel)
+    reviewer = pin_reviewer_agents(root, context_rel)
     results = {
         "pinned": pinned,
         "quality": quality,
         "quality_templates": quality_templates,
         "env_check": env_check,
         "process_control": process,
+        "reviewer": reviewer,
         "harnesses": {},
     }
     if "cursor" in harnesses:

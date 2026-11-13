@@ -46,5 +46,25 @@
       "coverage",
       "mutation"
     ]
+  },
+  "reviewer": {
+    "enabled": true,
+    "model": "claude-opus-4.5",
+    "effort": "high",
+    "helper_model": "composer-2",
+    "budget_max": 3,
+    "delta_lines": 200,
+    "sensitive_globs": [
+      "runtime/**",
+      "packages/shared/**",
+      ".github/workflows/**",
+      ".githooks/**",
+      "context/quality.json",
+      "context/process-control.json",
+      "context/env-check.json",
+      "AGENTS.md",
+      "docs/QUALITY.md",
+      "docs/process-control.md"
+    ]
   }
 }

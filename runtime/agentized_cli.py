@@ -82,6 +82,52 @@ def cmd_env_check(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    from agentized.review_budget import allow_review, record_review, status as review_status
+    from agentized.quality import set_reviewer_options
+
+    root = find_repo_root()
+    ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    if args.review_cmd == "status":
+        print(json.dumps(review_status(root, context_rel=ctx_rel), indent=2))
+        return 0
+    if args.review_cmd == "allow":
+        result = allow_review(root, context_rel=ctx_rel, force=bool(args.force))
+        stream = sys.stdout if result.get("ok") else sys.stderr
+        stream.write(result["message"] + "\n")
+        if args.json:
+            print(json.dumps(result, indent=2))
+        return 0 if result.get("ok") else 1
+    if args.review_cmd == "record":
+        result = record_review(
+            root,
+            args.sha or "",
+            findings=int(args.findings),
+            context_rel=ctx_rel,
+        )
+        print(result["message"])
+        if args.json:
+            print(json.dumps(result, indent=2))
+        return 0
+    if args.review_cmd == "set":
+        data = set_reviewer_options(
+            root,
+            context_rel=ctx_rel,
+            model=args.model,
+            effort=args.effort,
+            helper_model=args.helper_model,
+            budget_max=args.budget_max,
+        )
+        rev = data.get("reviewer") or {}
+        print(
+            f"reviewer → model={rev.get('model')} effort={rev.get('effort')} "
+            f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
+        )
+        return 0
+    print("usage: agentized review status|allow|record|set", file=sys.stderr)
+    return 2
+
+
 def cmd_process(args: argparse.Namespace) -> int:
     from agentized.process_control import claim_check, size_check
 
@@ -473,6 +519,27 @@ def build_parser() -> argparse.ArgumentParser:
     ec.add_argument("--context", default=None)
     ec.add_argument("--json", action="store_true")
     ec.set_defaults(func=cmd_env_check)
+
+    rv = sub.add_parser("review", help="Strong reviewer budget + watermark")
+    rv_sub = rv.add_subparsers(dest="review_cmd", required=True)
+    rvs = rv_sub.add_parser("status", help="Show budget / watermark / model")
+    rvs.add_argument("--context", default=None)
+    rva = rv_sub.add_parser("allow", help="May the main agent call the reviewer now?")
+    rva.add_argument("--force", action="store_true")
+    rva.add_argument("--context", default=None)
+    rva.add_argument("--json", action="store_true")
+    rvr = rv_sub.add_parser("record", help="Record Reviewed commit watermark")
+    rvr.add_argument("--sha", required=True)
+    rvr.add_argument("--findings", type=int, default=0)
+    rvr.add_argument("--context", default=None)
+    rvr.add_argument("--json", action="store_true")
+    rvset = rv_sub.add_parser("set", help="Override reviewer model/effort/budget in quality.json")
+    rvset.add_argument("--model", default=None)
+    rvset.add_argument("--effort", default=None)
+    rvset.add_argument("--helper-model", dest="helper_model", default=None)
+    rvset.add_argument("--budget-max", dest="budget_max", type=int, default=None)
+    rvset.add_argument("--context", default=None)
+    rv.set_defaults(func=cmd_review)
 
     pc = sub.add_parser("process", help="Claim-before-edits + reviewable PR size")
     pc_sub = pc.add_subparsers(dest="process_cmd", required=True)
