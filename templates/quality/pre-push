@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# AGENTIZED:QUALITY — safe template; connect installs when missing or marked.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT"
+
+echo "[agentized pre-push] mechanical"
+./tests/test_mechanical.sh
+
+echo "[agentized pre-push] coverage gate"
+python3 scripts/quality/coverage_check.py
+
+echo "[agentized pre-push] mutation hard gate (covered changed lines)"
+python3 scripts/quality/run_mutation.py
+
+echo "[agentized pre-push] OK"

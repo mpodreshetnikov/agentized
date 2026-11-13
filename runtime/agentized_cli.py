@@ -22,6 +22,7 @@ from agentized.leases import (
     warn_message,
 )
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
+from agentized.quality import load_quality, set_coverage_threshold
 from agentized.tasks import (
     ACTIVE_STATUSES,
     ALL_STATUSES,
@@ -45,16 +46,59 @@ def cmd_connect(args: argparse.Namespace) -> int:
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
-    result = connect(root, context_rel=args.context, harnesses=harnesses)
+    result = connect(
+        root,
+        context_rel=args.context,
+        harnesses=harnesses,
+        coverage_pct=args.coverage,
+    )
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
     print(f"  AGENTS.md updated: {result['state']['agents_md_updated']}")
     print(f"  CLAUDE.md updated: {result['state']['claude_md_updated']}")
     print(f"  harnesses: {', '.join(harnesses)}")
+    if result.get("quality"):
+        cov = load_quality(root, args.context).get("coverage") or {}
+        print(f"  quality.json: {result['quality']['path']} (lines/branches ≥{cov.get('lines')}%)")
+    if result.get("quality_templates"):
+        qt = result["quality_templates"]
+        print(f"  quality templates: pre-push={qt.get('pre_push')} ci={qt.get('ci_workflow')}")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_quality(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    if args.quality_cmd == "show":
+        data = load_quality(root, ctx_rel)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    if args.quality_cmd == "set-coverage":
+        data = set_coverage_threshold(root, args.pct, context_rel=ctx_rel)
+        print(
+            f"coverage thresholds → lines={data['coverage']['lines']}% "
+            f"branches={data['coverage']['branches']}%"
+        )
+        return 0
+    if args.quality_cmd == "check":
+        import subprocess
+
+        cov = subprocess.run(
+            [sys.executable, str(root / "scripts/quality/coverage_check.py"), "--context", ctx_rel],
+            cwd=root,
+        )
+        if cov.returncode != 0:
+            return cov.returncode
+        mut = subprocess.run(
+            [sys.executable, str(root / "scripts/quality/run_mutation.py"), "--context", ctx_rel],
+            cwd=root,
+        )
+        return mut.returncode
+    print("неизвестная подкоманда quality", file=sys.stderr)
+    return 1
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -173,9 +217,12 @@ def cmd_check(args: argparse.Namespace) -> int:
         "leases/INDEX.md",
         "skills",
         "hooks",
+        "quality.json",
     ):
         if not (ctx / required).exists():
             errors.append(f"нет {ctx.relative_to(root)}/{required}")
+    if not (ctx / "skills" / "quality-gates" / "SKILL.md").exists():
+        warnings.append("нет pinned skill quality-gates — запустите connect")
 
     # live index freshness (soft): statuses in INDEX vs files
     tasks = list_tasks(ctx / "tasks")
@@ -380,8 +427,26 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", "cursor", "claude", "codex"],
         help="какие harness установить (по умолчанию all)",
     )
+    c.add_argument(
+        "--coverage",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help="задать порог coverage lines+branches в context/quality.json (по умолчанию 80)",
+    )
     c.add_argument("--json", action="store_true")
     c.set_defaults(func=cmd_connect)
+
+    q = sub.add_parser("quality", help="Пороги coverage / mutation / quality.json")
+    q_sub = q.add_subparsers(dest="quality_cmd", required=True)
+    qs = q_sub.add_parser("show", help="Показать context/quality.json")
+    qs.add_argument("--context", default=None)
+    qsc = q_sub.add_parser("set-coverage", help="Изменить глобальный порог coverage")
+    qsc.add_argument("pct", type=float)
+    qsc.add_argument("--context", default=None)
+    qc = q_sub.add_parser("check", help="coverage_check + mutation hard gate")
+    qc.add_argument("--context", default=None)
+    q.set_defaults(func=cmd_quality)
 
     n = sub.add_parser("new", help="Создать задачу (по умолчанию с подтверждением человека)")
     n.add_argument("--title", required=True)

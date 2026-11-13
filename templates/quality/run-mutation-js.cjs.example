@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+/** Incremental Stryker hard gate vs STRYKER_BASE/MUTATION_BASE (default origin/main). */
+"use strict";
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const root = process.cwd();
+const base = process.env.STRYKER_BASE || process.env.MUTATION_BASE || "origin/main";
+const full = process.argv.includes("--full");
+
+function changed() {
+  const r = spawnSync("git", ["diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`], {
+    cwd: root, encoding: "utf8",
+  });
+  if (r.status !== 0) {
+    console.error(r.stderr || r.stdout || "git diff failed");
+    process.exit(r.status ?? 1);
+  }
+  return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)
+    .filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f) && !/\.(test|spec)\./.test(f))
+    .filter((f) => f.startsWith("src/") || f.startsWith("scripts/"));
+}
+
+function write(payload) {
+  const dir = path.join(root, "reports/mutation");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "mutation-summary.json"), `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+if (!full) {
+  const mutate = changed();
+  if (!mutate.length) {
+    write({ schemaVersion: 1, mode: "incremental-skip", base, gate: "hard", passed: true });
+    console.log(`run-mutation-js: skip vs ${base}`);
+    process.exit(0);
+  }
+  console.log(`run-mutation-js: ${mutate.length} file(s)`);
+  const result = spawnSync("npx", ["stryker", "run", "--mutate", mutate.join(",")], {
+    cwd: root, stdio: "inherit",
+  });
+  process.exit(result.status ?? 1);
+}
+process.exit(spawnSync("npx", ["stryker", "run"], { cwd: root, stdio: "inherit" }).status ?? 1);

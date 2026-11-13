@@ -12,10 +12,12 @@
 | Цели | [`goals/`](goals/) | Цели и приоритеты |
 | Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути (warn-only) |
 | Дайджесты | [`digests/`](digests/) | development / management / releases / architecture |
-| Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest |
+| Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest · quality-gates |
 | Hooks (pinned) | [`hooks/`](hooks/) | session-start NAV check · lease-overlap warn |
-| Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / new / claim / lease / digest / check |
+| Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
+| Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / new / claim / lease / digest / check / quality |
 | Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
+| Quality | [`../docs/QUALITY.md`](../docs/QUALITY.md) | Coverage / mutation / pre-push / CI |
 | Утренний прогон | [`../docs/morning-runbook.ru.md`](../docs/morning-runbook.ru.md) | Сценарий §9.4 |
 
 ## Как искать задачи

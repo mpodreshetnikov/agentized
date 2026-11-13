@@ -1,0 +1,45 @@
+# AGENTIZED:QUALITY — CI quality gates (coverage + incremental mutation hard gate).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Mechanical checks
+        run: ./tests/test_mechanical.sh
+
+      - name: Module tests + coverage gate
+        run: python3 scripts/quality/coverage_check.py
+
+      - name: Incremental mutation hard gate
+        env:
+          MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
+        run: python3 scripts/quality/run_mutation.py
+
+      - name: Upload coverage + mutation summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: |
+            coverage/combined-summary.json
+            coverage/combined-report.md
+            reports/mutation/mutation-summary.json
+          if-no-files-found: warn

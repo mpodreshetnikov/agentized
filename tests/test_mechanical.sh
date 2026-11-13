@@ -33,10 +33,15 @@ mkdir -p "$TMP/repo/context/tasks" "$TMP/repo/context/leases" \
   "$TMP/repo/runtime" "$TMP/repo/packages"
 cp -R "$ROOT/runtime/." "$TMP/repo/runtime/"
 cp -R "$ROOT/packages/." "$TMP/repo/packages/"
+mkdir -p "$TMP/repo/templates/quality"
+cp -R "$ROOT/templates/quality/." "$TMP/repo/templates/quality/" 2>/dev/null || true
 cp "$ROOT/context/NAV.md" "$TMP/repo/context/NAV.md"
 cp "$ROOT/context/tasks/TEMPLATE.md" "$TMP/repo/context/tasks/TEMPLATE.md"
 cp "$ROOT/context/tasks/INDEX.md" "$TMP/repo/context/tasks/INDEX.md"
 cp "$ROOT/context/leases/INDEX.md" "$TMP/repo/context/leases/INDEX.md"
+if [[ -f "$ROOT/context/quality.json" ]]; then
+  cp "$ROOT/context/quality.json" "$TMP/repo/context/quality.json"
+fi
 printf '%s\n' '# Agentized' '' '## Existing notes' '' '- keep me' > "$TMP/repo/AGENTS.md"
 printf '%s\n' '# Claude notes' '' 'Keep existing CLAUDE.md' > "$TMP/repo/CLAUDE.md"
 # minimal git marker so find_repo_root stabilizes
@@ -53,12 +58,20 @@ assert "pinned navigate skill" test -f context/skills/navigate/SKILL.md
 assert "pinned registry skill" test -f context/skills/registry/SKILL.md
 assert "pinned lease-sync skill" test -f context/skills/lease-sync/SKILL.md
 assert "pinned digest skill" test -f context/skills/digest/SKILL.md
+assert "pinned quality-gates skill" test -f context/skills/quality-gates/SKILL.md
 assert "pinned session_start hook" test -f context/hooks/scripts/session_start.py
 assert "pinned lease_warn hook" test -f context/hooks/scripts/lease_warn.py
+assert "quality.json created" test -f context/quality.json
 assert "cursor hooks.json" test -f .cursor/hooks.json
 assert "claude settings hooks" grep -q 'SessionStart' .claude/settings.json
 assert "codex hooks.json" test -f .codex/hooks.json
 assert "check OK after connect" "${CLI[@]}" check
+
+echo "-- connect coverage threshold --"
+"${CLI[@]}" connect --coverage 82 >/tmp/agentized-connect-cov.txt
+assert "coverage threshold applied" grep -Eq '"lines": 82(\.0)?' context/quality.json
+assert "pre-push template pinned" test -f .githooks/pre-push
+assert "ci workflow pinned" test -f .github/workflows/ci.yml
 
 echo "-- connect idempotency --"
 cp AGENTS.md /tmp/agents-before.md

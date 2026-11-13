@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "coverage": {
+    "lines": 80,
+    "branches": 80
+  },
+  "modules": [
+    {
+      "id": "runtime",
+      "source": ["runtime/agentized"],
+      "test_command": "python3 -m pytest tests/unit -q --cov=runtime/agentized --cov-branch --cov-report=term-missing --cov-report=lcov:coverage/runtime/lcov.info --cov-report=json:coverage/runtime/coverage.json --cov-fail-under=0",
+      "coverage_lcov": "coverage/runtime/lcov.info",
+      "coverage_json": "coverage/runtime/coverage.json",
+      "thresholds": {}
+    }
+  ],
+  "mutation": {
+    "enabled": true,
+    "tool": "mutmut",
+    "gate": "hard",
+    "scope": "covered_changed_lines",
+    "base_ref": "origin/main",
+    "break_on_survived": true,
+    "break_on_no_tests": true
+  },
+  "gates": {
+    "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
+    "ci": ["mechanical", "module_tests", "coverage", "mutation"]
+  }
+}
