@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "reviewable_lines": 1500,
+  "warn_at_pct": 75,
+  "claim_required": true,
+  "claim_mode_agent": "refuse",
+  "claim_mode_local": "warn",
+  "edit_path_globs": [
+    "runtime/**",
+    "scripts/**",
+    "packages/**",
+    "templates/**",
+    "tests/**",
+    ".githooks/**",
+    ".github/**",
+    "bin/**"
+  ],
+  "edit_path_excludes": [
+    "context/tasks/**",
+    "context/leases/**",
+    "context/digests/**",
+    "**/__pycache__/**",
+    ".artifacts/**"
+  ]
+}

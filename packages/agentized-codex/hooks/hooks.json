@@ -1,5 +1,5 @@
 {
-  "description": "Agentized Codex hooks (NAV reminder + warn-only leases).",
+  "description": "Agentized Codex hooks (NAV reminder, claim guard, warn-only leases).",
   "hooks": {
     "SessionStart": [
       {
@@ -15,6 +15,17 @@
       }
     ],
     "PreToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/process_guard.py\"",
+            "statusMessage": "Agentized process guard",
+            "additionalContextLimit": 5000
+          }
+        ]
+      },
       {
         "matcher": "Bash|apply_patch|Edit|Write",
         "hooks": [

@@ -6,80 +6,76 @@ import json
 import sys
 from pathlib import Path
 
+_HERE = Path(__file__).resolve()
+try:
+    from _bootstrap import ensure_runtime_on_path
+except ImportError:
+    sys.path.insert(0, str(_HERE.parent))
+    try:
+        from _bootstrap import ensure_runtime_on_path
+    except ImportError:
 
-def _bootstrap() -> Path:
-    here = Path(__file__).resolve()
-    for parent in [here.parent, *here.parents]:
-        if (parent / "runtime" / "agentized").is_dir():
-            sys.path.insert(0, str(parent / "runtime"))
-            return parent
-        if (parent / "AGENTS.md").exists() and (parent / "runtime").is_dir():
-            sys.path.insert(0, str(parent / "runtime"))
-            return parent
-    return Path.cwd()
+        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+            return Path.cwd()
 
 
 def main() -> int:
-    root = _bootstrap()
+    workspace = ensure_runtime_on_path(_HERE)
     raw = sys.stdin.read()
-    payload = {}
+    payload: dict = {}
     if raw.strip():
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    from agentized.hook_common import extract_paths, lease_warn_for_paths, resolve_root
+    event = (
+        payload.get("hook_event_name")
+        or payload.get("hookEventName")
+        or "PreToolUse"
+    )
+    allow = {
+        "permission": "allow",
+        "continue": True,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "permissionDecision": "allow",
+        },
+    }
 
-    root = resolve_root(payload)
+    try:
+        from agentized.hook_common import extract_paths, lease_warn_for_paths, resolve_root
+    except Exception as exc:  # noqa: BLE001
+        allow["agent_message"] = f"[lease-warn] unavailable: {exc}"
+        print(json.dumps(allow, ensure_ascii=False))
+        return 0
+
+    root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
     if runtime.is_dir() and str(runtime) not in sys.path:
         sys.path.insert(0, str(runtime))
 
     paths = extract_paths(payload)
-    # also inspect nested tool_input-style payloads Cursor may send
     if "tool_input" not in payload and isinstance(payload.get("input"), dict):
         paths = list(dict.fromkeys(paths + extract_paths({"tool_input": payload["input"]})))
 
     warn = lease_warn_for_paths(root, paths)
     if not warn:
-        # Always allow; empty warn → silent success for Cursor permission hooks.
-        print(
-            json.dumps(
-                {
-                    "permission": "allow",
-                    "continue": True,
-                    "hookSpecificOutput": {
-                        "hookEventName": payload.get("hook_event_name")
-                        or payload.get("hookEventName")
-                        or "PreToolUse",
-                        "permissionDecision": "allow",
-                    },
-                }
-            )
-        )
+        print(json.dumps(allow))
         return 0
 
     out = {
-        # Cursor preToolUse / permission hooks: allow + message
         "permission": "allow",
         "agent_message": warn,
         "additional_context": warn,
-        # do not block
         "continue": True,
-        # Claude
         "hookSpecificOutput": {
-            "hookEventName": payload.get("hook_event_name")
-            or payload.get("hookEventName")
-            or "PreToolUse",
+            "hookEventName": event,
             "permissionDecision": "allow",
             "permissionDecisionReason": warn,
             "additionalContext": warn,
         },
-        # Codex
-        "hookEventName": payload.get("hook_event_name")
-        or payload.get("hookEventName")
-        or "PreToolUse",
+        "hookEventName": event,
         "systemMessage": warn,
     }
     print(json.dumps(out, ensure_ascii=False))

@@ -21,8 +21,9 @@ AGENTS_BLOCK_TEMPLATE = """{begin}
 - Дальше иди **только** по ссылкам из `NAV.md` (не обходи каталоги Context наугад).
 - Живой индекс задач: [`{context}/tasks/INDEX.md`]({context}/tasks/INDEX.md).
 - Path leases (warn-only): [`{context}/leases/INDEX.md`]({context}/leases/INDEX.md).
-- Runtime: `python3 runtime/agentized_cli.py` (см. `docs/morning-runbook.ru.md`).
-- Перед первой правкой в agent/cloud сессии: `./bin/agentized env-check` (REFUSED → стоп; см. `docs/AGENT_ENVIRONMENT.md`).
+- Runtime: `./bin/agentized` · `python3 runtime/agentized_cli.py` · или `agentized` на PATH.
+- Перед первой правкой в agent/cloud сессии: `agentized env-check` (REFUSED → стоп; см. `docs/AGENT_ENVIRONMENT.md`).
+- Claim перед правками кода: `agentized claim <TASK_ID> --owner <you>` (см. `docs/process-control.md`).
 {end}
 """
 
@@ -33,9 +34,17 @@ CLAUDE_BLOCK_TEMPLATE = """{begin}
 - Session start: read `{context}/NAV.md`, then follow only its links.
 - Live task board: `{context}/tasks/INDEX.md`
 - Leases (warn-only): `{context}/leases/INDEX.md`
-- Before the first change in an agent/cloud session: `./bin/agentized env-check` (REFUSED → stop; see `docs/AGENT_ENVIRONMENT.md`).
+- CLI: `./bin/agentized` · `python3 runtime/agentized_cli.py` · or `agentized` on PATH.
+- Before the first change in an agent/cloud session: `agentized env-check` (REFUSED → stop; see `docs/AGENT_ENVIRONMENT.md`).
+- Claim before code edits: `agentized claim <TASK_ID> --owner <you>` (see `docs/process-control.md`).
 {end}
 """
+
+
+def installed_agentized_root() -> Path:
+    """Repo root of the Agentized install that provides this connect module."""
+    # runtime/agentized/connect.py → parents[2] = agentized checkout root
+    return Path(__file__).resolve().parents[2]
 
 
 def _upsert_marked_block(path: Path, begin: str, end: str, body: str, *, create: bool) -> bool:
@@ -78,7 +87,18 @@ def _copy_tree(src: Path, dst: Path) -> list[str]:
 
 
 def _repo_packages(root: Path) -> Path:
-    return root / "packages"
+    """Prefer in-repo packages/; else fall back to the installed Agentized root."""
+    local = root / "packages"
+    if local.is_dir() and (local / "shared").is_dir():
+        return local
+    return installed_agentized_root() / "packages"
+
+
+def _quality_templates_dir(root: Path) -> Path:
+    local = root / "templates" / "quality"
+    if local.is_dir() and any(local.iterdir()):
+        return local
+    return installed_agentized_root() / "templates" / "quality"
 
 
 def _shared_skills(root: Path) -> Path:
@@ -87,6 +107,21 @@ def _shared_skills(root: Path) -> Path:
 
 def _shared_hook_scripts(root: Path) -> Path:
     return _repo_packages(root) / "shared" / "hooks" / "scripts"
+
+
+def _pin_hook_scripts(root: Path, context_rel: str, dest: Path) -> list[str]:
+    """Copy all pinned hook scripts (incl. _bootstrap / process_guard) into dest."""
+    dest.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+    src_dir = root / context_rel / "hooks" / "scripts"
+    if not src_dir.is_dir():
+        src_dir = _shared_hook_scripts(root)
+    for src in sorted(src_dir.glob("*.py")):
+        target = dest / src.name
+        shutil.copy2(src, target)
+        target.chmod(target.stat().st_mode | 0o111)
+        copied.append(str(target))
+    return copied
 
 
 def pin_context_skills_hooks(root: Path, context_rel: str) -> dict:
@@ -126,10 +161,7 @@ def install_cursor(root: Path, context_rel: str) -> dict:
         _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
         local_note.append(str(plugin_src))
 
-    for name in ("session_start.py", "lease_warn.py"):
-        src = root / context_rel / "hooks" / "scripts" / name
-        if src.exists():
-            shutil.copy2(src, hooks_dir / name)
+    _pin_hook_scripts(root, context_rel, hooks_dir)
 
     hooks_json = {
         "version": 1,
@@ -139,9 +171,13 @@ def install_cursor(root: Path, context_rel: str) -> dict:
             ],
             "preToolUse": [
                 {
+                    "command": ".cursor/hooks/process_guard.py",
+                    "matcher": "Write|Edit",
+                },
+                {
                     "command": ".cursor/hooks/lease_warn.py",
                     "matcher": "Write|Edit|Shell|Bash",
-                }
+                },
             ],
             "afterFileEdit": [
                 {"command": ".cursor/hooks/lease_warn.py"}
@@ -150,8 +186,6 @@ def install_cursor(root: Path, context_rel: str) -> dict:
     }
     hooks_path = root / ".cursor" / "hooks.json"
     hooks_path.write_text(json.dumps(hooks_json, indent=2) + "\n", encoding="utf-8")
-    for script in hooks_dir.glob("*.py"):
-        script.chmod(script.stat().st_mode | 0o111)
     return {
         "skills_copied": copied,
         "hooks_json": str(hooks_path),
@@ -170,11 +204,7 @@ def install_claude(root: Path, context_rel: str) -> dict:
     hooks_dir = claude_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     copied = _copy_tree(skills_src, claude_dir / "skills")
-    for name in ("session_start.py", "lease_warn.py"):
-        src = root / context_rel / "hooks" / "scripts" / name
-        if src.exists():
-            shutil.copy2(src, hooks_dir / name)
-            (hooks_dir / name).chmod((hooks_dir / name).stat().st_mode | 0o111)
+    _pin_hook_scripts(root, context_rel, hooks_dir)
 
     plugin_src = _repo_packages(root) / "agentized-claude"
     if plugin_src.exists():
@@ -202,6 +232,15 @@ def install_claude(root: Path, context_rel: str) -> dict:
     ]
     hooks["PreToolUse"] = [
         {
+            "matcher": "Edit|Write",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py\"",
+                }
+            ],
+        },
+        {
             "matcher": "Edit|Write|Bash",
             "hooks": [
                 {
@@ -209,7 +248,7 @@ def install_claude(root: Path, context_rel: str) -> dict:
                     "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py\"",
                 }
             ],
-        }
+        },
     ]
     settings["hooks"] = hooks
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
@@ -231,11 +270,7 @@ def install_codex(root: Path, context_rel: str) -> dict:
     copied = _copy_tree(skills_src, agents_skills)
     codex_hooks = root / ".codex" / "hooks"
     codex_hooks.mkdir(parents=True, exist_ok=True)
-    for name in ("session_start.py", "lease_warn.py"):
-        src = root / context_rel / "hooks" / "scripts" / name
-        if src.exists():
-            shutil.copy2(src, codex_hooks / name)
-            (codex_hooks / name).chmod((codex_hooks / name).stat().st_mode | 0o111)
+    _pin_hook_scripts(root, context_rel, codex_hooks)
 
     plugin_src = _repo_packages(root) / "agentized-codex"
     if plugin_src.exists():
@@ -243,7 +278,7 @@ def install_codex(root: Path, context_rel: str) -> dict:
         _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
 
     hooks_json = {
-        "description": "Agentized project hooks (warn-only leases + NAV reminder).",
+        "description": "Agentized project hooks (claim guard, warn-only leases, NAV reminder).",
         "hooks": {
             "SessionStart": [
                 {
@@ -262,6 +297,19 @@ def install_codex(root: Path, context_rel: str) -> dict:
             ],
             "PreToolUse": [
                 {
+                    "matcher": "apply_patch|Edit|Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/process_guard.py"'
+                            ),
+                            "statusMessage": "Agentized process guard",
+                            "additionalContextLimit": 5000,
+                        }
+                    ],
+                },
+                {
                     "matcher": "Bash|apply_patch|Edit|Write",
                     "hooks": [
                         {
@@ -273,7 +321,7 @@ def install_codex(root: Path, context_rel: str) -> dict:
                             "additionalContextLimit": 5000,
                         }
                     ],
-                }
+                },
             ],
         },
     }
@@ -371,19 +419,38 @@ def ensure_githooks_path(root: Path) -> str:
 
 
 def pin_quality_templates(root: Path) -> dict:
-    """Pin pre-push / CI from templates/quality (no clobber of unmarked user files)."""
-    templates = root / "templates" / "quality"
+    """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
+
+    External repos without `templates/quality` use the installed Agentized root.
+    """
+    templates = _quality_templates_dir(root)
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
         "js_guidance": (templates / "stryker.config.mjs.example").exists(),
+        "templates_from": str(templates),
         "hooks_path": "skipped-no-git",
     }
     if (root / ".git").exists() or (root / ".git").is_file():
         result["hooks_path"] = ensure_githooks_path(root)
     return result
+
+
+def ensure_process_control_config(root: Path, context_rel: str) -> dict:
+    """Pin default process-control.json without clobbering edits."""
+    from .process_control import PROCESS_FILENAME, default_process_config
+
+    path = root / context_rel / PROCESS_FILENAME
+    created = not path.exists()
+    if created:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(default_process_config(), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return {"path": str(path.relative_to(root)), "created": created}
 
 
 def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | int | None = None) -> dict:
@@ -450,11 +517,13 @@ def connect(
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
+    process = ensure_process_control_config(root, context_rel)
     results = {
         "pinned": pinned,
         "quality": quality,
         "quality_templates": quality_templates,
         "env_check": env_check,
+        "process_control": process,
         "harnesses": {},
     }
     if "cursor" in harnesses:

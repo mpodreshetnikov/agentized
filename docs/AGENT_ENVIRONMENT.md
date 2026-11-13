@@ -71,4 +71,4 @@ Trust project `.codex/hooks.json` after connect, or paste an equivalent user `~/
 - CLI: `./bin/agentized env-check` (exit 1 on REFUSED).
 - Session-start hook appends an env-check reminder when the session is an agent harness.
 
-AGE-9 process-control skills are out of scope here.
+Process-control (claim / PR size): see [`process-control.md`](./process-control.md).

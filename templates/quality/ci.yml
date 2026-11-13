@@ -40,10 +40,17 @@ jobs:
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
         run: |
           if [[ -x ./bin/agentized ]]; then
-            ./bin/agentized quality check
+            CLI=(./bin/agentized)
+          elif [[ -f runtime/agentized_cli.py ]]; then
+            CLI=(python3 runtime/agentized_cli.py)
+          elif command -v agentized >/dev/null 2>&1; then
+            CLI=(agentized)
           else
-            python3 runtime/agentized_cli.py quality check
+            echo "agentized CLI not found" >&2
+            exit 1
           fi
+          "${CLI[@]}" process size || true
+          "${CLI[@]}" quality check
 
       - name: Upload coverage + mutation summaries
         if: always()
