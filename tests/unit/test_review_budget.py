@@ -8,6 +8,7 @@ from agentized.connect import _render_reviewer_agent, connect, pin_reviewer_agen
 from agentized.quality import load_quality, set_reviewer_options
 from agentized.review_budget import (
     allow_review,
+    decode_git_path,
     default_reviewer_config,
     evaluate_delta,
     expand_numstat_paths,
@@ -27,6 +28,12 @@ def test_expand_numstat_paths_rename_brace():
     ]
     assert expand_numstat_paths("old.py => new.py") == ["old.py", "new.py"]
     assert expand_numstat_paths("runtime/x.py") == ["runtime/x.py"]
+
+
+def test_decode_git_quoted_non_ascii_path():
+    quoted = '".github/workflows/d\\303\\251ploy.yml"'
+    assert decode_git_path(quoted) == ".github/workflows/déploy.yml"
+    assert expand_numstat_paths(quoted) == [".github/workflows/déploy.yml"]
 
 
 def _git_repo(tmp_path: Path) -> None:
@@ -420,3 +427,99 @@ def load_quality_reviewer(root: Path) -> dict:
     from agentized.review_budget import reviewer_config
 
     return reviewer_config(root)
+
+
+def test_quoted_non_ascii_sensitive_path_requests_review(tmp_path: Path, monkeypatch):
+    """Git-quoted UTF-8 paths under sensitive globs must still request review."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "budget_max": 3,
+                    "delta_lines": 5000,
+                    "sensitive_globs": [".github/workflows/**"],
+                    "trivial_globs": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=0)
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "déploy.yml").write_text("name: d\non: push\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".github/workflows/déploy.yml"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "wf"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    # Without -z, Git quotes the path; our parser must still see the sensitive file.
+    plain = subprocess.run(
+        ["git", "diff", "--numstat", head],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "\\" in plain or "déploy" in plain or "workflows" in plain
+
+    delta = evaluate_delta(tmp_path, head, load_quality_reviewer(tmp_path))
+    assert any(p.endswith("déploy.yml") for p in delta["sensitive"])
+    assert delta["request"] is True
+    allowed = allow_review(tmp_path)
+    assert allowed["ok"] is True
+    assert allowed["action"] == "request"
+
+
+def test_binary_under_sensitive_glob_requests_review(tmp_path: Path, monkeypatch):
+    """Binary --numstat rows (-\\t-) must still match sensitive globs."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "budget_max": 3,
+                    "delta_lines": 5000,
+                    "sensitive_globs": ["runtime/**"],
+                    "trivial_globs": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=0)
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "runtime" / "payload.bin").write_bytes(b"\x00\x01\x02\xff")
+    subprocess.run(["git", "add", "runtime/payload.bin"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "bin"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    numstat = subprocess.run(
+        ["git", "diff", "--numstat", head],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "-\t-\truntime/payload.bin" in numstat
+
+    delta = evaluate_delta(tmp_path, head, load_quality_reviewer(tmp_path))
+    assert "runtime/payload.bin" in delta["sensitive"]
+    assert delta["request"] is True
+    allowed = allow_review(tmp_path)
+    assert allowed["ok"] is True
+    assert allowed["action"] == "request"

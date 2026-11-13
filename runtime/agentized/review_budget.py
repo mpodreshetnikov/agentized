@@ -201,6 +201,55 @@ def _match(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pat) for pat in patterns)
 
 
+def decode_git_path(path: str) -> str:
+    """Decode a Git pathname (quoted C-style or plain).
+
+    Default ``core.quotePath`` emits forms like
+    ``\".github/workflows/d\\303\\251ploy.yml\"``; naive ``\\\\`` → ``/`` rewriting
+    breaks sensitive-glob matching. Octal escapes are UTF-8 bytes.
+    """
+    if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
+        raw = path[1:-1]
+        out = bytearray()
+        i = 0
+        while i < len(raw):
+            ch = raw[i]
+            if ch != "\\" or i + 1 >= len(raw):
+                out.extend(ch.encode("utf-8"))
+                i += 1
+                continue
+            nxt = raw[i + 1]
+            simple = {
+                "a": 7,
+                "b": 8,
+                "t": 9,
+                "n": 10,
+                "v": 11,
+                "f": 12,
+                "r": 13,
+                '"': 34,
+                "\\": 92,
+            }
+            if nxt in simple:
+                out.append(simple[nxt])
+                i += 2
+                continue
+            if nxt in "01234567":
+                j = i + 1
+                digits = ""
+                while j < len(raw) and len(digits) < 3 and raw[j] in "01234567":
+                    digits += raw[j]
+                    j += 1
+                out.append(int(digits, 8))
+                i = j
+                continue
+            out.append(ord(nxt))
+            i += 2
+        return out.decode("utf-8")
+    # Unquoted: only normalize Windows separators; do not touch escape sequences.
+    return path.replace("\\", "/")
+
+
 def expand_numstat_paths(path: str) -> list[str]:
     """Expand git --numstat rename display paths into concrete endpoints.
 
@@ -209,51 +258,95 @@ def expand_numstat_paths(path: str) -> list[str]:
         → ``.github/disabled/deploy.yml``, ``.github/workflows/deploy.yml``
       ``old.py => new.py`` → ``old.py``, ``new.py``
     """
-    path = path.replace("\\", "/")
+    path = decode_git_path(path)
     m = _RENAME_BRACE.search(path)
     if m:
         prefix = path[: m.start()]
         suffix = path[m.end() :]
-        return [f"{prefix}{m.group(1)}{suffix}", f"{prefix}{m.group(2)}{suffix}"]
+        return [
+            decode_git_path(f"{prefix}{m.group(1)}{suffix}"),
+            decode_git_path(f"{prefix}{m.group(2)}{suffix}"),
+        ]
     if " => " in path:
         left, right = path.split(" => ", 1)
-        return [left, right]
+        return [decode_git_path(left), decode_git_path(right)]
     return [path]
+
+
+def _parse_numstat_z(data: bytes) -> list[tuple[str, int]]:
+    """Parse ``git diff --numstat -z`` into ``(path, added_lines)`` rows.
+
+    Renames emit ``added\\tdeleted\\t\\0old\\0new\\0``; normal/binary rows emit
+    ``added\\tdeleted\\tpath\\0``. Binary counts (``-``) are kept with ``added=0``
+    so sensitive globs still see the path.
+    """
+    out: list[tuple[str, int]] = []
+    i = 0
+    n = len(data)
+    while i < n:
+        tab1 = data.find(b"\t", i)
+        if tab1 < 0:
+            break
+        added_s = data[i:tab1].decode("ascii", errors="replace")
+        tab2 = data.find(b"\t", tab1 + 1)
+        if tab2 < 0:
+            break
+        rest = tab2 + 1
+        paths: list[str]
+        if rest < n and data[rest : rest + 1] == b"\0":
+            # Rename: empty path field, then old\0new\0
+            rest += 1
+            z1 = data.find(b"\0", rest)
+            if z1 < 0:
+                break
+            old = data[rest:z1].decode("utf-8")
+            z2 = data.find(b"\0", z1 + 1)
+            if z2 < 0:
+                break
+            new = data[z1 + 1 : z2].decode("utf-8")
+            paths = [old, new]
+            i = z2 + 1
+        else:
+            z = data.find(b"\0", rest)
+            if z < 0:
+                break
+            paths = [data[rest:z].decode("utf-8")]
+            i = z + 1
+        if added_s == "-":
+            added = 0
+        else:
+            try:
+                added = int(added_s)
+            except ValueError:
+                continue
+        if len(paths) == 2:
+            # Source for sensitive match; destination carries line delta.
+            out.append((paths[0].replace("\\", "/"), 0))
+            out.append((paths[1].replace("\\", "/"), added))
+        else:
+            out.append((paths[0].replace("\\", "/"), added))
+    return out
 
 
 def _numstat_since(root: Path, since: str) -> tuple[list[tuple[str, int]] | None, str | None]:
     """Return (files, error). error set when watermark/compare cannot be resolved.
 
-    Each entry is ``(path, added_lines)``. Rename display strings are left as-is
-    here; :func:`evaluate_delta` expands them so sensitive globs see both endpoints.
+    Uses ``-z`` so pathnames are not core.quotePath-mangled. Binary ``-\\t-``
+    rows are retained with zero added lines for sensitive-glob evaluation.
     """
     if not _commit_exists(root, since):
         return None, f"watermark commit unavailable: {since}"
     proc = subprocess.run(
-        ["git", "diff", "--numstat", "--find-renames", since],
+        ["git", "diff", "--numstat", "-z", "--find-renames", since],
         cwd=root,
         capture_output=True,
-        text=True,
     )
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip() or "git diff failed"
+        err = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip() or (
+            "git diff failed"
+        )
         return None, f"cannot compare to watermark {since[:12]}: {err}"
-    out: list[tuple[str, int]] = []
-    for line in (proc.stdout or "").splitlines():
-        parts = line.split("\t")
-        if len(parts) < 3 or parts[0] == "-":
-            continue
-        try:
-            added = int(parts[0])
-        except ValueError:
-            continue
-        # Rare: old\tnew as separate fields; otherwise single rename display path.
-        if len(parts) >= 4 and parts[3]:
-            raw = f"{parts[2]} => {parts[3]}"
-        else:
-            raw = parts[2]
-        out.append((raw.replace("\\", "/"), added))
-    return out, None
+    return _parse_numstat_z(proc.stdout or b""), None
 
 
 def evaluate_delta(root: Path, since: str, cfg: dict[str, Any]) -> dict[str, Any]:
