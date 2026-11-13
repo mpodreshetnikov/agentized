@@ -82,6 +82,7 @@ def test_cursor_git_refuse(tmp_path: Path):
     )
     (hooks / "hooks").mkdir()
     (hooks / "hooks" / "session_start.py").write_text("x", encoding="utf-8")
+    (hooks / "hooks" / "lease_warn.py").write_text("x", encoding="utf-8")
     (tmp_path / ".githooks").mkdir()
     (tmp_path / ".githooks" / "pre-push").write_text("#!/bin/sh\n", encoding="utf-8")
     result = ec.check(
@@ -91,6 +92,43 @@ def test_cursor_git_refuse(tmp_path: Path):
     )
     assert result["ok"] is False
     assert "REFUSED" in result["message"]
+    assert "agent-hooks" in result["message"] or "configure-cursor" in result["message"]
+
+
+def test_cursor_rejects_missing_script_files(tmp_path: Path):
+    """Codex P2: filename substrings alone must not count as healthy wiring."""
+    hooks = tmp_path / ".cursor"
+    hooks.mkdir()
+    (hooks / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "sessionStart": [{"command": ".cursor/hooks/session_start.py"}],
+                    "preToolUse": [{"command": ".cursor/hooks/lease_warn.py"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    # scripts intentionally missing
+    result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=tmp_path / "home")
+    assert result["ok"] is False
+    assert "REFUSED" in result["message"]
+
+
+def test_codex_user_level_hooks_accepted(tmp_path: Path):
+    """Codex P2: documented ~/.codex/hooks.json must pass without project file."""
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+    (home / ".codex" / "hooks.json").write_text(
+        json.dumps({"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "x"}]}]}}),
+        encoding="utf-8",
+    )
+    empty = tmp_path / "repo"
+    empty.mkdir()
+    result = ec.check(env={"CODEX_THREAD_ID": "t1"}, repo_root=empty, home=home)
+    assert result["ok"] is True
+    assert "user-level" in result["message"]
 
 
 def test_install_and_problem_present(tmp_path: Path):
@@ -184,6 +222,7 @@ def test_cursor_chain_ok_no_warn(tmp_path: Path):
     )
     (hooks / "hooks").mkdir()
     (hooks / "hooks" / "session_start.py").write_text("x", encoding="utf-8")
+    (hooks / "hooks" / "lease_warn.py").write_text("x", encoding="utf-8")
     (tmp_path / ".githooks").mkdir()
     (tmp_path / ".githooks" / "pre-push").write_text("#!/bin/sh\n", encoding="utf-8")
     home = tmp_path / "home"

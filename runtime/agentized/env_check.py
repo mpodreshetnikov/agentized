@@ -95,6 +95,25 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
+def _hook_command_exists(cmd: str, repo_root: Path) -> bool:
+    """True only when the command names a script path that exists on disk."""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return False
+    # Prefer an explicit path token (relative or absolute); ignore bare substrings.
+    for token in cmd.replace(";", " ").replace("&&", " ").split():
+        token = token.strip().strip("\"'")
+        if not token or token in {"python3", "python", "node", "bash", "sh", "exec"}:
+            continue
+        if "/" not in token and not token.endswith(".py"):
+            continue
+        candidate = Path(token)
+        if not candidate.is_absolute():
+            candidate = repo_root / token
+        if candidate.exists():
+            return True
+    return False
+
+
 def missing_cursor_events(cursor_settings: dict | None, repo_root: Path) -> list[str]:
     hooks = (cursor_settings or {}).get("hooks") or {}
     missing = []
@@ -106,13 +125,7 @@ def missing_cursor_events(cursor_settings: dict | None, repo_root: Path) -> list
         ok = False
         for entry in entries:
             cmd = entry.get("command") if isinstance(entry, dict) else None
-            if not isinstance(cmd, str):
-                continue
-            # Relative project hooks or absolute paths that exist
-            candidate = Path(cmd)
-            if not candidate.is_absolute():
-                candidate = repo_root / cmd
-            if "session_start" in cmd or "lease_warn" in cmd or candidate.exists():
+            if isinstance(cmd, str) and _hook_command_exists(cmd, repo_root):
                 ok = True
                 break
         if not ok:
@@ -120,20 +133,29 @@ def missing_cursor_events(cursor_settings: dict | None, repo_root: Path) -> list
     return missing
 
 
-def _project_hooks_ok(repo_root: Path, harness: str) -> tuple[bool, str]:
+def _has_session_start(hooks: dict | None) -> bool:
+    return isinstance(hooks, dict) and "SessionStart" in hooks
+
+
+def _project_hooks_ok(
+    repo_root: Path,
+    harness: str,
+    *,
+    home: Path | None = None,
+) -> tuple[bool, str]:
     if harness == "cursor":
         settings = _read_json(repo_root / ".cursor" / "hooks.json")
         missing = missing_cursor_events(settings, repo_root)
         if missing:
             return False, (
-                f".cursor/hooks.json missing required events: {', '.join(missing)} "
+                f".cursor/hooks.json missing required events or scripts: {', '.join(missing)} "
                 f"(run `./bin/agentized connect`). See {DOC}."
             )
         return True, "Cursor project hooks present."
     if harness == "claude":
         settings = _read_json(repo_root / ".claude" / "settings.json")
         hooks = (settings or {}).get("hooks") or {}
-        if "SessionStart" not in hooks:
+        if not _has_session_start(hooks):
             return False, (
                 f".claude/settings.json missing SessionStart hooks "
                 f"(run connect). See {DOC}."
@@ -142,14 +164,20 @@ def _project_hooks_ok(repo_root: Path, harness: str) -> tuple[bool, str]:
     if harness == "codex":
         settings = _read_json(repo_root / ".codex" / "hooks.json")
         hooks = (settings or {}).get("hooks") or {}
-        if "SessionStart" not in hooks:
-            return False, (
-                f".codex/hooks.json missing SessionStart "
-                f"(run connect or trust project hooks). See {DOC}."
-            )
-        return True, "Codex project hooks present."
+        if _has_session_start(hooks):
+            return True, "Codex project hooks present."
+        # Documented alternative: user-level ~/.codex/hooks.json
+        if home is not None:
+            user = _read_json(home / ".codex" / "hooks.json")
+            user_hooks = (user or {}).get("hooks") or {}
+            if _has_session_start(user_hooks):
+                return True, "Codex user-level hooks present (~/.codex/hooks.json)."
+        return False, (
+            ".codex/hooks.json missing SessionStart "
+            "(run connect, trust project hooks, or paste user ~/.codex/hooks.json). See "
+            f"{DOC}."
+        )
     return False, f"unknown harness {harness}"
-
 
 def check(
     *,
@@ -238,13 +266,11 @@ def check(
         }
 
     if is_claude_cloud(env):
-        ok_hooks, hooks_msg = _project_hooks_ok(repo_root, "claude")
-        # Cloud Claude often starts above the clone — also require user bridge markers
-        # when project settings exist; for Agentized dogfood, project settings after connect
-        # are the primary gate. Multi-repo bridge recipe is documented in AGENT_ENVIRONMENT.md.
+        ok_hooks, hooks_msg = _project_hooks_ok(repo_root, "claude", home=home)
+        # Cloud Claude often starts above the clone — also accept user bridge markers.
         user = _read_json(home / ".claude" / "settings.json")
         user_hooks = (user or {}).get("hooks") or {}
-        if not ok_hooks and "SessionStart" not in user_hooks:
+        if not ok_hooks and not _has_session_start(user_hooks):
             return {
                 "ok": False,
                 "refused": True,
@@ -262,14 +288,14 @@ def check(
             "severity": "claude",
         }
 
-    # Codex
-    ok_hooks, hooks_msg = _project_hooks_ok(repo_root, "codex")
+    # Codex — project .codex/hooks.json or documented user ~/.codex/hooks.json
+    ok_hooks, hooks_msg = _project_hooks_ok(repo_root, "codex", home=home)
     if not ok_hooks:
         return {
             "ok": False,
             "refused": True,
             "message": (
-                f"agent-env-check: REFUSED. Codex session missing project hooks ({hooks_msg}). "
+                f"agent-env-check: REFUSED. Codex session missing hooks ({hooks_msg}). "
                 f"See {DOC}."
             ),
             "severity": "codex",
@@ -277,7 +303,7 @@ def check(
     return {
         "ok": True,
         "refused": False,
-        "message": "agent-env-check: Codex project hooks present.",
+        "message": f"agent-env-check: {hooks_msg}",
         "severity": "codex",
     }
 
