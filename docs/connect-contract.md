@@ -25,7 +25,9 @@
 |----------|-----------|
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
-| `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts` |
+| `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
+| `{context}/agents/` | Pinned readonly `reviewer.md` (model from `quality.json` → `reviewer.model`) |
+| `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
 | `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
 | `{context}/quality.json` | Пороги coverage (default 80%) · modules · mutation hard gate; `connect --coverage <pct>` |
 | `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |
@@ -55,7 +57,7 @@
 | Путь | Назначение |
 |------|------------|
 | `.cursor/skills/*/SKILL.md` | Project skills |
-| `.cursor/hooks.json` | `sessionStart`, `preToolUse`, `afterFileEdit` |
+| `.cursor/hooks.json` | `sessionStart`, `preToolUse`, `beforeShellExecution` (git-hooks self-heal), `afterFileEdit` |
 | `.cursor/hooks/*.py` | Скрипты hooks |
 
 Опционально официальный local plugin (без marketplace):
@@ -76,7 +78,7 @@ cp -R packages/agentized-cursor ~/.cursor/plugins/local/agentized
 | Путь | Назначение |
 |------|------------|
 | `.claude/skills/*/SKILL.md` | Project skills |
-| `.claude/settings.json` → `hooks` | `SessionStart`, `PreToolUse` |
+| `.claude/settings.json` → `hooks` | `SessionStart`, `PreToolUse` (incl. `Bash` → `ensure_agent_hooks`) |
 | `.claude/hooks/*.py` | Скрипты |
 
 Опционально session plugin без публикации:
@@ -94,7 +96,7 @@ claude --plugin-dir packages/agentized-claude
 | Путь | Назначение |
 |------|------------|
 | `.agents/skills/*/SKILL.md` | Project skills (Codex также читает совместимые каталоги skills) |
-| `.codex/hooks.json` | Project hooks: `SessionStart`, `PreToolUse` |
+| `.codex/hooks.json` | Project hooks: `SessionStart`, `PreToolUse` (incl. `Bash` → `ensure_agent_hooks`) |
 | `.codex/hooks/*.py` | Скрипты |
 | `.agents/plugins/marketplace.json` | Локальный marketplace → `packages/agentized-codex` |
 

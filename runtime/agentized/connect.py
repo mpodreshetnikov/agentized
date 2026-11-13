@@ -24,6 +24,9 @@ AGENTS_BLOCK_TEMPLATE = """{begin}
 - Runtime: `./bin/agentized` · `python3 runtime/agentized_cli.py` · или `agentized` на PATH.
 - Перед первой правкой в agent/cloud сессии: `agentized env-check` (REFUSED → стоп; см. `docs/AGENT_ENVIRONMENT.md`).
 - Claim перед правками кода: `agentized claim <TASK_ID> --owner <you>` (см. `docs/process-control.md`).
+- **No GitHub Stacked PRs:** every PR targets `main` (or the repo default), never another feature/PR branch. Sequence merges, or ship one PR.
+- **Caveman `ultracave`:** working agents — max compression (no fluff/greetings/recaps). Keep facts, numbers, negations (`no`/`not`/`never`/`only`), decisions. Clear prose only for irreversible confirms, risk warnings, step sequences/test plans. **Exception:** the `reviewer` agent never uses caveman.
+- Handoff: `acceptance-artifacts` skill + `{context}/reporting.json` (`short` default / `technical`).
 {end}
 """
 
@@ -37,6 +40,9 @@ CLAUDE_BLOCK_TEMPLATE = """{begin}
 - CLI: `./bin/agentized` · `python3 runtime/agentized_cli.py` · or `agentized` on PATH.
 - Before the first change in an agent/cloud session: `agentized env-check` (REFUSED → stop; see `docs/AGENT_ENVIRONMENT.md`).
 - Claim before code edits: `agentized claim <TASK_ID> --owner <you>` (see `docs/process-control.md`).
+- **No GitHub Stacked PRs:** every PR targets `main` (repo default), never another feature/PR branch.
+- **Caveman `ultracave`:** working agents — max compression; no fluff. **Exception:** `reviewer` never uses caveman.
+- Handoff: `acceptance-artifacts` + `{context}/reporting.json` (`short` / `technical`).
 {end}
 """
 
@@ -115,6 +121,173 @@ def _shared_skills(root: Path) -> Path:
 
 def _shared_hook_scripts(root: Path) -> Path:
     return _repo_packages(root) / "shared" / "hooks" / "scripts"
+
+
+def _shared_agents(root: Path) -> Path:
+    return _repo_packages(root) / "shared" / "agents"
+
+
+DEFAULT_HARNESS_REVIEWERS = {
+    "cursor": {
+        "model": "grok-4.7[reasoning_effort=medium]",
+        "effort": "medium",
+    },
+    "claude": {
+        "model": "claude-fable-5-2",
+        "effort": "medium",
+    },
+    "codex": {
+        "model": "gpt-6-astra",
+        "effort": "medium",
+    },
+}
+
+REVIEWER_BODY_EXTRA = """
+## Caveman / ultracave — **exception**
+
+You are the **reviewer**. Do **not** use caveman/ultracave compression. Always write
+**expanded, unambiguous** findings and accept/reject rationale so a human can act
+without decoding shorthand.
+"""
+
+
+def harness_reviewer_opts(reviewer_cfg: dict, harness: str) -> dict[str, str]:
+    """Resolve model/effort for one harness.
+
+    Prefer `reviewer.harnesses.<name>`; fall back to built-in defaults, then
+    legacy top-level `reviewer.model` / `reviewer.effort` when no harness entry.
+    """
+    defaults = dict(DEFAULT_HARNESS_REVIEWERS.get(harness) or {})
+    harnesses = reviewer_cfg.get("harnesses") or {}
+    h = harnesses.get(harness) if isinstance(harnesses, dict) else None
+    if isinstance(h, dict) and (h.get("model") or h.get("effort")):
+        for key in ("model", "effort"):
+            if h.get(key):
+                defaults[key] = str(h[key])
+    elif not isinstance(harnesses, dict) or harness not in harnesses:
+        # Legacy single model/effort applies only when this harness is unset.
+        if reviewer_cfg.get("model"):
+            defaults["model"] = str(reviewer_cfg["model"])
+        if reviewer_cfg.get("effort"):
+            defaults["effort"] = str(reviewer_cfg["effort"])
+    defaults.setdefault("model", "grok-4.7[reasoning_effort=medium]")
+    defaults.setdefault("effort", "medium")
+    return defaults
+
+
+def _reviewer_body(src: Path) -> str:
+    text = src.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        end = None
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                end = i
+                break
+        if end is not None:
+            text = "\n".join(lines[end + 1 :]).lstrip("\n")
+    if "Caveman / ultracave" not in text:
+        text = text.rstrip() + "\n" + REVIEWER_BODY_EXTRA
+    return text
+
+
+def _render_reviewer_agent(
+    src: Path, model: str, *, harness: str = "cursor", effort: str = "medium"
+) -> str:
+    """Render markdown agent for Cursor/Claude (Codex uses TOML separately)."""
+    body = _reviewer_body(src)
+    if harness == "claude":
+        front = [
+            "name: reviewer",
+            "description: Independent strong read-only reviewer for Agentized.",
+            f"model: {model}",
+            f"effort: {effort}",
+            "disallowedTools: Write, Edit, NotebookEdit",
+        ]
+    else:
+        front = [
+            "name: reviewer",
+            "description: Independent strong read-only reviewer for Agentized. Use only after gates pass and a full fix pack or substantial/sensitive change since the last reviewed watermark — never on tiny format edits. Reports severity findings; never edits, commits, merges, or approves.",
+            f"model: {model}",
+            "readonly: true",
+        ]
+    return "---\n" + "\n".join(front) + "\n---\n\n" + body.lstrip("\n")
+
+
+def _render_reviewer_toml(src: Path, model: str, effort: str) -> str:
+    body = _reviewer_body(src)
+    # TOML multiline basic string — escape backslash and quotes lightly.
+    instr = body.replace("\\", "\\\\").replace('"""', '\\"""')
+    return (
+        'name = "reviewer"\n'
+        'description = "Independent strong read-only reviewer for Agentized. '
+        "Reports severity findings; never edits, commits, merges, or approves.\"\n"
+        f'model = "{model}"\n'
+        f'model_reasoning_effort = "{effort}"\n'
+        'developer_instructions = """\n'
+        f"{instr.rstrip()}\n"
+        "\n"
+        "Hard read-only: never edit files, never commit, never merge, never approve PRs.\n"
+        '"""\n'
+    )
+
+
+def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
+    """Pin per-harness readonly reviewer (Cursor/Claude markdown, Codex TOML only)."""
+    from .quality import load_quality
+
+    src_dir = _shared_agents(root)
+    src = src_dir / "reviewer.md"
+    if not src.exists():
+        return {"installed": [], "skipped": "missing-src"}
+    rev = load_quality(root, context_rel).get("reviewer") or {}
+    installed: list[str] = []
+    models: dict[str, str] = {}
+
+    cursor_opts = harness_reviewer_opts(rev, "cursor")
+    claude_opts = harness_reviewer_opts(rev, "claude")
+    codex_opts = harness_reviewer_opts(rev, "codex")
+    models["cursor"] = cursor_opts["model"]
+    models["claude"] = claude_opts["model"]
+    models["codex"] = codex_opts["model"]
+
+    cursor_body = _render_reviewer_agent(
+        src, cursor_opts["model"], harness="cursor", effort=cursor_opts["effort"]
+    )
+    claude_body = _render_reviewer_agent(
+        src, claude_opts["model"], harness="claude", effort=claude_opts["effort"]
+    )
+
+    ctx_agents = root / context_rel / "agents"
+    ctx_agents.mkdir(parents=True, exist_ok=True)
+    ctx_path = ctx_agents / "reviewer.md"
+    ctx_path.write_text(cursor_body, encoding="utf-8")
+    installed.append(str(ctx_path))
+
+    for rel, body in (
+        (".cursor/agents", cursor_body),
+        (".claude/agents", claude_body),
+    ):
+        dest_dir = root / rel
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "reviewer.md"
+        dest.write_text(body, encoding="utf-8")
+        installed.append(str(dest))
+
+    # Codex: TOML only — never leave a stale reviewer.md
+    codex_dir = root / ".codex" / "agents"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    stale_md = codex_dir / "reviewer.md"
+    if stale_md.exists():
+        stale_md.unlink()
+        installed.append(f"removed:{stale_md}")
+    toml_path = codex_dir / "reviewer.toml"
+    toml_path.write_text(
+        _render_reviewer_toml(src, codex_opts["model"], codex_opts["effort"]),
+        encoding="utf-8",
+    )
+    installed.append(str(toml_path))
+    return {"installed": installed, "models": models, "model": models.get("cursor")}
 
 
 def _refresh_local_plugin(root: Path, name: str, skills_src: Path) -> str | None:
@@ -199,6 +372,9 @@ def install_cursor(root: Path, context_rel: str) -> dict:
                     "matcher": "Write|Edit|Shell|Bash",
                 },
             ],
+            "beforeShellExecution": [
+                {"command": ".cursor/hooks/ensure_agent_hooks.py"}
+            ],
             "afterFileEdit": [
                 {"command": ".cursor/hooks/lease_warn.py"}
             ],
@@ -262,6 +438,15 @@ def install_claude(root: Path, context_rel: str) -> dict:
                 {
                     "type": "command",
                     "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py\"",
+                }
+            ],
+        },
+        {
+            "matcher": "Bash",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ensure_agent_hooks.py\"",
                 }
             ],
         },
@@ -331,6 +516,19 @@ def install_codex(root: Path, context_rel: str) -> dict:
                             ),
                             "statusMessage": "Agentized lease warn",
                             "additionalContextLimit": 5000,
+                        }
+                    ],
+                },
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ensure_agent_hooks.py"'
+                            ),
+                            "statusMessage": "Agentized git-hooks self-heal",
+                            "additionalContextLimit": 2000,
                         }
                     ],
                 },
@@ -530,12 +728,18 @@ def connect(
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
     process = ensure_process_control_config(root, context_rel)
+    from .reporting import ensure_reporting_config
+
+    reporting = ensure_reporting_config(root, context_rel)
+    reviewer = pin_reviewer_agents(root, context_rel)
     results = {
         "pinned": pinned,
         "quality": quality,
         "quality_templates": quality_templates,
         "env_check": env_check,
         "process_control": process,
+        "reporting": reporting,
+        "reviewer": reviewer,
         "harnesses": {},
     }
     if "cursor" in harnesses:

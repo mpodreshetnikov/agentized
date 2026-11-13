@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "level": "short",
+  "_comment": "level=short|technical. short is default: business-readable, compressed, no code/SHAs. See acceptance-artifacts skill."
+}

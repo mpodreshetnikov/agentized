@@ -54,6 +54,22 @@ def default_quality_config() -> dict[str, Any]:
             "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
             "ci": ["mechanical", "module_tests", "coverage", "mutation"],
         },
+        # Sensitive globs / trivial filters live in review_budget.default_reviewer_config
+        # (keep this dict small — mutmut include_globs cover quality.py).
+        "reviewer": {
+            "enabled": True,
+            "helper_model": "composer-2",
+            "budget_max": 3,
+            "delta_lines": 200,
+            "harnesses": {
+                "cursor": {
+                    "model": "grok-4.7[reasoning_effort=medium]",
+                    "effort": "medium",
+                },
+                "claude": {"model": "claude-fable-5-2", "effort": "medium"},
+                "codex": {"model": "gpt-6-astra", "effort": "medium"},
+            },
+        },
     }
 
 
@@ -125,4 +141,39 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     out["mutation"].update({k: mut_in[k] for k in mut_in})
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
+    rev_in = data.get("reviewer") or {}
+    if isinstance(rev_in, dict):
+        out["reviewer"].update({k: rev_in[k] for k in rev_in})
     return out
+
+
+def set_reviewer_options(
+    root: Path,
+    *,
+    context_rel: str = DEFAULT_CONTEXT,
+    model: str | None = None,
+    effort: str | None = None,
+    helper_model: str | None = None,
+    budget_max: int | None = None,
+    harness: str | None = None,
+) -> dict[str, Any]:
+    data = load_quality(root, context_rel)
+    rev = data.setdefault("reviewer", {})
+    if harness:
+        harnesses = rev.setdefault("harnesses", {})
+        entry = harnesses.setdefault(harness, {})
+        if model is not None:
+            entry["model"] = model
+        if effort is not None:
+            entry["effort"] = effort
+    else:
+        if model is not None:
+            rev["model"] = model
+        if effort is not None:
+            rev["effort"] = effort
+    if helper_model is not None:
+        rev["helper_model"] = helper_model
+    if budget_max is not None:
+        rev["budget_max"] = int(budget_max)
+    save_quality(root, data, context_rel)
+    return data

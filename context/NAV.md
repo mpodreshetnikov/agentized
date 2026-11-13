@@ -12,7 +12,8 @@
 | Цели | [`goals/`](goals/) | Цели и приоритеты |
 | Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути (warn-only) |
 | Дайджесты | [`digests/`](digests/) | development / management / releases / architecture |
-| Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest · quality-gates · communication-autonomy · acceptance-artifacts |
+| Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest · quality-gates · communication-autonomy · acceptance-artifacts · strong-reviewer |
+| Agents (pinned) | [`agents/`](agents/) | readonly `reviewer` (AGE-11) |
 | Hooks (pinned) | [`hooks/`](hooks/) | session-start · process-guard (claim) · lease-overlap warn |
 | Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |

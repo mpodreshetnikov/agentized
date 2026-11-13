@@ -46,5 +46,37 @@
       "coverage",
       "mutation"
     ]
+  },
+  "reviewer": {
+    "enabled": true,
+    "helper_model": "composer-2",
+    "budget_max": 3,
+    "delta_lines": 200,
+    "harnesses": {
+      "cursor": {
+        "model": "grok-4.7[reasoning_effort=medium]",
+        "effort": "medium"
+      },
+      "claude": {
+        "model": "claude-fable-5-2",
+        "effort": "medium"
+      },
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      }
+    },
+    "sensitive_globs": [
+      "runtime/**",
+      "packages/shared/**",
+      ".github/workflows/**",
+      ".githooks/**",
+      "context/quality.json",
+      "context/process-control.json",
+      "context/env-check.json",
+      "AGENTS.md",
+      "docs/QUALITY.md",
+      "docs/process-control.md"
+    ]
   }
 }

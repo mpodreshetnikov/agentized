@@ -13,12 +13,24 @@ reports/mutation/
 /agentized
 # Generated harness wiring from `agentized connect` (re-created locally).
 # Pinned SoT remains under context/skills and context/hooks.
-# AGE-8: track Cursor project hooks so cloud env-check can see them without a
-# fresh connect in every session (.cursor/skills stay local-only).
+# Track project hooks + reviewer agents so env-check / self-heal work without
+# a fresh connect (skills stay local-only).
 .cursor/*
 !.cursor/hooks.json
 !.cursor/hooks/
 !.cursor/hooks/**
-.claude/
-.codex/
+!.cursor/agents/
+!.cursor/agents/reviewer.md
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/agents/
+!.claude/agents/reviewer.md
+.codex/*
+!.codex/hooks.json
+!.codex/hooks/
+!.codex/hooks/**
+!.codex/agents/
+!.codex/agents/reviewer.toml
 .agents/skills/
