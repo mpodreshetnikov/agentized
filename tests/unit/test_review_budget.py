@@ -509,7 +509,7 @@ def test_binary_under_sensitive_glob_requests_review(tmp_path: Path, monkeypatch
         capture_output=True,
     )
     numstat = subprocess.run(
-        ["git", "diff", "--numstat", head],
+        ["git", "diff", "--numstat", head, "HEAD"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -523,3 +523,61 @@ def test_binary_under_sensitive_glob_requests_review(tmp_path: Path, monkeypatch
     allowed = allow_review(tmp_path)
     assert allowed["ok"] is True
     assert allowed["action"] == "request"
+
+
+def test_dirty_worktree_cannot_hide_head_sensitive_delta(tmp_path: Path, monkeypatch):
+    """Diff watermark..HEAD, not watermark..worktree, so dirty checkouts can't skip."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "budget_max": 3,
+                    "delta_lines": 5000,
+                    "sensitive_globs": ["runtime/**"],
+                    "trivial_globs": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    # Watermark on a clean tree that already has runtime/x.py baseline content.
+    (tmp_path / "runtime").mkdir()
+    baseline = "print('baseline')\n"
+    (tmp_path / "runtime" / "x.py").write_text(baseline, encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/x.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    watermark = status(tmp_path)["head"]
+    record_review(tmp_path, watermark, findings=0)
+
+    # Commit a sensitive change on HEAD.
+    (tmp_path / "runtime" / "x.py").write_text("print('reviewed-needed')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/x.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "change"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    # Dirty worktree: restore file contents to watermark text (hides vs worktree).
+    (tmp_path / "runtime" / "x.py").write_text(baseline, encoding="utf-8")
+    dirty = subprocess.run(
+        ["git", "diff", "--numstat", "--find-renames", watermark],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert dirty.strip() == ""  # worktree looks unchanged vs watermark
+    allowed = allow_review(tmp_path)
+    assert allowed["ok"] is True
+    assert allowed["action"] == "request"
+    assert "runtime/x.py" in (allowed.get("delta") or {}).get("sensitive", [])

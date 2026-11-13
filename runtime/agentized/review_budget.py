@@ -331,13 +331,18 @@ def _parse_numstat_z(data: bytes) -> list[tuple[str, int]]:
 def _numstat_since(root: Path, since: str) -> tuple[list[tuple[str, int]] | None, str | None]:
     """Return (files, error). error set when watermark/compare cannot be resolved.
 
-    Uses ``-z`` so pathnames are not core.quotePath-mangled. Binary ``-\\t-``
-    rows are retained with zero added lines for sensitive-glob evaluation.
+    Uses the two-commit form ``git diff <watermark> HEAD`` so a dirty worktree
+    cannot hide (or invent) changes relative to the commit under review.
+    ``-z`` avoids core.quotePath mangling; binary ``-\\t-`` rows are retained
+    with zero added lines for sensitive-glob evaluation.
     """
     if not _commit_exists(root, since):
         return None, f"watermark commit unavailable: {since}"
+    head = _head_sha(root)
+    if not head:
+        return None, "HEAD unavailable for watermark comparison"
     proc = subprocess.run(
-        ["git", "diff", "--numstat", "-z", "--find-renames", since],
+        ["git", "diff", "--numstat", "-z", "--find-renames", since, "HEAD"],
         cwd=root,
         capture_output=True,
     )
