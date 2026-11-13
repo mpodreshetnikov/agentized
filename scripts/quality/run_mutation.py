@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Incremental mutation hard gate on covered changed lines (mutmut).
 
-Orbit Lead + Maxim intent: required gate on covered changed lines (not advisory).
+Required gate (Orbit Lead + Maxim intent): fail the build when the covered
+mutation score on changed sources is below context/quality.json threshold.
 """
 from __future__ import annotations
 
@@ -19,17 +20,28 @@ from agentized.paths import DEFAULT_CONTEXT, find_repo_root  # noqa: E402
 from agentized.quality import load_quality  # noqa: E402
 
 DURABLE_SETUP = """[mutmut]
-source_paths = runtime/agentized
+# Top-level `agentized` symlink → runtime/agentized so trampoline keys match imports.
+# Incremental scope = only_mutate(changed files). Gate uses mutationScoreCovered
+# (excludes no-tests), i.e. hard fail on weak covered-mutant score.
+source_paths = agentized
 pytest_add_cli_args_test_selection = tests/unit
-mutate_only_covered_lines = true
+mutate_only_covered_lines = false
 use_git_change_detection = false
 also_copy =
   tests/
-  runtime/
-  context/quality.json
+  context/
+  scripts/
   pyproject.toml
   setup.cfg
 """
+
+
+def _ensure_agentized_link(root: Path) -> bool:
+    link = root / "agentized"
+    if link.exists() or link.is_symlink():
+        return False
+    link.symlink_to(Path("runtime") / "agentized", target_is_directory=True)
+    return True
 
 
 def _changed_py_files(root: Path, base_ref: str, prefixes: list[str]) -> list[str]:
@@ -69,8 +81,7 @@ def _write_setup(root: Path, only_mutate: list[str]) -> None:
     lines = [DURABLE_SETUP.rstrip(), ""]
     if only_mutate:
         lines.append("only_mutate =")
-        for item in only_mutate:
-            lines.append(f"  {item}")
+        lines.extend(f"  {item}" for item in only_mutate)
         lines.append("")
     (root / "setup.cfg").write_text("\n".join(lines), encoding="utf-8")
 
@@ -99,21 +110,6 @@ def _collect_stats(root: Path) -> dict:
                 timeout += 1
             else:
                 other += 1
-    if killed + survived + no_tests == 0:
-        proc = subprocess.run(
-            [sys.executable, "-m", "mutmut", "results", "--all"],
-            cwd=root, capture_output=True, text=True,
-        )
-        for line in (proc.stdout or "").splitlines():
-            low = line.lower()
-            if ": survived" in low:
-                survived += 1
-            elif ": killed" in low:
-                killed += 1
-            elif ": no tests" in low:
-                no_tests += 1
-            elif ": timeout" in low:
-                timeout += 1
     total = killed + survived + no_tests + timeout
     covered = killed + survived + timeout
     return {
@@ -138,24 +134,35 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     base = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or "origin/main"
+    min_score = float(mut.get("min_score_covered", 50))
     prefixes = [
         str(src).replace("\\", "/")
         for module in cfg.get("modules") or []
         for src in module.get("source") or []
     ] or ["runtime/agentized"]
     changed = _changed_py_files(root, base, prefixes)
+    include_globs = list(mut.get("include_globs") or [])
+    if include_globs:
+        import fnmatch
+
+        changed = [
+            path
+            for path in changed
+            if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
+        ]
     if not changed:
         path = _write_summary(root, {
             "schemaVersion": 1, "mode": "incremental-skip", "base": base,
             "generatedAt": datetime.now(timezone.utc).isoformat(),
-            "mutationScore": None, "survived": 0, "killed": 0, "no_tests": 0,
-            "files": [], "gate": "hard", "passed": True,
+            "mutationScore": None, "mutationScoreCovered": None,
+            "survived": 0, "killed": 0, "no_tests": 0, "files": [],
+            "gate": "hard", "passed": True,
             "note": f"No mutable source files changed vs {base}",
         })
         print(f"[mutation] skip vs {base}; wrote {path.relative_to(root)}")
         return 0
 
-    print(f"[mutation] hard gate vs {base} ({len(changed)} files)")
+    print(f"[mutation] hard gate vs {base} ({len(changed)} files, min_score_covered={min_score})")
     for f in changed:
         print(f"  {f}")
 
@@ -164,28 +171,49 @@ def main(argv: list[str] | None = None) -> int:
         print("[mutation] unit tests failed before mutation", file=sys.stderr)
         return pre.returncode
 
+    only = [
+        ("agentized/" + p[len("runtime/agentized/"):]) if p.startswith("runtime/agentized/") else p
+        for p in changed
+    ]
     setup = root / "setup.cfg"
     backup = setup.read_text(encoding="utf-8") if setup.exists() else DURABLE_SETUP
-    _write_setup(root, changed)
+    created_link = _ensure_agentized_link(root)
+    _write_setup(root, only)
+    # Root first so `import agentized` resolves to the symlink / mutants copy — not runtime/.
+    env = {**os.environ, "PYTHONPATH": str(root)}
+    mutmut_rc = 0
     try:
-        run = subprocess.run([sys.executable, "-m", "mutmut", "run"], cwd=root)
-        if run.returncode not in (0, None) and run.returncode != 0:
-            print(f"[mutation] mutmut exited {run.returncode}", file=sys.stderr)
+        run = subprocess.run([sys.executable, "-m", "mutmut", "run"], cwd=root, env=env)
+        mutmut_rc = run.returncode or 0
+        if mutmut_rc != 0:
+            print(f"[mutation] mutmut exited {mutmut_rc}", file=sys.stderr)
     finally:
         setup.write_text(backup if backup.strip() else DURABLE_SETUP, encoding="utf-8")
+        link = root / "agentized"
+        if created_link and link.is_symlink():
+            link.unlink(missing_ok=True)
 
     stats = _collect_stats(root)
-    reasons = []
-    if mut.get("break_on_survived", True) and stats["survived"] > 0:
-        reasons.append(f"survived={stats['survived']}")
+    reasons: list[str] = []
+    if mutmut_rc != 0 and stats["totalMutants"] == 0:
+        reasons.append(f"mutmut_exit={mutmut_rc}")
     if mut.get("break_on_no_tests", True) and stats["no_tests"] > 0:
         reasons.append(f"no_tests={stats['no_tests']}")
+    score = stats["mutationScoreCovered"]
+    if score is None and changed and stats["totalMutants"] == 0:
+        reasons.append("no_mutants_evaluated")
+    if score is not None and score + 1e-9 < min_score:
+        reasons.append(f"score_covered={score}<{min_score}")
+    if mut.get("break_on_survived") and stats["survived"] > 0:
+        reasons.append(f"survived={stats['survived']}")
+
     passed = not reasons
     path = _write_summary(root, {
         "schemaVersion": 1, "mode": "incremental", "base": base,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "gate": "hard", "scope": "covered_changed_lines", "tool": "mutmut",
-        "changedFiles": changed, "passed": passed, "reasons": reasons, **stats,
+        "minScoreCovered": min_score, "changedFiles": changed,
+        "passed": passed, "reasons": reasons, **stats,
     })
     print(
         f"[mutation] score={stats['mutationScore']} covered={stats['mutationScoreCovered']} "

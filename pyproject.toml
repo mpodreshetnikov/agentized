@@ -14,7 +14,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/quality"]
 pythonpath = ["runtime"]
 
 [tool.coverage.run]

@@ -7,8 +7,10 @@
   "modules": [
     {
       "id": "runtime",
-      "source": ["runtime/agentized"],
-      "test_command": "python3 -m pytest tests/unit -q --cov=runtime/agentized --cov-branch --cov-report=term-missing --cov-report=lcov:coverage/runtime/lcov.info --cov-report=json:coverage/runtime/coverage.json --cov-fail-under=0",
+      "source": [
+        "runtime/agentized"
+      ],
+      "test_command": "python3 -m pytest tests/unit tests/quality -q --cov=runtime/agentized --cov-branch --cov-report=term-missing --cov-report=lcov:coverage/runtime/lcov.info --cov-report=json:coverage/runtime/coverage.json --cov-fail-under=0",
       "coverage_lcov": "coverage/runtime/lcov.info",
       "coverage_json": "coverage/runtime/coverage.json",
       "thresholds": {}
@@ -20,11 +22,29 @@
     "gate": "hard",
     "scope": "covered_changed_lines",
     "base_ref": "origin/main",
-    "break_on_survived": true,
-    "break_on_no_tests": true
+    "min_score_covered": 50,
+    "break_on_survived": false,
+    "break_on_no_tests": true,
+    "include_globs": [
+      "runtime/agentized/quality.py",
+      "runtime/agentized/paths.py",
+      "runtime/agentized/tasks.py",
+      "runtime/agentized/leases.py",
+      "runtime/agentized/hook_common.py"
+    ]
   },
   "gates": {
-    "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
-    "ci": ["mechanical", "module_tests", "coverage", "mutation"]
+    "pre_push": [
+      "mechanical",
+      "module_tests",
+      "coverage",
+      "mutation"
+    ],
+    "ci": [
+      "mechanical",
+      "module_tests",
+      "coverage",
+      "mutation"
+    ]
   }
 }

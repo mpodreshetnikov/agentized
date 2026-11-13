@@ -15,7 +15,8 @@ AGE-7: configurable multi-module coverage, incremental mutation as a **hard gate
 | Field | Meaning |
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
-| `mutation.gate` | `hard` on covered changed lines (mutmut) |
+| `mutation.gate` | `hard` — fails CI when covered mutation score on changed include_globs is below `min_score_covered` (default 50; ratchet toward 80) |
+| `mutation.include_globs` | Which changed sources enter the mutation set (harness wiring often excluded) |
 | `gates.pre_push` / `gates.ci` | Ordered gate names |
 
 ## Commands

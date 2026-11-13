@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import coverage_report as cr
 from agentized.connect import (
     QUALITY_MARKER,
     _copy_tree,
@@ -14,7 +12,7 @@ from agentized.connect import (
 from agentized.hook_common import extract_paths, nav_reminder, read_stdin_json
 from agentized.leases import list_leases, rebuild_lease_index
 from agentized.paths import CONNECT_MARKER_BEGIN, CONNECT_MARKER_END
-from agentized.quality import default_quality_config, load_quality, save_quality
+from agentized.quality import default_quality_config, load_quality, module_thresholds, save_quality
 
 
 def test_upsert_and_copy(tmp_path: Path):
@@ -58,39 +56,35 @@ def test_hook_and_lease_edges(tmp_path: Path, monkeypatch):
     assert "Path leases" in rebuild_lease_index(tmp_path)
 
 
-def test_coverage_parsers(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(cr, "ROOT", tmp_path)
-    lcov = tmp_path / "cov.lcov"
-    lcov.write_text(
-        "SF:runtime/agentized/paths.py\nLF:10\nLH:8\nBRF:4\nBRH:3\nend_of_record\n"
-        "SF:runtime/agentized/paths.py\nLF:10\nLH:9\nBRF:4\nBRH:2\nend_of_record\n",
-        encoding="utf-8",
-    )
-    assert cr.parse_lcov(lcov)["totals"]["lines_hit"] == 9
-    p = tmp_path / "coverage.json"
-    p.write_text(json.dumps({"totals": {"covered_lines": 8, "num_statements": 10, "covered_branches": 3, "num_branches": 4}}), encoding="utf-8")
-    assert cr.parse_coverage_json(p)["lines_pct"] == 80.0
-    (tmp_path / "context").mkdir()
-    cfg = default_quality_config()
-    cfg["modules"] = [{
-        "id": "runtime", "source": ["runtime/agentized"],
-        "coverage_lcov": "coverage/runtime/lcov.info",
-        "coverage_json": "coverage/runtime/coverage.json", "thresholds": {},
-    }]
-    save_quality(tmp_path, cfg)
-    cov = tmp_path / "coverage/runtime"; cov.mkdir(parents=True)
-    (cov / "lcov.info").write_text("SF:runtime/agentized/paths.py\nLF:10\nLH:9\nBRF:4\nBRH:4\nend_of_record\n", encoding="utf-8")
-    (cov / "coverage.json").write_text(json.dumps({"totals": {"covered_lines": 9, "num_statements": 10, "covered_branches": 4, "num_branches": 4}}), encoding="utf-8")
-    summary = cr.build_report(tmp_path)
-    assert summary["combined_pass"] is True
-    assert cr.write_report(tmp_path, summary)[0].exists()
-
-
 def test_quality_invalid(tmp_path: Path):
-    path = tmp_path / "context/quality.json"; path.parent.mkdir(parents=True)
+    path = tmp_path / "context/quality.json"
+    path.parent.mkdir(parents=True)
     path.write_text("[]\n", encoding="utf-8")
     try:
-        load_quality(tmp_path); ok = False
+        load_quality(tmp_path)
+        ok = False
     except ValueError:
         ok = True
     assert ok
+    save_quality(tmp_path, {"version": 1, "coverage": {"lines": 81}, "modules": []})
+    assert load_quality(tmp_path)["coverage"]["lines"] == 81.0
+
+
+
+def test_quality_normalize_and_module_thresholds(tmp_path: Path):
+    save_quality(tmp_path, {
+        "version": 1,
+        "coverage": {"lines": 77, "branches": 78},
+        "modules": [{"id": "m", "source": ["x"], "thresholds": {"lines": 70}}],
+        "mutation": {"gate": "hard", "min_score_covered": 55},
+        "gates": {"ci": ["coverage"]},
+    })
+    data = load_quality(tmp_path)
+    assert data["coverage"]["lines"] == 77.0
+    assert data["coverage"]["branches"] == 78.0
+    assert data["mutation"]["min_score_covered"] == 55
+    assert data["gates"]["ci"] == ["coverage"]
+    lines, branches = module_thresholds(data, data["modules"][0])
+    assert lines == 70.0 and branches == 78.0
+    lines2, branches2 = module_thresholds(data, {"thresholds": {}})
+    assert lines2 == 77.0 and branches2 == 78.0

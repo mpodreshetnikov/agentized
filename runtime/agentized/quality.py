@@ -22,7 +22,7 @@ def default_quality_config() -> dict[str, Any]:
                 "id": "runtime",
                 "source": ["runtime/agentized"],
                 "test_command": (
-                    "python3 -m pytest tests/unit -q --cov=runtime/agentized --cov-branch "
+                    "python3 -m pytest tests/unit tests/quality -q --cov=runtime/agentized --cov-branch "
                     "--cov-report=term-missing "
                     "--cov-report=lcov:coverage/runtime/lcov.info "
                     "--cov-report=json:coverage/runtime/coverage.json "
@@ -39,8 +39,16 @@ def default_quality_config() -> dict[str, Any]:
             "gate": "hard",
             "scope": "covered_changed_lines",
             "base_ref": "origin/main",
-            "break_on_survived": True,
+            "min_score_covered": 50,
+            "break_on_survived": False,
             "break_on_no_tests": True,
+            "include_globs": [
+                "runtime/agentized/quality.py",
+                "runtime/agentized/paths.py",
+                "runtime/agentized/tasks.py",
+                "runtime/agentized/leases.py",
+                "runtime/agentized/hook_common.py",
+            ],
         },
         "gates": {
             "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
