@@ -21,11 +21,18 @@ def _task(root: Path, task_id: str, *, status: str, claim: str) -> None:
     )
 
 
-def test_path_globs_and_excludes():
+def test_path_globs_and_excludes(tmp_path: Path):
     cfg = default_process_config()
     assert path_needs_claim("runtime/agentized/x.py", cfg) is True
     assert path_needs_claim("context/tasks/AGE-1.md", cfg) is False
     assert path_needs_claim("README.md", cfg) is False
+    # preserve .github (must not become github/...)
+    assert path_needs_claim(".github/workflows/ci.yml", cfg, root=tmp_path) is True
+    # absolute path under workspace → relative match
+    abs_runtime = tmp_path / "runtime" / "x.py"
+    abs_runtime.parent.mkdir(parents=True)
+    abs_runtime.write_text("x\n", encoding="utf-8")
+    assert path_needs_claim(str(abs_runtime), cfg, root=tmp_path) is True
 
 
 def test_claim_ok_and_refuse(tmp_path: Path, monkeypatch):
@@ -128,3 +135,34 @@ def test_active_claims_open_fallback(tmp_path: Path):
     _task(tmp_path, "T-261113-zzz", status="open", claim="bob")
     claims = active_claims(tmp_path)
     assert any("T-261113-zzz" in c for c in claims)
+
+
+def test_normalize_and_extract_paths(tmp_path: Path):
+    from agentized.hook_common import extract_paths, normalize_repo_path
+
+    assert extract_paths({"file_path": "./.github/workflows/ci.yml"}) == [
+        ".github/workflows/ci.yml"
+    ]
+    abs_p = tmp_path / "runtime" / "x.py"
+    abs_p.parent.mkdir(parents=True)
+    abs_p.write_text("x\n", encoding="utf-8")
+    assert normalize_repo_path(str(abs_p), tmp_path) == "runtime/x.py"
+    assert normalize_repo_path("./.github/a.yml", tmp_path) == ".github/a.yml"
+    # claim_check with custom context + absolute path
+    custom = tmp_path / "custom"
+    (custom / "tasks").mkdir(parents=True)
+    (custom / "process-control.json").write_text(
+        '{"claim_required": true, "claim_mode_agent": "refuse"}\n', encoding="utf-8"
+    )
+    (custom / "tasks" / "T-261113-xyz.md").write_text(
+        "# T-261113-xyz — t\n\nстатус: in-progress\nтеги:\nродитель:\nclaim: alice\n",
+        encoding="utf-8",
+    )
+    r = claim_check(
+        tmp_path,
+        [str(abs_p)],
+        context_rel="custom",
+        env={"CURSOR_AGENT": "1"},
+    )
+    assert r["ok"] is True
+    assert "T-261113-xyz" in r["message"]

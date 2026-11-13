@@ -104,15 +104,42 @@ def extract_paths(payload: dict) -> list[str]:
                     paths.append(str(item["path"]))
                 elif isinstance(item, str):
                     paths.append(item)
-    # unique
+    # unique — strip only "./" prefixes (never lstrip("./") which eats ".github" / leading "/")
     seen: set[str] = set()
     out: list[str] = []
     for p in paths:
-        p = p.lstrip("./")
+        p = p.replace("\\", "/")
+        while p.startswith("./"):
+            p = p[2:]
         if p and p not in seen:
             seen.add(p)
             out.append(p)
     return out
+
+
+def normalize_repo_path(path: str, root: Path) -> str:
+    """Map absolute or ./relative edit paths onto repo-relative form for globs.
+
+    Preserves leading dots in names (`.github/...`). Absolute paths outside
+    `root` stay as normalized absolute strings (no claim match expected).
+    """
+    path = path.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    if not path:
+        return path
+    candidate = Path(path)
+    root_res = root.resolve()
+    if candidate.is_absolute():
+        try:
+            return str(candidate.resolve().relative_to(root_res)).replace("\\", "/")
+        except ValueError:
+            return str(candidate.resolve()).replace("\\", "/")
+    # Absolute-looking without Path.is_absolute on odd inputs: root prefix
+    root_s = str(root_res).replace("\\", "/")
+    if path.startswith(root_s + "/"):
+        return path[len(root_s) + 1 :]
+    return path
 
 
 def lease_warn_for_paths(root: Path, paths: list[str], *, ignore_task: str | None = None) -> str:

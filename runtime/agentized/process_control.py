@@ -75,8 +75,15 @@ def _match(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pat) for pat in patterns)
 
 
-def path_needs_claim(path: str, cfg: dict[str, Any]) -> bool:
-    path = path.replace("\\", "/").lstrip("./")
+def path_needs_claim(path: str, cfg: dict[str, Any], *, root: Path | None = None) -> bool:
+    from .hook_common import normalize_repo_path
+
+    if root is not None:
+        path = normalize_repo_path(path, root)
+    else:
+        path = path.replace("\\", "/")
+        while path.startswith("./"):
+            path = path[2:]
     excludes = list(cfg.get("edit_path_excludes") or [])
     if _match(path, excludes):
         return False
@@ -118,7 +125,7 @@ def claim_check(
     cfg = load_process_config(root, context_rel)
     if not cfg.get("claim_required", True):
         return {"ok": True, "mode": "disabled", "message": ""}
-    watched = [p for p in paths if path_needs_claim(p, cfg)]
+    watched = [p for p in paths if path_needs_claim(p, cfg, root=root)]
     if not watched:
         return {"ok": True, "mode": "skip", "message": ""}
     claims = active_claims(root, context_rel)

@@ -44,7 +44,7 @@ def main() -> int:
     }
 
     try:
-        from agentized.hook_common import extract_paths, resolve_root
+        from agentized.hook_common import context_rel, extract_paths, resolve_root
         from agentized.process_control import claim_check
     except Exception as exc:  # noqa: BLE001 — never crash the harness
         allow["agent_message"] = f"[process-guard] unavailable: {exc}"
@@ -63,7 +63,8 @@ def main() -> int:
         print(json.dumps(allow))
         return 0
 
-    result = claim_check(root, paths)
+    ctx = context_rel(root)
+    result = claim_check(root, paths, context_rel=ctx)
     msg = result.get("message") or ""
     if result.get("ok", True):
         if msg and result.get("mode") == "warn":

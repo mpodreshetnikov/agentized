@@ -42,6 +42,12 @@ def test_connect_external_repo_uses_installed_assets(tmp_path: Path, monkeypatch
     (ctx / "NAV.md").write_text("# NAV\n", encoding="utf-8")
     (ctx / "tasks").mkdir()
     (ctx / "leases").mkdir()
+    installed = installed_agentized_root()
+    cursor_plugin = installed / "packages" / "agentized-cursor" / "skills"
+    before = None
+    marker = cursor_plugin / "_external_connect_probe"
+    if cursor_plugin.is_dir():
+        before = {p.name for p in cursor_plugin.iterdir()}
     monkeypatch.chdir(tmp_path)
     result = connect(tmp_path, context_rel="context", harnesses=["cursor"], coverage_pct=80)
     # skills/hooks come from installed Agentized packages/
@@ -56,6 +62,12 @@ def test_connect_external_repo_uses_installed_assets(tmp_path: Path, monkeypatch
     assert result["quality_templates"]["pre_push"] in {"created", "updated", "unchanged"}
     assert "AGENTIZED:QUALITY" in (tmp_path / ".githooks" / "pre-push").read_text(encoding="utf-8")
     assert "command -v agentized" in (tmp_path / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    # installed packages must stay read-only (no plugin refresh writes)
+    assert not marker.exists()
+    if before is not None:
+        after = {p.name for p in cursor_plugin.iterdir()}
+        assert after == before
+    assert result["harnesses"]["cursor"].get("plugin_path") is None
     # second pin stays stable
     again = pin_quality_templates(tmp_path)
     assert again["pre_push"] in {"unchanged", "updated", "skipped-user-file"}

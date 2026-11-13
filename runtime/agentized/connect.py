@@ -86,10 +86,18 @@ def _copy_tree(src: Path, dst: Path) -> list[str]:
     return copied
 
 
-def _repo_packages(root: Path) -> Path:
-    """Prefer in-repo packages/; else fall back to the installed Agentized root."""
+def _local_packages(root: Path) -> Path | None:
+    """In-repo packages/ only (writable). None when the target has no packages tree."""
     local = root / "packages"
     if local.is_dir() and (local / "shared").is_dir():
+        return local
+    return None
+
+
+def _repo_packages(root: Path) -> Path:
+    """Asset source: in-repo packages/ if present, else installed Agentized (read-only)."""
+    local = _local_packages(root)
+    if local is not None:
         return local
     return installed_agentized_root() / "packages"
 
@@ -107,6 +115,22 @@ def _shared_skills(root: Path) -> Path:
 
 def _shared_hook_scripts(root: Path) -> Path:
     return _repo_packages(root) / "shared" / "hooks" / "scripts"
+
+
+def _refresh_local_plugin(root: Path, name: str, skills_src: Path) -> str | None:
+    """Refresh plugin skills/scripts only when packages/ lives inside the target repo.
+
+    Installed Agentized packages are read-only asset sources — never write into them.
+    """
+    local = _local_packages(root)
+    if local is None:
+        return None
+    plugin_src = local / name
+    if not plugin_src.exists():
+        return None
+    _copy_tree(skills_src, plugin_src / "skills")
+    _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
+    return str(plugin_src)
 
 
 def _pin_hook_scripts(root: Path, context_rel: str, dest: Path) -> list[str]:
@@ -152,14 +176,10 @@ def install_cursor(root: Path, context_rel: str) -> dict:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     cursor_skills = root / ".cursor" / "skills"
     copied = _copy_tree(skills_src, cursor_skills)
-    # also keep plugin-shaped copy for --plugin-dir / local plugins
-    plugin_src = _repo_packages(root) / "agentized-cursor"
     local_note = []
-    if plugin_src.exists():
-        # refresh plugin package skills/hooks from shared pinned
-        _copy_tree(skills_src, plugin_src / "skills")
-        _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
-        local_note.append(str(plugin_src))
+    refreshed = _refresh_local_plugin(root, "agentized-cursor", skills_src)
+    if refreshed:
+        local_note.append(refreshed)
 
     _pin_hook_scripts(root, context_rel, hooks_dir)
 
@@ -205,11 +225,7 @@ def install_claude(root: Path, context_rel: str) -> dict:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     copied = _copy_tree(skills_src, claude_dir / "skills")
     _pin_hook_scripts(root, context_rel, hooks_dir)
-
-    plugin_src = _repo_packages(root) / "agentized-claude"
-    if plugin_src.exists():
-        _copy_tree(skills_src, plugin_src / "skills")
-        _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
+    _refresh_local_plugin(root, "agentized-claude", skills_src)
 
     settings_path = claude_dir / "settings.json"
     settings = {}
@@ -271,11 +287,7 @@ def install_codex(root: Path, context_rel: str) -> dict:
     codex_hooks = root / ".codex" / "hooks"
     codex_hooks.mkdir(parents=True, exist_ok=True)
     _pin_hook_scripts(root, context_rel, codex_hooks)
-
-    plugin_src = _repo_packages(root) / "agentized-codex"
-    if plugin_src.exists():
-        _copy_tree(skills_src, plugin_src / "skills")
-        _copy_tree(_shared_hook_scripts(root), plugin_src / "scripts")
+    _refresh_local_plugin(root, "agentized-codex", skills_src)
 
     hooks_json = {
         "description": "Agentized project hooks (claim guard, warn-only leases, NAV reminder).",
