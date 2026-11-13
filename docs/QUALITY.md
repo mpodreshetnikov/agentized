@@ -39,14 +39,21 @@ Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows
 
 ## Strong reviewer (AGE-11)
 
-Independent **read-only** reviewer role + orchestration skill, installed by `connect` for Cursor / Claude / Codex (`.cursor/agents/reviewer.md`, `.claude/agents/`, `.codex/agents/` + `strong-reviewer` skill).
+Independent **read-only** reviewer role + orchestration skill, installed by `connect` for Cursor / Claude / Codex:
+
+- Cursor: `.cursor/agents/reviewer.md` → `grok-4.7[reasoning_effort=medium]`
+- Claude: `.claude/agents/reviewer.md` → `claude-fable-5-2` + `disallowedTools`
+- Codex: `.codex/agents/reviewer.toml` **only** (never `.md`) → `gpt-6-astra`
+
+The reviewer **never** uses caveman/ultracave — expanded findings only.
 
 Config in [`context/quality.json`](../context/quality.json) → `reviewer`:
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `model` | `claude-opus-4.5` | Strong/frontier model for the reviewer agent |
-| `effort` | `high` | Review depth hint in the agent prompt |
+| `harnesses.cursor.model` | `grok-4.7[reasoning_effort=medium]` | Cursor reviewer |
+| `harnesses.claude.model` | `claude-fable-5-2` | Claude reviewer |
+| `harnesses.codex.model` | `gpt-6-astra` | Codex reviewer |
 | `helper_model` | `composer-2` | Cheap model for implementer / helpers |
 | `budget_max` | `3` | Max review rounds per task/PR |
 | `delta_lines` | `200` | New reviewable lines since watermark that earn another pass |
@@ -57,7 +64,8 @@ Config in [`context/quality.json`](../context/quality.json) → `reviewer`:
 ./bin/agentized review allow [--scope TASK-or-PR]   # exit 0 → call reviewer; else skip/escalate/blocked
 ./bin/agentized review record --sha <Reviewed-commit> --findings N [--scope TASK-or-PR]
 ./bin/agentized review reset --scope TASK-or-PR     # fresh budget for a new task/PR
-./bin/agentized review set --model claude-opus-4.5 --budget-max 3
+./bin/agentized review set --harness cursor --model 'grok-4.7[reasoning_effort=medium]'
+./bin/agentized reporting set --level short|technical
 ```
 
 Scope (task/PR identity): `--scope` or env `AGENTIZED_REVIEW_SCOPE` (default `default`). Budget + watermark are **per scope**, so unrelated work does not share `used` / watermark. Start a new task/PR with a new scope or `review reset`.

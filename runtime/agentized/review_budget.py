@@ -25,11 +25,17 @@ ENV_SCOPE = "AGENTIZED_REVIEW_SCOPE"
 def default_reviewer_config() -> dict[str, Any]:
     return {
         "enabled": True,
-        "model": "claude-opus-4.5",
-        "effort": "high",
         "helper_model": "composer-2",
         "budget_max": 3,
         "delta_lines": 200,
+        "harnesses": {
+            "cursor": {
+                "model": "grok-4.7[reasoning_effort=medium]",
+                "effort": "medium",
+            },
+            "claude": {"model": "claude-fable-5-2", "effort": "medium"},
+            "codex": {"model": "gpt-6-astra", "effort": "medium"},
+        },
         "sensitive_globs": [
             "runtime/**",
             "packages/shared/**",
@@ -591,12 +597,14 @@ def status(
     state = load_state(root, scope=sid)
     store = load_store(root)
     budget = int(cfg.get("budget_max") or state.get("budget_max") or 3)
+    harnesses = cfg.get("harnesses") if isinstance(cfg.get("harnesses"), dict) else {}
     return {
         "enabled": bool(cfg.get("enabled", True)),
         "scope": sid,
         "scopes": sorted(store.get("scopes") or {}),
         "model": cfg.get("model"),
         "effort": cfg.get("effort"),
+        "harnesses": harnesses,
         "helper_model": cfg.get("helper_model"),
         "used": int(state.get("used") or 0),
         "budget_max": budget,

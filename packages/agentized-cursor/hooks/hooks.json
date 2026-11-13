@@ -16,6 +16,11 @@
         "matcher": "Write|Edit|Shell|Bash"
       }
     ],
+    "beforeShellExecution": [
+      {
+        "command": "./scripts/ensure_agent_hooks.py"
+      }
+    ],
     "afterFileEdit": [
       {
         "command": "./scripts/lease_warn.py"

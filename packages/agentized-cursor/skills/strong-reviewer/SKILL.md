@@ -10,9 +10,13 @@ description: When and how the main Agentized agent invokes the independent read-
 | Role | Model | Job |
 |------|-------|-----|
 | Main / helpers | cheap (`reviewer.helper_model`) | Implement, test, fix |
-| `reviewer` agent | strong (`reviewer.model`, high effort) | Read-only severity report |
+| `reviewer` agent | per-harness (`reviewer.harnesses.<cursor\|claude\|codex>`) | Read-only severity report |
 
 Config: `{context}/quality.json` → `reviewer.*` (defaults set by connect).
+
+## Caveman — **exception**
+
+The `reviewer` does **not** use caveman/ultracave. Always write **expanded, unambiguous** findings and accept/reject rationale. Working agents stay ultracave; reviewer never does.
 
 ## Scope (task/PR budget)
 
@@ -38,7 +42,7 @@ Budget + watermark are **per scope** (`--scope` or `AGENTIZED_REVIEW_SCOPE`, def
 ## How to call
 
 1. `./bin/agentized review allow --scope <task-or-pr>` (or `--json`).
-2. If `ok` and `action=request`: spawn the **reviewer** subagent (Cursor/Claude: `.cursor/agents/reviewer.md` / `.claude/agents/reviewer.md`; Codex: same role via `.codex/agents/reviewer.md` + this skill) in a **fresh** context. Pass base ref + watermark sha.
+2. If `ok` and `action=request`: spawn the **reviewer** subagent (Cursor: `.cursor/agents/reviewer.md`; Claude: `.claude/agents/reviewer.md`; Codex: `.codex/agents/reviewer.toml` only — never `.md`) in a **fresh** context. Pass base ref + watermark sha.
 3. After the report: `./bin/agentized review record --sha <Reviewed-commit> --findings <N> --scope <task-or-pr>`.
 4. Fix by **class**, push one pack, re-check allow before the next call.
 

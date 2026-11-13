@@ -22,15 +22,32 @@ Prove any agent/cloud session:
 # or: python3 runtime/agentized_cli.py env-check
 ```
 
-## Cursor Cloud setup (required owner action)
+## Self-healing `.githooks` bind (all harnesses)
+
+After `connect`, project hooks call `ensure_agent_hooks.py` before git commit/push:
+
+| Harness | Hook |
+| --- | --- |
+| Cursor | `.cursor/hooks.json` → `beforeShellExecution` |
+| Claude | `.claude/settings.json` → `PreToolUse` / `Bash` |
+| Codex | `.codex/hooks.json` → `PreToolUse` / `Bash` |
+
+Behavior (idempotent, never blocks the shell):
+
+- Local / Claude / Codex: set `core.hooksPath=.githooks` when unset (preserves user paths and Cursor `agent-hooks`).
+- Cursor Cloud: when `~/.cursor/agent-hooks/<id>/` + `.dispatcher` exist, wire the chain to this repo’s `.githooks`.
+
+## Cursor Cloud setup (owner Dashboard + self-heal)
 
 Cursor Cloud owns each checkout's `core.hooksPath` → `~/.cursor/agent-hooks/<id>/`. Until that dispatcher chains this repo's `.githooks`, pre-push quality gates never run.
 
-Add this **exact** line to the environment **Install** and **Start** scripts (Cursor Dashboard → Cloud Agents → this environment → Install / Start), after Cursor has created `~/.cursor/agent-hooks/<id>/`:
+**Preferred:** keep this **exact** line in the environment **Install** and **Start** scripts (Cursor Dashboard → Cloud Agents → this environment → Install / Start / `environment.json`), after Cursor has created `~/.cursor/agent-hooks/<id>/`:
 
 ```sh
 bash /agent/repos/agentized/scripts/cloud/configure-cursor-agent-hooks.sh
 ```
+
+**Fallback:** `beforeShellExecution` / Claude·Codex `PreToolUse` self-heal on the first `git commit`/`git push` in-session. Still paste the Install line for sessions that skip hooks.
 
 Then start a **new** session. Do not rewrite `~/.cursor/agent-hooks` by hand from an agent session.
 

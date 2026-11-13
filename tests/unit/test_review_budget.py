@@ -49,8 +49,8 @@ def _git_repo(tmp_path: Path) -> None:
 def test_default_reviewer_config():
     cfg = default_reviewer_config()
     assert cfg["budget_max"] == 3
-    assert cfg["effort"] == "high"
-    assert cfg["model"]
+    assert cfg["harnesses"]["cursor"]["model"].startswith("grok-4.7")
+    assert cfg["harnesses"]["codex"]["model"] == "gpt-6-astra"
 
 
 def test_allow_first_then_budget(tmp_path: Path, monkeypatch):
@@ -173,7 +173,9 @@ def test_disabled_and_cli(tmp_path: Path, monkeypatch):
     assert pin_reviewer_agents(tmp_path, "context").get("skipped") == "missing-src"
     bare = tmp_path / "bare.md"
     bare.write_text("plain body\n", encoding="utf-8")
-    assert _render_reviewer_agent(bare, "x") == "plain body\n"
+    rendered_bare = _render_reviewer_agent(bare, "x")
+    assert "model: x" in rendered_bare
+    assert "plain body" in rendered_bare
     set_reviewer_options(tmp_path, effort="max", helper_model="composer-2")
     assert load_quality(tmp_path)["reviewer"]["effort"] == "max"
 
@@ -201,9 +203,10 @@ def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
         "#!/bin/sh\n# AGENTIZED:QUALITY\n", encoding="utf-8"
     )
     rendered = _render_reviewer_agent(
-        tmp_path / "packages" / "shared" / "agents" / "reviewer.md", "claude-opus-4.5"
+        tmp_path / "packages" / "shared" / "agents" / "reviewer.md",
+        "grok-4.7[reasoning_effort=medium]",
     )
-    assert "model: claude-opus-4.5" in rendered
+    assert "model: grok-4.7[reasoning_effort=medium]" in rendered
     assert "model: old" not in rendered
     monkeypatch.chdir(tmp_path)
     connect(tmp_path, context_rel="context", harnesses=["cursor"])
@@ -211,10 +214,11 @@ def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
     assert q["reviewer"]["budget_max"] == 3
     assert (ctx / "agents" / "reviewer.md").exists()
     assert (tmp_path / ".cursor" / "agents" / "reviewer.md").exists()
-    assert "claude-opus-4.5" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(
-        encoding="utf-8"
+    cursor_body = (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    assert "grok-4.7" in cursor_body
+    set_reviewer_options(
+        tmp_path, harness="cursor", model="gpt-5.4", budget_max=5
     )
-    set_reviewer_options(tmp_path, model="gpt-5.4", budget_max=5)
     pin_reviewer_agents(tmp_path, "context")
     assert "gpt-5.4" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
     assert load_quality(tmp_path)["reviewer"]["budget_max"] == 5

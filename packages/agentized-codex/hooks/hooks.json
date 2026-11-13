@@ -1,5 +1,5 @@
 {
-  "description": "Agentized Codex hooks (NAV reminder, claim guard, warn-only leases).",
+  "description": "Agentized Codex hooks (NAV reminder, claim guard, warn-only leases, git-hooks self-heal).",
   "hooks": {
     "SessionStart": [
       {
@@ -34,6 +34,17 @@
             "command": "python3 \"${PLUGIN_ROOT}/scripts/lease_warn.py\"",
             "statusMessage": "Agentized lease warn",
             "additionalContextLimit": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/ensure_agent_hooks.py\"",
+            "statusMessage": "Agentized git-hooks self-heal",
+            "additionalContextLimit": 2000
           }
         ]
       }

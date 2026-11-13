@@ -136,14 +136,44 @@ def cmd_review(args: argparse.Namespace) -> int:
             effort=args.effort,
             helper_model=args.helper_model,
             budget_max=args.budget_max,
+            harness=getattr(args, "harness", None),
         )
         rev = data.get("reviewer") or {}
-        print(
-            f"reviewer → model={rev.get('model')} effort={rev.get('effort')} "
-            f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
-        )
+        harness = getattr(args, "harness", None)
+        if harness:
+            h = ((rev.get("harnesses") or {}).get(harness) or {})
+            print(
+                f"reviewer[{harness}] → model={h.get('model')} effort={h.get('effort')} "
+                f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
+            )
+        else:
+            print(
+                f"reviewer → model={rev.get('model')} effort={rev.get('effort')} "
+                f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
+            )
         return 0
     print("usage: agentized review status|allow|record|reset|set", file=sys.stderr)
+    return 2
+
+
+def cmd_reporting(args: argparse.Namespace) -> int:
+    from agentized.reporting import load_reporting, set_reporting_level
+
+    root = find_repo_root()
+    ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    if args.reporting_cmd == "show":
+        data = load_reporting(root, ctx_rel)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    if args.reporting_cmd == "set":
+        try:
+            data = set_reporting_level(root, args.level, context_rel=ctx_rel)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(f"reporting level → {data.get('level')}")
+        return 0
+    print("usage: agentized reporting show|set", file=sys.stderr)
     return 2
 
 
@@ -563,8 +593,23 @@ def build_parser() -> argparse.ArgumentParser:
     rvset.add_argument("--effort", default=None)
     rvset.add_argument("--helper-model", dest="helper_model", default=None)
     rvset.add_argument("--budget-max", dest="budget_max", type=int, default=None)
+    rvset.add_argument(
+        "--harness",
+        choices=["cursor", "claude", "codex"],
+        default=None,
+        help="set model/effort for one harness (cursor/claude/codex)",
+    )
     rvset.add_argument("--context", default=None)
     rv.set_defaults(func=cmd_review)
+
+    rp = sub.add_parser("reporting", help="Acceptance handoff level (short|technical)")
+    rp_sub = rp.add_subparsers(dest="reporting_cmd", required=True)
+    rps = rp_sub.add_parser("show", help="Show context/reporting.json")
+    rps.add_argument("--context", default=None)
+    rpset = rp_sub.add_parser("set", help="Set reporting level")
+    rpset.add_argument("--level", required=True, choices=["short", "technical"])
+    rpset.add_argument("--context", default=None)
+    rp.set_defaults(func=cmd_reporting)
 
     pc = sub.add_parser("process", help="Claim-before-edits + reviewable PR size")
     pc_sub = pc.add_subparsers(dest="process_cmd", required=True)
