@@ -8,6 +8,10 @@
     ],
     "preToolUse": [
       {
+        "command": ".cursor/hooks/process_guard.py",
+        "matcher": "Write|Edit"
+      },
+      {
         "command": ".cursor/hooks/lease_warn.py",
         "matcher": "Write|Edit|Shell|Bash"
       }

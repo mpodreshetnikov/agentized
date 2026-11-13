@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # AGENTIZED:QUALITY — safe template; connect installs when missing or marked.
-# Calls self-contained `agentized quality check` (runtime/agentized/). Optional
-# mechanical suite only when the target repo ships it.
+# Calls self-contained `agentized quality check`. Optional mechanical suite
+# only when the target repo ships it. Resolves CLI for dogfood and external repos.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-CLI=(python3 runtime/agentized_cli.py)
 if [[ -x ./bin/agentized ]]; then
   CLI=(./bin/agentized)
+elif [[ -f runtime/agentized_cli.py ]]; then
+  CLI=(python3 runtime/agentized_cli.py)
+elif command -v agentized >/dev/null 2>&1; then
+  CLI=(agentized)
+else
+  echo "[agentized pre-push] ERROR: agentized CLI not found (./bin/agentized, runtime/, or PATH)" >&2
+  exit 1
 fi
 
 if [[ -x ./tests/test_mechanical.sh ]]; then
@@ -18,6 +24,9 @@ if [[ -x ./tests/test_mechanical.sh ]]; then
 else
   echo "[agentized pre-push] mechanical skipped (no ./tests/test_mechanical.sh)"
 fi
+
+echo "[agentized pre-push] process size"
+"${CLI[@]}" process size || true
 
 echo "[agentized pre-push] quality check (coverage + mutation)"
 "${CLI[@]}" quality check

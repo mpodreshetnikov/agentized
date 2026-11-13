@@ -82,6 +82,31 @@ def cmd_env_check(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def cmd_process(args: argparse.Namespace) -> int:
+    from agentized.process_control import claim_check, size_check
+
+    root = find_repo_root()
+    ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    if args.process_cmd == "size":
+        result = size_check(root, context_rel=ctx_rel, base_ref=args.base)
+        stream = sys.stdout if result["level"] != "over" else sys.stderr
+        stream.write(result["message"] + "\n")
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    if args.process_cmd == "claim":
+        paths = list(args.paths or [])
+        result = claim_check(root, paths or ["runtime/agentized/x.py"], context_rel=ctx_rel)
+        stream = sys.stdout if result["ok"] else sys.stderr
+        if result.get("message"):
+            stream.write(result["message"] + "\n")
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    print("usage: agentized process size|claim", file=sys.stderr)
+    return 2
+
+
 def cmd_quality(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
@@ -448,6 +473,18 @@ def build_parser() -> argparse.ArgumentParser:
     ec.add_argument("--context", default=None)
     ec.add_argument("--json", action="store_true")
     ec.set_defaults(func=cmd_env_check)
+
+    pc = sub.add_parser("process", help="Claim-before-edits + reviewable PR size")
+    pc_sub = pc.add_subparsers(dest="process_cmd", required=True)
+    pcs = pc_sub.add_parser("size", help="Diff insertions vs base (warn 75% / over limit)")
+    pcs.add_argument("--base", default=None, help="git base ref (default origin/main)")
+    pcs.add_argument("--context", default=None)
+    pcs.add_argument("--json", action="store_true")
+    pcc = pc_sub.add_parser("claim", help="Require in-progress claim before watched paths")
+    pcc.add_argument("paths", nargs="*", help="paths that would be edited")
+    pcc.add_argument("--context", default=None)
+    pcc.add_argument("--json", action="store_true")
+    pc.set_defaults(func=cmd_process)
 
     q = sub.add_parser("quality", help="Пороги coverage / mutation / quality.json")
     q_sub = q.add_subparsers(dest="quality_cmd", required=True)

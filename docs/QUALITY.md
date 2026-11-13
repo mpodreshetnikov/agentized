@@ -37,6 +37,6 @@ Mechanisms adapted from Orbit (combiner + parallel thresholds + incremental muta
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. JS/TS guidance under `templates/quality/`.
 
-## Later slices
+## Related
 
-AGE-9 communication/autonomy skills. AGE-8 env-check: see [`AGENT_ENVIRONMENT.md`](./AGENT_ENVIRONMENT.md).
+AGE-8 env-check: [`AGENT_ENVIRONMENT.md`](./AGENT_ENVIRONMENT.md). AGE-9 process-control / autonomy skills: [`process-control.md`](./process-control.md).

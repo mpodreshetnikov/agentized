@@ -6,31 +6,22 @@ import json
 import sys
 from pathlib import Path
 
+_HERE = Path(__file__).resolve()
+try:
+    from _bootstrap import ensure_runtime_on_path
+except ImportError:
+    sys.path.insert(0, str(_HERE.parent))
+    try:
+        from _bootstrap import ensure_runtime_on_path
+    except ImportError:
 
-def _bootstrap():
-    here = Path(__file__).resolve()
-    # Locate repo root from common install locations.
-    candidates = [
-        here.parents[3] if len(here.parents) > 3 else None,  # context/hooks/scripts
-        here.parents[2] if len(here.parents) > 2 else None,  # .cursor/hooks or .claude/hooks
-        here.parents[2] if len(here.parents) > 2 else None,
-    ]
-    # Walk up looking for runtime/agentized
-    for parent in [here.parent, *here.parents]:
-        runtime = parent / "runtime"
-        if (runtime / "agentized").is_dir():
-            sys.path.insert(0, str(runtime))
-            return parent
-        # hooks under .cursor/hooks → repo root is parents[1]
-        if (parent / "AGENTS.md").exists() and (parent / "runtime" / "agentized").is_dir():
-            sys.path.insert(0, str(parent / "runtime"))
-            return parent
-    return Path.cwd()
+        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+            return Path.cwd()
 
 
 def main() -> int:
-    root = _bootstrap()
-    payload = {}
+    workspace = ensure_runtime_on_path(_HERE)
+    payload: dict = {}
     raw = sys.stdin.read()
     if raw.strip():
         try:
@@ -38,35 +29,40 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {}
 
-    from agentized.hook_common import nav_reminder, resolve_root
+    text = f"Agentized session check: workspace={workspace}"
+    try:
+        from agentized.hook_common import nav_reminder, resolve_root
 
-    root = resolve_root(payload) if payload else root
-    # ensure import path for resolved root
-    runtime = root / "runtime"
-    if runtime.is_dir() and str(runtime) not in sys.path:
-        sys.path.insert(0, str(runtime))
-        from agentized.hook_common import nav_reminder as nav_reminder  # noqa: F811
+        root = resolve_root(payload) if payload else workspace
+        runtime = root / "runtime"
+        if runtime.is_dir() and str(runtime) not in sys.path:
+            sys.path.insert(0, str(runtime))
+            from agentized.hook_common import nav_reminder as nav_reminder  # noqa: F811
 
-    text = nav_reminder(root)
+        text = nav_reminder(root)
+        try:
+            from agentized.env_check import check as env_check
 
-    # Cursor sessionStart
-    cursor = {"additional_context": text}
-    # Claude SessionStart: plain stdout also works; emit JSON for structured consumers
-    claude = {
+            env_result = env_check(repo_root=root)
+            text = text + "\n\n" + env_result["message"]
+        except Exception as exc:  # noqa: BLE001
+            text = text + f"\n\n[agent-env-check] unavailable: {exc}"
+    except Exception as exc:  # noqa: BLE001 — foreign repo without runtime
+        text = (
+            "Agentized session check: runtime unavailable "
+            f"({exc}). Install Agentized on PATH or keep runtime/ in-repo."
+        )
+
+    out = {
+        "additional_context": text,
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": text,
-        }
-    }
-    # Codex SessionStart
-    codex = {
+        },
         "hookEventName": "SessionStart",
         "additionalContext": text,
     }
-    # Emit a merged response that each harness can pick fields from.
-    out = {**cursor, **claude, **codex}
     print(json.dumps(out, ensure_ascii=False))
-    # Claude also accepts plain text; keep JSON-only for predictability.
     return 0
 
 
