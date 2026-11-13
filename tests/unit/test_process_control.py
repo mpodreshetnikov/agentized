@@ -138,16 +138,49 @@ def test_active_claims_open_fallback(tmp_path: Path):
 
 
 def test_normalize_and_extract_paths(tmp_path: Path):
-    from agentized.hook_common import extract_paths, normalize_repo_path
+    from agentized.hook_common import context_rel, extract_paths, normalize_repo_path
 
     assert extract_paths({"file_path": "./.github/workflows/ci.yml"}) == [
         ".github/workflows/ci.yml"
     ]
+    # Must not turn ".github/..." into "github/..." (old lstrip("./") bug).
+    assert extract_paths({"file_path": ".github/workflows/ci.yml"}) == [
+        ".github/workflows/ci.yml"
+    ]
+    # Strip only "./" prefixes; keep absolute paths intact for normalize_repo_path.
+    assert extract_paths({"file_path": "././runtime/x.py"}) == ["runtime/x.py"]
+    abs_keep = str(tmp_path / "runtime" / "kept.py")
+    assert extract_paths({"file_path": abs_keep}) == [abs_keep.replace("\\", "/")]
+    # tool_input edits/files dicts must keep real paths (not None).
+    assert extract_paths(
+        {"tool_input": {"edits": [{"path": "runtime/a.py"}, {"file_path": "runtime/b.py"}]}}
+    ) == ["runtime/a.py", "runtime/b.py"]
+    # Dedup after ./ strip.
+    assert extract_paths({"file_path": "./x.py", "path": "x.py"}) == ["x.py"]
+
     abs_p = tmp_path / "runtime" / "x.py"
     abs_p.parent.mkdir(parents=True)
     abs_p.write_text("x\n", encoding="utf-8")
     assert normalize_repo_path(str(abs_p), tmp_path) == "runtime/x.py"
     assert normalize_repo_path("./.github/a.yml", tmp_path) == ".github/a.yml"
+    assert normalize_repo_path("././docs/QUALITY.md", tmp_path) == "docs/QUALITY.md"
+    assert normalize_repo_path("", tmp_path) == ""
+    # Absolute path string that starts with resolved root prefix (non-Path.is_absolute branch).
+    root_s = str(tmp_path.resolve()).replace("\\", "/")
+    assert normalize_repo_path(f"{root_s}/runtime/x.py", tmp_path) == "runtime/x.py"
+    # Outside the workspace → absolute form (no bogus strip of leading "/").
+    outside = Path("/tmp/agentized-outside-claim-test.py")
+    out_norm = normalize_repo_path(str(outside), tmp_path)
+    assert out_norm.startswith("/")
+    assert "agentized-outside-claim-test.py" in out_norm
+    # Backslash separators normalize to "/".
+    assert normalize_repo_path(r"runtime\agentized\x.py", tmp_path) == "runtime/agentized/x.py"
+    # context_rel reads connect state key "context".
+    state_dir = tmp_path / ".agentized"
+    state_dir.mkdir(parents=True)
+    (state_dir / "connect.json").write_text('{"context":"custom"}\n', encoding="utf-8")
+    assert context_rel(tmp_path) == "custom"
+
     # claim_check with custom context + absolute path
     custom = tmp_path / "custom"
     (custom / "tasks").mkdir(parents=True)
@@ -166,3 +199,11 @@ def test_normalize_and_extract_paths(tmp_path: Path):
     )
     assert r["ok"] is True
     assert "T-261113-xyz" in r["message"]
+    # Absolute path outside workspace must not skip claim when another path needs it.
+    r2 = claim_check(
+        tmp_path,
+        [str(outside), str(abs_p)],
+        context_rel="custom",
+        env={"CURSOR_AGENT": "1"},
+    )
+    assert r2["ok"] is True
