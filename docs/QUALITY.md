@@ -53,18 +53,22 @@ Config in [`context/quality.json`](../context/quality.json) → `reviewer`:
 | `sensitive_globs` | runtime/workflows/config… | Any change earns another pass |
 
 ```bash
-./bin/agentized review status
-./bin/agentized review allow          # exit 0 → call reviewer; else skip/escalate
-./bin/agentized review record --sha <Reviewed-commit> --findings N
+./bin/agentized review status [--scope TASK-or-PR]
+./bin/agentized review allow [--scope TASK-or-PR]   # exit 0 → call reviewer; else skip/escalate/blocked
+./bin/agentized review record --sha <Reviewed-commit> --findings N [--scope TASK-or-PR]
+./bin/agentized review reset --scope TASK-or-PR     # fresh budget for a new task/PR
 ./bin/agentized review set --model claude-opus-4.5 --budget-max 3
 ```
+
+Scope (task/PR identity): `--scope` or env `AGENTIZED_REVIEW_SCOPE` (default `default`). Budget + watermark are **per scope**, so unrelated work does not share `used` / watermark. Start a new task/PR with a new scope or `review reset`.
 
 Rules (adapted from Orbit Automated Review Policy / review-delta — not product content):
 
 1. Main agent finishes implementation + green gates **first**, then may call the reviewer.
 2. Reviewer never edits/commits/approves; names `Reviewed commit: <sha>`.
-3. Watermark + budget live in `.agentized/review-state.json` (local). After `budget_max`, escalate to human — no infinite expensive loops.
-4. Forbid reviewer on unchanged heads, tiny format/docs-only deltas, or mid-fix packs.
+3. Watermark + budget live in `.agentized/review-state.json` (local, keyed by scope). After `budget_max` for that scope, escalate to human — no infinite expensive loops.
+4. Forbid reviewer on unchanged heads, tiny format/docs-only deltas, or mid-fix packs — **except** when `open_findings > 0` and head moved (fix-pack re-review).
+5. Invalid / missing watermark commits block review (recovery: reset or re-record); `record` rejects non-existent SHAs.
 
 ## Related
 

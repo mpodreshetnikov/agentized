@@ -9,9 +9,13 @@ from agentized.quality import load_quality, set_reviewer_options
 from agentized.review_budget import (
     allow_review,
     default_reviewer_config,
+    load_state,
     record_review,
+    reset_scope,
+    save_state,
     status,
 )
+import pytest
 
 
 def _git_repo(tmp_path: Path) -> None:
@@ -196,3 +200,99 @@ def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
     pin_reviewer_agents(tmp_path, "context")
     assert "gpt-5.4" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
     assert load_quality(tmp_path)["reviewer"]["budget_max"] == 5
+
+
+def test_open_findings_allows_fix_pack_rereview(tmp_path: Path, monkeypatch):
+    """Small non-sensitive delta still requests when open_findings > 0."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "budget_max": 3,
+                    "delta_lines": 500,
+                    "sensitive_globs": ["runtime/**"],
+                    "trivial_globs": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=2, scope="task-a")
+    # Tiny docs-only change — under delta_lines and outside sensitive_globs.
+    (tmp_path / "NOTES.md").write_text("fix\n", encoding="utf-8")
+    subprocess.run(["git", "add", "NOTES.md"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "tiny"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    allowed = allow_review(tmp_path, scope="task-a")
+    assert allowed["ok"] is True
+    assert allowed["action"] == "request"
+    assert "open_findings=2" in allowed["message"]
+
+
+def test_scope_isolates_budget(tmp_path: Path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"version": 1, "reviewer": {"budget_max": 1}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=0, scope="task-old")
+    # Exhausted / already reviewed for task-old; new scope still gets first pass.
+    blocked = allow_review(tmp_path, scope="task-old")
+    assert blocked["action"] in {"skip", "escalate"}
+    fresh = allow_review(tmp_path, scope="task-new")
+    assert fresh["ok"] is True
+    assert fresh["action"] == "request"
+    assert fresh["scope"] == "task-new"
+    assert fresh["used"] == 0
+    reset = reset_scope(tmp_path, scope="task-old")
+    assert reset["used"] == 0
+    assert load_state(tmp_path, scope="task-old")["watermark"] is None
+
+
+def test_invalid_watermark_blocks_and_record_rejects(tmp_path: Path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"version": 1, "reviewer": {"budget_max": 3, "delta_lines": 1}}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="invalid commit"):
+        record_review(tmp_path, "not-a-commit", findings=0)
+    # Plant a bogus watermark (simulates deleted/unreachable commit).
+    save_state(
+        tmp_path,
+        {
+            "used": 1,
+            "budget_max": 3,
+            "watermark": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "open_findings": 0,
+            "history": [],
+        },
+        scope="default",
+    )
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "runtime" / "x.py").write_text("print(1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "runtime/x.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "code"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    blocked = allow_review(tmp_path)
+    assert blocked["ok"] is False
+    assert blocked["action"] == "blocked"
+    assert "unavailable" in blocked["message"] or "cannot compare" in blocked["message"]

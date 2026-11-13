@@ -83,28 +83,47 @@ def cmd_env_check(args: argparse.Namespace) -> int:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
-    from agentized.review_budget import allow_review, record_review, status as review_status
+    from agentized.review_budget import (
+        allow_review,
+        record_review,
+        reset_scope,
+        status as review_status,
+    )
     from agentized.quality import set_reviewer_options
 
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+    scope = getattr(args, "scope", None)
     if args.review_cmd == "status":
-        print(json.dumps(review_status(root, context_rel=ctx_rel), indent=2))
+        print(json.dumps(review_status(root, context_rel=ctx_rel, scope=scope), indent=2))
+        return 0
+    if args.review_cmd == "reset":
+        result = reset_scope(root, scope=scope)
+        print(result["message"])
+        if getattr(args, "json", False):
+            print(json.dumps(result, indent=2))
         return 0
     if args.review_cmd == "allow":
-        result = allow_review(root, context_rel=ctx_rel, force=bool(args.force))
+        result = allow_review(
+            root, context_rel=ctx_rel, force=bool(args.force), scope=scope
+        )
         stream = sys.stdout if result.get("ok") else sys.stderr
         stream.write(result["message"] + "\n")
         if args.json:
             print(json.dumps(result, indent=2))
         return 0 if result.get("ok") else 1
     if args.review_cmd == "record":
-        result = record_review(
-            root,
-            args.sha or "",
-            findings=int(args.findings),
-            context_rel=ctx_rel,
-        )
+        try:
+            result = record_review(
+                root,
+                args.sha or "",
+                findings=int(args.findings),
+                context_rel=ctx_rel,
+                scope=scope,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         print(result["message"])
         if args.json:
             print(json.dumps(result, indent=2))
@@ -124,7 +143,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
         )
         return 0
-    print("usage: agentized review status|allow|record|set", file=sys.stderr)
+    print("usage: agentized review status|allow|record|reset|set", file=sys.stderr)
     return 2
 
 
@@ -524,15 +543,21 @@ def build_parser() -> argparse.ArgumentParser:
     rv_sub = rv.add_subparsers(dest="review_cmd", required=True)
     rvs = rv_sub.add_parser("status", help="Show budget / watermark / model")
     rvs.add_argument("--context", default=None)
+    rvs.add_argument("--scope", default=None, help="Task/PR identity (default or AGENTIZED_REVIEW_SCOPE)")
     rva = rv_sub.add_parser("allow", help="May the main agent call the reviewer now?")
     rva.add_argument("--force", action="store_true")
     rva.add_argument("--context", default=None)
+    rva.add_argument("--scope", default=None)
     rva.add_argument("--json", action="store_true")
     rvr = rv_sub.add_parser("record", help="Record Reviewed commit watermark")
     rvr.add_argument("--sha", required=True)
     rvr.add_argument("--findings", type=int, default=0)
     rvr.add_argument("--context", default=None)
+    rvr.add_argument("--scope", default=None)
     rvr.add_argument("--json", action="store_true")
+    rvrst = rv_sub.add_parser("reset", help="Reset budget/watermark for a task/PR scope")
+    rvrst.add_argument("--scope", default=None)
+    rvrst.add_argument("--json", action="store_true")
     rvset = rv_sub.add_parser("set", help="Override reviewer model/effort/budget in quality.json")
     rvset.add_argument("--model", default=None)
     rvset.add_argument("--effort", default=None)
