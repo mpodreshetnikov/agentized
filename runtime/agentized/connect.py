@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 from . import __version__
@@ -310,11 +311,97 @@ def install_codex(root: Path, context_rel: str) -> dict:
     }
 
 
+QUALITY_MARKER = "AGENTIZED:QUALITY"
+
+
+def _safe_install_template(src: Path, dst: Path) -> str:
+    """Install template when missing or still an Agentized quality-marked file. Never clobber others."""
+    if not src.exists():
+        return "missing-src"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    body = src.read_text(encoding="utf-8")
+    if not dst.exists():
+        dst.write_text(body, encoding="utf-8")
+        if src.name == "pre-push":
+            dst.chmod(dst.stat().st_mode | 0o111)
+        return "created"
+    existing = dst.read_text(encoding="utf-8")
+    if QUALITY_MARKER in existing:
+        if existing != body:
+            dst.write_text(body, encoding="utf-8")
+            if src.name == "pre-push":
+                dst.chmod(dst.stat().st_mode | 0o111)
+            return "updated"
+        return "unchanged"
+    return "skipped-user-file"
+
+
+def ensure_githooks_path(root: Path) -> str:
+    """Activate `.githooks` via local core.hooksPath without clobbering user/Cursor config.
+
+    - unset → set to `.githooks`
+    - already `.githooks` (relative or absolute) → unchanged
+    - Cursor Cloud `~/.cursor/agent-hooks/...` → skip (AGE-8 wires the chain)
+    - any other existing value → preserve
+    """
+    proc = subprocess.run(
+        ["git", "config", "--local", "--get", "core.hooksPath"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    current = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+    wanted = ".githooks"
+    if not current:
+        set_proc = subprocess.run(
+            ["git", "config", "--local", "core.hooksPath", wanted],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        return "set" if set_proc.returncode == 0 else f"failed:{set_proc.stderr.strip()}"
+    norm = current.replace("\\", "/").rstrip("/")
+    if norm in {wanted, str((root / wanted).resolve()).replace("\\", "/")}:
+        return "unchanged"
+    if "agent-hooks" in norm:
+        return "skipped-cursor-agent-hooks"
+    return "preserved-user"
+
+
+def pin_quality_templates(root: Path) -> dict:
+    """Pin pre-push / CI from templates/quality (no clobber of unmarked user files)."""
+    templates = root / "templates" / "quality"
+    result = {
+        "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
+        "ci_workflow": _safe_install_template(
+            templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
+        ),
+        "js_guidance": (templates / "stryker.config.mjs.example").exists(),
+        "hooks_path": "skipped-no-git",
+    }
+    if (root / ".git").exists() or (root / ".git").is_file():
+        result["hooks_path"] = ensure_githooks_path(root)
+    return result
+
+
+def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | int | None = None) -> dict:
+    from .quality import load_quality, save_quality, set_coverage_threshold, quality_path
+
+    path = quality_path(root, context_rel)
+    created = not path.exists()
+    if created:
+        save_quality(root, load_quality(root, context_rel), context_rel)
+    if coverage_pct is not None:
+        set_coverage_threshold(root, coverage_pct, context_rel=context_rel)
+    return {"path": str(path.relative_to(root)), "created": created, "coverage_pct": coverage_pct}
+
+
 def connect(
     root: Path,
     *,
     context_rel: str = DEFAULT_CONTEXT,
     harnesses: list[str] | None = None,
+    coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
     ctx = root / context_rel
@@ -343,7 +430,14 @@ def connect(
         )
 
     pinned = pin_context_skills_hooks(root, context_rel)
-    results = {"pinned": pinned, "harnesses": {}}
+    quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
+    quality_templates = pin_quality_templates(root)
+    results = {
+        "pinned": pinned,
+        "quality": quality,
+        "quality_templates": quality_templates,
+        "harnesses": {},
+    }
     if "cursor" in harnesses:
         results["harnesses"]["cursor"] = install_cursor(root, context_rel)
     if "claude" in harnesses:
@@ -357,6 +451,7 @@ def connect(
         "harnesses": harnesses,
         "agents_md_updated": changed_agents,
         "claude_md_updated": changed_claude,
+        "coverage_pct": coverage_pct,
     }
     save_state(root, state)
     results["state"] = state

@@ -1,0 +1,30 @@
+/**
+ * Stack-agnostic JS/TS mutation template (Stryker), modeled on Orbit's incremental
+ * covered-change intent — but as a **hard gate** (thresholds.break set).
+ *
+ * Copy into a JS/TS workspace and wire `templates/quality/run-mutation-js.cjs.example`.
+ * Agentized itself uses mutmut (Python); this file is guidance for connected stacks.
+ */
+/** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
+const config = {
+  packageManager: "npm",
+  testRunner: "vitest",
+  plugins: ["@stryker-mutator/vitest-runner"],
+  mutate: ["src/**/*.{ts,tsx,js,mjs,cjs}", "!**/*.{test,spec}.{ts,tsx,js}"],
+  ignoreStatic: true,
+  reporters: ["clear-text", "progress", "json", "html"],
+  jsonReporter: { fileName: "reports/mutation/mutation.json" },
+  htmlReporter: { fileName: "reports/mutation/mutation.html" },
+  thresholds: {
+    high: 80,
+    low: 60,
+    // Hard gate: fail when covered mutants survive below break score.
+    // Prefer also failing on any survived mutant via the wrapper script.
+    break: 80,
+  },
+  timeoutMS: 60_000,
+  concurrency: 4,
+  cleanTempDir: true,
+};
+
+export default config;

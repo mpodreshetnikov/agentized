@@ -1,0 +1,57 @@
+# AGENTIZED:QUALITY — CI quality gates via self-contained agentized CLI.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies (if present)
+        run: |
+          if [[ -f requirements-dev.txt ]]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "no requirements-dev.txt — skip"
+          fi
+
+      - name: Mechanical checks (if present)
+        run: |
+          if [[ -x ./tests/test_mechanical.sh ]]; then
+            ./tests/test_mechanical.sh
+          else
+            echo "no ./tests/test_mechanical.sh — skip"
+          fi
+
+      - name: Coverage + mutation hard gates
+        env:
+          MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
+        run: |
+          if [[ -x ./bin/agentized ]]; then
+            ./bin/agentized quality check
+          else
+            python3 runtime/agentized_cli.py quality check
+          fi
+
+      - name: Upload coverage + mutation summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: |
+            coverage/combined-summary.json
+            coverage/combined-report.md
+            reports/mutation/mutation-summary.json
+          if-no-files-found: warn

@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.coverage
+coverage/
+htmlcov/
+mutants/
+.mutmut-cache/
+reports/mutation/
+# Ephemeral mutmut import-path bridge (created by runtime/agentized/mutation.py)
+/agentized
 # Generated harness wiring from `agentized connect` (re-created locally).
 # Pinned SoT remains under context/skills and context/hooks.
 .cursor/

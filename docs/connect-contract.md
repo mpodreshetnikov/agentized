@@ -12,6 +12,7 @@
 
 ```bash
 python3 runtime/agentized_cli.py connect
+python3 runtime/agentized_cli.py connect --coverage 85   # optional threshold pin
 # или: ./bin/agentized connect
 ```
 
@@ -23,8 +24,12 @@ python3 runtime/agentized_cli.py connect
 |----------|-----------|
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
-| `{context}/skills/` | Pinned copy skills: `navigate`, `registry`, `lease-sync`, `digest` |
+| `{context}/skills/` | Pinned copy skills: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates` |
 | `{context}/hooks/scripts/` | Pinned copy hook-скриптов: `session_start.py`, `lease_warn.py` |
+| `{context}/quality.json` | Пороги coverage (default 80%) · modules · mutation hard gate; `connect --coverage <pct>` |
+| `.githooks/pre-push` | Шаблон quality gates → `agentized quality check` (ставится если нет файла или есть маркер `AGENTIZED:QUALITY`); mechanical / `requirements-dev.txt` — только если файлы есть в целевом репо |
+| `.github/workflows/ci.yml` | То же для CI workflow |
+| `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |
 | Session-start hook | Проверяет указатель Context/`NAV.md` и добавляет reminder в контекст сессии |
 | Lease-overlap hook | **Warn-only**: сообщает о пересечении write-paths, **не** блокирует запись |
 | `.agentized/connect.json` | Локальный маркер состояния (в `.gitignore`) |
