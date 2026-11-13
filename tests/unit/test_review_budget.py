@@ -9,6 +9,8 @@ from agentized.quality import load_quality, set_reviewer_options
 from agentized.review_budget import (
     allow_review,
     default_reviewer_config,
+    evaluate_delta,
+    expand_numstat_paths,
     load_state,
     record_review,
     reset_scope,
@@ -16,6 +18,15 @@ from agentized.review_budget import (
     status,
 )
 import pytest
+
+
+def test_expand_numstat_paths_rename_brace():
+    assert expand_numstat_paths(".github/{disabled => workflows}/deploy.yml") == [
+        ".github/disabled/deploy.yml",
+        ".github/workflows/deploy.yml",
+    ]
+    assert expand_numstat_paths("old.py => new.py") == ["old.py", "new.py"]
+    assert expand_numstat_paths("runtime/x.py") == ["runtime/x.py"]
 
 
 def _git_repo(tmp_path: Path) -> None:
@@ -333,3 +344,79 @@ def test_unavailable_watermark_blocks_even_with_open_findings(
     assert blocked["action"] == "blocked"
     assert blocked["open_findings"] == 1
     assert "unavailable" in blocked["message"] or "cannot compare" in blocked["message"]
+
+
+def test_rename_into_sensitive_glob_requests_review(tmp_path: Path, monkeypatch):
+    """Rename display paths must not hide a move into a sensitive directory."""
+    _git_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "reviewer": {
+                    "budget_max": 3,
+                    "delta_lines": 5000,
+                    "sensitive_globs": [".github/workflows/**"],
+                    "trivial_globs": ["**/*.yml"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    disabled = tmp_path / ".github" / "disabled"
+    disabled.mkdir(parents=True)
+    (disabled / "deploy.yml").write_text("name: deploy\non: push\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", ".github/disabled/deploy.yml"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "disabled"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.chdir(tmp_path)
+    head = status(tmp_path)["head"]
+    record_review(tmp_path, head, findings=0)
+
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    subprocess.run(
+        ["git", "mv", ".github/disabled/deploy.yml", ".github/workflows/deploy.yml"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "enable wf"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    # Confirm git still emits brace rename form for this move.
+    numstat = subprocess.run(
+        ["git", "diff", "--numstat", "--find-renames", head],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "=>" in numstat or "workflows/deploy.yml" in numstat
+
+    delta = evaluate_delta(tmp_path, head, load_quality_reviewer(tmp_path))
+    assert ".github/workflows/deploy.yml" in delta["sensitive"]
+    assert delta["request"] is True
+
+    allowed = allow_review(tmp_path)
+    assert allowed["ok"] is True
+    assert allowed["action"] == "request"
+
+
+def load_quality_reviewer(root: Path) -> dict:
+    from agentized.review_budget import reviewer_config
+
+    return reviewer_config(root)

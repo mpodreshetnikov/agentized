@@ -4,10 +4,14 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+# git diff --numstat --find-renames: `.github/{disabled => workflows}/deploy.yml`
+_RENAME_BRACE = re.compile(r"\{([^{}]*) => ([^{}]*)\}")
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
@@ -197,8 +201,32 @@ def _match(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pat) for pat in patterns)
 
 
+def expand_numstat_paths(path: str) -> list[str]:
+    """Expand git --numstat rename display paths into concrete endpoints.
+
+    Examples:
+      ``.github/{disabled => workflows}/deploy.yml``
+        → ``.github/disabled/deploy.yml``, ``.github/workflows/deploy.yml``
+      ``old.py => new.py`` → ``old.py``, ``new.py``
+    """
+    path = path.replace("\\", "/")
+    m = _RENAME_BRACE.search(path)
+    if m:
+        prefix = path[: m.start()]
+        suffix = path[m.end() :]
+        return [f"{prefix}{m.group(1)}{suffix}", f"{prefix}{m.group(2)}{suffix}"]
+    if " => " in path:
+        left, right = path.split(" => ", 1)
+        return [left, right]
+    return [path]
+
+
 def _numstat_since(root: Path, since: str) -> tuple[list[tuple[str, int]] | None, str | None]:
-    """Return (files, error). error set when watermark/compare cannot be resolved."""
+    """Return (files, error). error set when watermark/compare cannot be resolved.
+
+    Each entry is ``(path, added_lines)``. Rename display strings are left as-is
+    here; :func:`evaluate_delta` expands them so sensitive globs see both endpoints.
+    """
     if not _commit_exists(root, since):
         return None, f"watermark commit unavailable: {since}"
     proc = subprocess.run(
@@ -219,7 +247,12 @@ def _numstat_since(root: Path, since: str) -> tuple[list[tuple[str, int]] | None
             added = int(parts[0])
         except ValueError:
             continue
-        out.append((parts[2].replace("\\", "/"), added))
+        # Rare: old\tnew as separate fields; otherwise single rename display path.
+        if len(parts) >= 4 and parts[3]:
+            raw = f"{parts[2]} => {parts[3]}"
+        else:
+            raw = parts[2]
+        out.append((raw.replace("\\", "/"), added))
     return out, None
 
 
@@ -237,13 +270,22 @@ def evaluate_delta(root: Path, since: str, cfg: dict[str, Any]) -> dict[str, Any
             "files": 0,
         }
     assert files is not None
-    sensitive = [
-        p for p, _ in files if _match(p, list(cfg.get("sensitive_globs") or []))
-    ]
+    sensitive_globs = list(cfg.get("sensitive_globs") or [])
+    sensitive: list[str] = []
+    seen_sens: set[str] = set()
+    for raw, _ in files:
+        for path in expand_numstat_paths(raw):
+            if path in seen_sens:
+                continue
+            if _match(path, sensitive_globs):
+                sensitive.append(path)
+                seen_sens.add(path)
     trivial = list(cfg.get("trivial_globs") or [])
     excepts = list(cfg.get("trivial_except_globs") or [])
     reviewable = 0
-    for path, added in files:
+    for raw, added in files:
+        # Line accounting uses the destination endpoint of a rename.
+        path = expand_numstat_paths(raw)[-1]
         if _match(path, excepts):
             reviewable += added
             continue
