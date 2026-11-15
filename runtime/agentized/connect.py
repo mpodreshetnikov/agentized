@@ -4,8 +4,15 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from . import __version__
+from .managed import (
+    load_managed,
+    managed_copy_file,
+    managed_write_text,
+    save_managed,
+)
 from .paths import (
     CONNECT_MARKER_BEGIN,
     CONNECT_MARKER_END,
@@ -78,6 +85,7 @@ def _upsert_marked_block(path: Path, begin: str, end: str, body: str, *, create:
 
 
 def _copy_tree(src: Path, dst: Path) -> list[str]:
+    """Always overwrite copy (hooks / plugin machinery)."""
     copied: list[str] = []
     if not src.exists():
         return copied
@@ -90,6 +98,37 @@ def _copy_tree(src: Path, dst: Path) -> list[str]:
         shutil.copy2(item, target)
         copied.append(str(target))
     return copied
+
+
+def _managed_copy_tree(
+    root: Path,
+    context_rel: str,
+    src: Path,
+    dst: Path,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    """Copy src→dst under managed-hash rules (skills + harness mirrors)."""
+    result: dict[str, list[str]] = {
+        "created": [],
+        "updated": [],
+        "unchanged": [],
+        "skipped_user": [],
+        "bootstrapped": [],
+    }
+    if not src.exists():
+        return result
+    for item in src.rglob("*"):
+        if item.is_dir():
+            continue
+        rel = item.relative_to(src)
+        target = dst / rel
+        status = managed_copy_file(
+            root, context_rel, item, target, force=force, manifest=manifest
+        )
+        result.setdefault(status, []).append(str(target))
+    return result
 
 
 def _local_packages(root: Path) -> Path | None:
@@ -232,8 +271,19 @@ def _render_reviewer_toml(src: Path, model: str, effort: str) -> str:
     )
 
 
-def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
-    """Pin per-harness readonly reviewer (Cursor/Claude markdown, Codex TOML only)."""
+def pin_reviewer_agents(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict:
+    """Pin per-harness readonly reviewer (Cursor/Claude markdown, Codex TOML only).
+
+    Uses managed-hash rules: untouched Agentized pins auto-update when the
+    rendered body changes (template / quality.json model); user edits are
+    skipped (``skipped_user``). Pass force=True after ``agentized review set``.
+    """
     from .quality import load_quality
 
     src_dir = _shared_agents(root)
@@ -242,7 +292,10 @@ def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
         return {"installed": [], "skipped": "missing-src"}
     rev = load_quality(root, context_rel).get("reviewer") or {}
     installed: list[str] = []
+    skipped: list[str] = []
+    bootstrapped: list[str] = []
     models: dict[str, str] = {}
+    man = manifest if manifest is not None else load_managed(root, context_rel)
 
     cursor_opts = harness_reviewer_opts(rev, "cursor")
     claude_opts = harness_reviewer_opts(rev, "claude")
@@ -258,11 +311,21 @@ def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
         src, claude_opts["model"], harness="claude", effort=claude_opts["effort"]
     )
 
+    def _write(path: Path, body: str) -> None:
+        status = managed_write_text(
+            root, context_rel, path, body, force=force, manifest=man
+        )
+        if status == "skipped_user":
+            skipped.append(str(path))
+        elif status == "bootstrapped":
+            bootstrapped.append(str(path))
+            installed.append(str(path))
+        else:
+            installed.append(str(path))
+
     ctx_agents = root / context_rel / "agents"
     ctx_agents.mkdir(parents=True, exist_ok=True)
-    ctx_path = ctx_agents / "reviewer.md"
-    ctx_path.write_text(cursor_body, encoding="utf-8")
-    installed.append(str(ctx_path))
+    _write(ctx_agents / "reviewer.md", cursor_body)
 
     for rel, body in (
         (".cursor/agents", cursor_body),
@@ -270,9 +333,7 @@ def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
     ):
         dest_dir = root / rel
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / "reviewer.md"
-        dest.write_text(body, encoding="utf-8")
-        installed.append(str(dest))
+        _write(dest_dir / "reviewer.md", body)
 
     # Codex: TOML only — never leave a stale reviewer.md
     codex_dir = root / ".codex" / "agents"
@@ -281,13 +342,18 @@ def pin_reviewer_agents(root: Path, context_rel: str) -> dict:
     if stale_md.exists():
         stale_md.unlink()
         installed.append(f"removed:{stale_md}")
-    toml_path = codex_dir / "reviewer.toml"
-    toml_path.write_text(
-        _render_reviewer_toml(src, codex_opts["model"], codex_opts["effort"]),
-        encoding="utf-8",
-    )
-    installed.append(str(toml_path))
-    return {"installed": installed, "models": models, "model": models.get("cursor")}
+    toml_body = _render_reviewer_toml(src, codex_opts["model"], codex_opts["effort"])
+    _write(codex_dir / "reviewer.toml", toml_body)
+
+    if manifest is None:
+        save_managed(root, context_rel, man)
+
+    out: dict = {"installed": installed, "models": models, "model": models.get("cursor")}
+    if skipped:
+        out["skipped_user"] = skipped
+    if bootstrapped:
+        out["bootstrapped"] = bootstrapped
+    return out
 
 
 def _refresh_local_plugin(root: Path, name: str, skills_src: Path) -> str | None:
@@ -321,7 +387,13 @@ def _pin_hook_scripts(root: Path, context_rel: str, dest: Path) -> list[str]:
     return copied
 
 
-def pin_context_skills_hooks(root: Path, context_rel: str) -> dict:
+def pin_context_skills_hooks(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict:
     ctx = root / context_rel
     skills_dst = ctx / "skills"
     hooks_dst = ctx / "hooks"
@@ -332,23 +404,57 @@ def pin_context_skills_hooks(root: Path, context_rel: str) -> dict:
     for keep in (skills_dst / ".gitkeep", hooks_dst / ".gitkeep"):
         if keep.exists() and any(skills_dst.glob("*/SKILL.md") if keep.parent == skills_dst else hooks_scripts.glob("*")):
             keep.unlink()
-    copied_skills = _copy_tree(_shared_skills(root), skills_dst)
+    man = manifest if manifest is not None else load_managed(root, context_rel)
+    # Skills: managed-hash (auto-update untouched; preserve user edits).
+    # Hooks: always refresh machinery.
+    skills_result = _managed_copy_tree(
+        root,
+        context_rel,
+        _shared_skills(root),
+        skills_dst,
+        force=force,
+        manifest=man,
+    )
     copied_hooks = _copy_tree(_shared_hook_scripts(root), hooks_scripts)
+    if manifest is None:
+        save_managed(root, context_rel, man)
     # drop .gitkeep if content present
     for d in (skills_dst, hooks_dst):
         gk = d / ".gitkeep"
         if gk.exists() and any(p for p in d.rglob("*") if p != gk and p.is_file()):
             gk.unlink(missing_ok=True)
-    return {"skills": copied_skills, "hooks": copied_hooks}
+    written = (
+        skills_result.get("created", [])
+        + skills_result.get("updated", [])
+        + skills_result.get("unchanged", [])
+        + skills_result.get("bootstrapped", [])
+    )
+    return {
+        "skills": written,
+        "skills_managed": skills_result,
+        "hooks": copied_hooks,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
+    }
 
 
-def install_cursor(root: Path, context_rel: str) -> dict:
+def install_cursor(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict:
     """Official project surfaces: .cursor/skills + .cursor/hooks.json (+ scripts)."""
     skills_src = root / context_rel / "skills"
     hooks_dir = root / ".cursor" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     cursor_skills = root / ".cursor" / "skills"
-    copied = _copy_tree(skills_src, cursor_skills)
+    man = manifest if manifest is not None else load_managed(root, context_rel)
+    skills_result = _managed_copy_tree(
+        root, context_rel, skills_src, cursor_skills, force=force, manifest=man
+    )
+    if manifest is None:
+        save_managed(root, context_rel, man)
     local_note = []
     refreshed = _refresh_local_plugin(root, "agentized-cursor", skills_src)
     if refreshed:
@@ -382,8 +488,16 @@ def install_cursor(root: Path, context_rel: str) -> dict:
     }
     hooks_path = root / ".cursor" / "hooks.json"
     hooks_path.write_text(json.dumps(hooks_json, indent=2) + "\n", encoding="utf-8")
+    written = (
+        skills_result.get("created", [])
+        + skills_result.get("updated", [])
+        + skills_result.get("unchanged", [])
+        + skills_result.get("bootstrapped", [])
+    )
     return {
-        "skills_copied": copied,
+        "skills_copied": written,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
         "hooks_json": str(hooks_path),
         "plugin_path": local_note[0] if local_note else None,
         "local_plugin_hint": (
@@ -393,13 +507,24 @@ def install_cursor(root: Path, context_rel: str) -> dict:
     }
 
 
-def install_claude(root: Path, context_rel: str) -> dict:
+def install_claude(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict:
     """Official project surfaces: .claude/skills + .claude/settings.json hooks."""
     skills_src = root / context_rel / "skills"
     claude_dir = root / ".claude"
     hooks_dir = claude_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    copied = _copy_tree(skills_src, claude_dir / "skills")
+    man = manifest if manifest is not None else load_managed(root, context_rel)
+    skills_result = _managed_copy_tree(
+        root, context_rel, skills_src, claude_dir / "skills", force=force, manifest=man
+    )
+    if manifest is None:
+        save_managed(root, context_rel, man)
     _pin_hook_scripts(root, context_rel, hooks_dir)
     _refresh_local_plugin(root, "agentized-claude", skills_src)
 
@@ -453,14 +578,28 @@ def install_claude(root: Path, context_rel: str) -> dict:
     ]
     settings["hooks"] = hooks
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    written = (
+        skills_result.get("created", [])
+        + skills_result.get("updated", [])
+        + skills_result.get("unchanged", [])
+        + skills_result.get("bootstrapped", [])
+    )
     return {
-        "skills_copied": copied,
+        "skills_copied": written,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
         "settings": str(settings_path),
         "plugin_hint": "claude --plugin-dir packages/agentized-claude",
     }
 
 
-def install_codex(root: Path, context_rel: str) -> dict:
+def install_codex(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+) -> dict:
     """Official project surfaces: .agents/skills + .codex/hooks.json.
 
     Codex has no stable --plugin-dir yet; local marketplace under .agents/plugins
@@ -468,7 +607,18 @@ def install_codex(root: Path, context_rel: str) -> dict:
     """
     skills_src = root / context_rel / "skills"
     agents_skills = root / ".agents" / "skills"
-    copied = _copy_tree(skills_src, agents_skills)
+    man = manifest if manifest is not None else load_managed(root, context_rel)
+    skills_result = _managed_copy_tree(
+        root, context_rel, skills_src, agents_skills, force=force, manifest=man
+    )
+    if manifest is None:
+        save_managed(root, context_rel, man)
+    copied = (
+        skills_result.get("created", [])
+        + skills_result.get("updated", [])
+        + skills_result.get("unchanged", [])
+        + skills_result.get("bootstrapped", [])
+    )
     codex_hooks = root / ".codex" / "hooks"
     codex_hooks.mkdir(parents=True, exist_ok=True)
     _pin_hook_scripts(root, context_rel, codex_hooks)
@@ -557,6 +707,8 @@ def install_codex(root: Path, context_rel: str) -> dict:
 
     return {
         "skills_copied": copied,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
         "hooks_json": str(hooks_path),
         "marketplace": str(market_path),
         "plugin_hint": (
@@ -818,7 +970,9 @@ def connect(
             claude_md, CONNECT_MARKER_BEGIN, CONNECT_MARKER_END, claude_body, create=False
         )
 
-    pinned = pin_context_skills_hooks(root, context_rel)
+    # One shared managed manifest for skills + reviewer pins this connect.
+    manifest = load_managed(root, context_rel)
+    pinned = pin_context_skills_hooks(root, context_rel, manifest=manifest)
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
@@ -826,7 +980,7 @@ def connect(
     from .reporting import ensure_reporting_config
 
     reporting = ensure_reporting_config(root, context_rel)
-    reviewer = pin_reviewer_agents(root, context_rel)
+    reviewer = pin_reviewer_agents(root, context_rel, manifest=manifest)
     results = {
         "skeleton": skeleton,
         "pinned": pinned,
@@ -839,11 +993,31 @@ def connect(
         "harnesses": {},
     }
     if "cursor" in harnesses:
-        results["harnesses"]["cursor"] = install_cursor(root, context_rel)
+        results["harnesses"]["cursor"] = install_cursor(
+            root, context_rel, manifest=manifest
+        )
     if "claude" in harnesses:
-        results["harnesses"]["claude"] = install_claude(root, context_rel)
+        results["harnesses"]["claude"] = install_claude(
+            root, context_rel, manifest=manifest
+        )
     if "codex" in harnesses:
-        results["harnesses"]["codex"] = install_codex(root, context_rel)
+        results["harnesses"]["codex"] = install_codex(
+            root, context_rel, manifest=manifest
+        )
+
+    save_managed(root, context_rel, manifest)
+
+    skipped_user: list[str] = []
+    skipped_user.extend(pinned.get("skipped_user") or [])
+    skipped_user.extend(reviewer.get("skipped_user") or [])
+    for h in results["harnesses"].values():
+        skipped_user.extend(h.get("skipped_user") or [])
+    seen: set[str] = set()
+    skipped_unique: list[str] = []
+    for p in skipped_user:
+        if p not in seen:
+            seen.add(p)
+            skipped_unique.append(p)
 
     state = {
         "version": __version__,
@@ -855,5 +1029,9 @@ def connect(
     }
     save_state(root, state)
     results["state"] = state
+    results["managed_manifest"] = str(
+        (root / context_rel / ".agentized" / "managed.json").relative_to(root)
+    )
+    results["skipped_user"] = skipped_unique
     results["idempotent"] = not changed_agents and not changed_claude
     return results

@@ -1,4 +1,6 @@
-.agentized/
+# Local connect/review state only (repo root). Context managed-file manifest
+# lives at context/.agentized/managed.json and is committed with pinned skills.
+/.agentized/
 __pycache__/
 *.py[cod]
 .pytest_cache/

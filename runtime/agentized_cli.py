@@ -63,6 +63,13 @@ def cmd_connect(args: argparse.Namespace) -> int:
     print(f"  AGENTS.md updated: {result['state']['agents_md_updated']}")
     print(f"  CLAUDE.md updated: {result['state']['claude_md_updated']}")
     print(f"  harnesses: {', '.join(harnesses)}")
+    if result.get("managed_manifest"):
+        print(f"  managed manifest: {result['managed_manifest']}")
+    skipped = result.get("skipped_user") or []
+    if skipped:
+        print(f"  skipped_user ({len(skipped)}):")
+        for path in skipped:
+            print(f"    - {path}")
     if result.get("quality"):
         cov = load_quality(root, args.context).get("coverage") or {}
         print(f"  quality.json: {result['quality']['path']} (lines/branches ≥{cov.get('lines')}%)")
@@ -134,6 +141,8 @@ def cmd_review(args: argparse.Namespace) -> int:
             print(json.dumps(result, indent=2))
         return 0
     if args.review_cmd == "set":
+        from agentized.connect import pin_reviewer_agents
+
         data = set_reviewer_options(
             root,
             context_rel=ctx_rel,
@@ -143,6 +152,8 @@ def cmd_review(args: argparse.Namespace) -> int:
             budget_max=args.budget_max,
             harness=getattr(args, "harness", None),
         )
+        # Explicit model/effort change must rewrite agent files even if customized.
+        pin_reviewer_agents(root, ctx_rel, force=True)
         rev = data.get("reviewer") or {}
         harness = getattr(args, "harness", None)
         if harness:
