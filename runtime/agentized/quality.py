@@ -14,8 +14,6 @@ from .quality_defaults import (
 from .quality_io import read_json_object, write_json_object
 
 QUALITY_FILENAME = "quality.json"
-_JSON_ENCODING = "utf-8"
-_JSON_INDENT = 2
 
 # Re-export for existing importers / tests.
 __all__ = [
