@@ -1,0 +1,28 @@
+# AGENTIZED:QUALITY — optional E2E job for UI projects (not used by Agentized itself).
+# Merge into .github/workflows/ci.yml when e2e.enabled=true in context/quality.json.
+#
+# - Upload video + screenshots on failure
+# - New specs: run matrix / retries=3 (see e2e-playwright.config.ts.example)
+# - No pixel compares / snapshot markup / formal contracts
+  e2e:
+    name: E2E (key scenarios)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run e2e (key scenarios)
+        run: npx playwright test
+      - name: Upload e2e artifacts (video + screenshots)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            test-results/e2e/**
+            playwright-report/**
+          if-no-files-found: warn

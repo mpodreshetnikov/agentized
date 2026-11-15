@@ -45,7 +45,7 @@ def test_leases(tmp_path: Path):
 
 
 def test_quality(tmp_path: Path):
-    cfg = default_quality_config(); assert cfg["coverage"]["lines"] == DEFAULT_COVERAGE_PCT and cfg["mutation"]["gate"] == "hard"
+    cfg = default_quality_config(); assert cfg["coverage"]["lines"] == DEFAULT_COVERAGE_PCT and cfg["mutation"]["gate"] == "hard" and cfg["mutation"]["min_score_covered"] == 100 and cfg["test_smells"]["mode"] == "warn"
     assert save_quality(tmp_path, cfg) == quality_path(tmp_path)
     assert set_coverage_threshold(tmp_path, 90)["coverage"]["lines"] == 90.0
     with pytest.raises(ValueError): set_coverage_threshold(tmp_path, 120)

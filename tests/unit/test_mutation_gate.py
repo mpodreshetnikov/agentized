@@ -22,7 +22,7 @@ def test_mutmut_failure_fails_gate_even_with_cached_mutants(tmp_path: Path, monk
     monkeypatch.setattr(mut, "load_quality", lambda *a, **k: {
         "mutation": {
             "enabled": True,
-            "min_score_covered": 50,
+            "min_score_covered": 100,
             "break_on_no_tests": False,
             "include_globs": ["runtime/agentized/quality.py"],
         },

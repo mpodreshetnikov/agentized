@@ -1,10 +1,10 @@
 # Quality (Agentized)
 
-AGE-7: configurable multi-module coverage, incremental mutation as a **hard gate**, pre-push/CI.
+Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture warn pilots, pre-push/CI. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
 
 ## Config
 
-[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches.
+[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches. New connected projects default to **`mutation.min_score_covered = 100`** (gate `mutationScoreCovered` only).
 
 ```bash
 ./bin/agentized connect --coverage 85
@@ -15,8 +15,14 @@ AGE-7: configurable multi-module coverage, incremental mutation as a **hard gate
 | Field | Meaning |
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
-| `mutation.gate` | `hard` — fails CI when covered mutation score on changed include_globs is below `min_score_covered` (default 50; ratchet toward 80) |
+| `mutation.gate` | `hard` on **`mutationScoreCovered`** for changed `include_globs` (default **100**; never gate overall `mutationScore`) |
 | `mutation.include_globs` | Which changed sources enter the mutation set (harness wiring often excluded) |
+| `test_smells` | Warn-first AST lint for weak oracles / mock-call-only (JS: eslint template) |
+| `architecture` | Warn-first module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
+| `property_based` | Hypothesis / fast-check pilot modules |
+| `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
+| `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
+| `batch_release` | Reviewed PRs may share one CI; keep up-to-date branch protection |
 | `gates.pre_push` / `gates.ci` | Ordered gate names |
 
 ## Commands
@@ -25,17 +31,15 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 
 | Command | Role |
 |---------|------|
-| `./bin/agentized quality check` | Module tests + coverage thresholds + mutation hard gate |
+| `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + mutation |
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 
-Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation wipes `mutants/` before each run and fails closed on mutmut exit ≠ 0.
-
-Mechanisms adapted from Orbit (combiner + parallel thresholds + incremental mutate list) — not Orbit product content.
+Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base, skips cleanly when no relevant diff, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
 
 ## Connect
 
-Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. JS/TS guidance under `templates/quality/`.
+Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
 
 ## Strong reviewer (AGE-11)
 

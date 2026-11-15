@@ -52,7 +52,7 @@ jobs:
           "${CLI[@]}" process size || true
           "${CLI[@]}" quality check
 
-      - name: Upload coverage + mutation summaries
+      - name: Upload coverage + mutation + warn-gate summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -61,4 +61,6 @@ jobs:
             coverage/combined-summary.json
             coverage/combined-report.md
             reports/mutation/mutation-summary.json
+            reports/test-smells/test-smells-summary.json
+            reports/architecture/architecture-summary.json
           if-no-files-found: warn

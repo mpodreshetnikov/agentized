@@ -141,7 +141,7 @@ def run_mutation(
         return 0
 
     base = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or "origin/main"
-    min_score = float(mut.get("min_score_covered", 50))
+    min_score = float(mut.get("min_score_covered", 100))
     prefixes = [
         str(src).replace("\\", "/")
         for module in cfg.get("modules") or []

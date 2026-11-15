@@ -1,0 +1,15 @@
+# Copy to repo root as `.importlinter` and set architecture.tool=import-linter
+# in context/quality.json (mode=warn for pilot).
+[importlinter]
+root_package = agentized
+include_external_packages = False
+
+[importlinter:contract:layers]
+name = Agentized runtime layers (pilot)
+type = layers
+layers =
+    agentized.connect
+    agentized.mutation
+    agentized.coverage_check
+    agentized.quality
+    agentized.paths

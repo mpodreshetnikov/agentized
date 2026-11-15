@@ -233,13 +233,57 @@ def cmd_quality(args: argparse.Namespace) -> int:
         )
         return 0
     if args.quality_cmd == "check":
+        from agentized.architecture_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
         from agentized.mutation import run_mutation
+        from agentized.quality import load_quality
+        from agentized.test_smells import run_test_smells
 
-        cov_rc = run_coverage_check(root, context=ctx_rel)
-        if cov_rc != 0:
-            return cov_rc
-        return run_mutation(root, context=ctx_rel)
+        cfg = load_quality(root, ctx_rel)
+        gate_names = list((cfg.get("gates") or {}).get("ci") or [])
+        # Always run coverage (module tests + thresholds) then optional warn gates, then mutation.
+        ordered = gate_names or [
+            "module_tests",
+            "coverage",
+            "test_smells",
+            "architecture",
+            "mutation",
+        ]
+        # coverage_check already runs module tests; map both names to it.
+        ran_coverage = False
+        for name in ordered:
+            if name in {"mechanical"}:
+                continue
+            if name in {"module_tests", "coverage"}:
+                if ran_coverage:
+                    continue
+                ran_coverage = True
+                cov_rc = run_coverage_check(root, context=ctx_rel)
+                if cov_rc != 0:
+                    return cov_rc
+                continue
+            if name == "test_smells":
+                smell_rc = run_test_smells(root, context=ctx_rel)
+                if smell_rc != 0:
+                    return smell_rc
+                continue
+            if name == "architecture":
+                arch_rc = run_architecture_gate(root, context=ctx_rel)
+                if arch_rc != 0:
+                    return arch_rc
+                continue
+            if name == "mutation":
+                mut_rc = run_mutation(root, context=ctx_rel)
+                if mut_rc != 0:
+                    return mut_rc
+                continue
+        if not ran_coverage:
+            cov_rc = run_coverage_check(root, context=ctx_rel)
+            if cov_rc != 0:
+                return cov_rc
+        if "mutation" not in ordered:
+            return run_mutation(root, context=ctx_rel)
+        return 0
     print("неизвестная подкоманда quality", file=sys.stderr)
     return 1
 

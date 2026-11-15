@@ -39,8 +39,9 @@ def default_quality_config() -> dict[str, Any]:
             "gate": "hard",
             "scope": "covered_changed_lines",
             "base_ref": "origin/main",
-            "min_score_covered": 50,
-            "break_on_survived": False,
+            # Maxim / Orbit: hard gate on mutationScoreCovered only (not overall score).
+            "min_score_covered": 100,
+            "break_on_survived": True,
             "break_on_no_tests": True,
             "include_globs": [
                 "runtime/agentized/quality.py",
@@ -50,9 +51,58 @@ def default_quality_config() -> dict[str, Any]:
                 "runtime/agentized/hook_common.py",
             ],
         },
+        "test_smells": {
+            "enabled": True,
+            "mode": "warn",
+            "include_globs": [
+                "tests/unit/**/*.py",
+                "tests/quality/**/*.py",
+                "tests/**/test_*.py",
+            ],
+        },
+        "architecture": {
+            "enabled": True,
+            "mode": "warn",
+            "tool": "import-linter",
+            "config": ".importlinter",
+            "source_roots": ["runtime/agentized"],
+            "forbidden_edges": [],
+        },
+        "property_based": {
+            "enabled": False,
+            "tools": {"python": "hypothesis", "javascript": "fast-check"},
+            "pilot_modules": [],
+        },
+        "e2e": {
+            "enabled": False,
+            "on_failure_artifacts": ["video", "screenshot"],
+            "new_spec_retries": 3,
+            "forbid": ["pixel_compare", "snapshot_markup", "formal_contracts"],
+        },
+        "shared_fixtures": {
+            "required_when_duplicated_logic": True,
+        },
+        "batch_release": {
+            "shared_ci_for_reviewed_prs": True,
+            "keep_up_to_date_protection": True,
+        },
         "gates": {
-            "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
-            "ci": ["mechanical", "module_tests", "coverage", "mutation"],
+            "pre_push": [
+                "mechanical",
+                "module_tests",
+                "coverage",
+                "test_smells",
+                "architecture",
+                "mutation",
+            ],
+            "ci": [
+                "mechanical",
+                "module_tests",
+                "coverage",
+                "test_smells",
+                "architecture",
+                "mutation",
+            ],
         },
         # Sensitive globs / trivial filters live in review_budget.default_reviewer_config
         # (keep this dict small — mutmut include_globs cover quality.py).
@@ -139,6 +189,17 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         out["modules"] = data["modules"]
     mut_in = data.get("mutation") or {}
     out["mutation"].update({k: mut_in[k] for k in mut_in})
+    for key in (
+        "test_smells",
+        "architecture",
+        "property_based",
+        "e2e",
+        "shared_fixtures",
+        "batch_release",
+    ):
+        section = data.get(key)
+        if isinstance(section, dict):
+            out[key].update(section)
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
     rev_in = data.get("reviewer") or {}

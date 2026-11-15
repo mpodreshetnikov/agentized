@@ -33,17 +33,78 @@
       "runtime/agentized/hook_common.py"
     ]
   },
+  "test_smells": {
+    "enabled": true,
+    "mode": "warn",
+    "include_globs": [
+      "tests/unit/**/*.py",
+      "tests/quality/**/*.py"
+    ]
+  },
+  "architecture": {
+    "enabled": true,
+    "mode": "warn",
+    "tool": "import-linter",
+    "config": ".importlinter",
+    "source_roots": [
+      "runtime/agentized"
+    ],
+    "forbidden_edges": [
+      {
+        "from": "agentized.coverage_report",
+        "to": "agentized.connect"
+      },
+      {
+        "from": "agentized.mutation",
+        "to": "agentized.connect"
+      }
+    ]
+  },
+  "property_based": {
+    "enabled": true,
+    "tools": {
+      "python": "hypothesis",
+      "javascript": "fast-check"
+    },
+    "pilot_modules": [
+      "runtime/agentized/paths.py"
+    ]
+  },
+  "e2e": {
+    "enabled": false,
+    "on_failure_artifacts": [
+      "video",
+      "screenshot"
+    ],
+    "new_spec_retries": 3,
+    "forbid": [
+      "pixel_compare",
+      "snapshot_markup",
+      "formal_contracts"
+    ]
+  },
+  "shared_fixtures": {
+    "required_when_duplicated_logic": true
+  },
+  "batch_release": {
+    "shared_ci_for_reviewed_prs": true,
+    "keep_up_to_date_protection": true
+  },
   "gates": {
     "pre_push": [
       "mechanical",
       "module_tests",
       "coverage",
+      "test_smells",
+      "architecture",
       "mutation"
     ],
     "ci": [
       "mechanical",
       "module_tests",
       "coverage",
+      "test_smells",
+      "architecture",
       "mutation"
     ]
   },

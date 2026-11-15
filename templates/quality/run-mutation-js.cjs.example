@@ -1,22 +1,36 @@
 #!/usr/bin/env node
-/** Incremental Stryker hard gate vs STRYKER_BASE/MUTATION_BASE (default origin/main). */
+/**
+ * Incremental Stryker hard gate on mutationScoreCovered (= 100%).
+ * Do NOT trust Stryker thresholds.break for the Orbit metric — it keys off overall
+ * mutationScore. This wrapper reads reports/mutation/mutation.json and gates
+ * mutationScoreOfCoveredCode (or recomputes killed/(killed+survived)).
+ *
+ * Env: STRYKER_BASE / MUTATION_BASE (default origin/main)
+ * Skip (pass): no relevant changed files vs base — never false-fail.
+ */
 "use strict";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+
 const root = process.cwd();
 const base = process.env.STRYKER_BASE || process.env.MUTATION_BASE || "origin/main";
 const full = process.argv.includes("--full");
+const MIN_COVERED = Number(process.env.MUTATION_MIN_SCORE_COVERED || 100);
 
 function changed() {
   const r = spawnSync("git", ["diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`], {
-    cwd: root, encoding: "utf8",
+    cwd: root,
+    encoding: "utf8",
   });
   if (r.status !== 0) {
     console.error(r.stderr || r.stdout || "git diff failed");
     process.exit(r.status ?? 1);
   }
-  return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)
+  return r.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
     .filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f) && !/\.(test|spec)\./.test(f))
     .filter((f) => f.startsWith("src/") || f.startsWith("scripts/"));
 }
@@ -24,20 +38,143 @@ function changed() {
 function write(payload) {
   const dir = path.join(root, "reports/mutation");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "mutation-summary.json"), `${JSON.stringify(payload, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(dir, "mutation-summary.json"),
+    `${JSON.stringify(payload, null, 2)}\n`,
+  );
+}
+
+function readCoveredScore() {
+  const candidates = [
+    path.join(root, "reports/mutation/mutation.json"),
+    path.join(root, "reports/mutation/mutation-result.json"),
+  ];
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    const files = data.files || {};
+    let killed = 0;
+    let survived = 0;
+    let noCoverage = 0;
+    let timeout = 0;
+    for (const entry of Object.values(files)) {
+      for (const m of entry.mutants || []) {
+        if (m.status === "Killed") killed += 1;
+        else if (m.status === "Survived") survived += 1;
+        else if (m.status === "NoCoverage") noCoverage += 1;
+        else if (m.status === "Timeout") timeout += 1;
+      }
+    }
+    const covered = killed + survived + timeout;
+    const mutationScoreCovered =
+      covered === 0 ? null : Math.round((10000 * (killed + timeout)) / covered) / 100;
+    const mutationScore =
+      killed + survived + noCoverage + timeout === 0
+        ? null
+        : Math.round(
+            (10000 * (killed + timeout)) / (killed + survived + noCoverage + timeout),
+          ) / 100;
+    // Prefer Stryker's named metric when present, else recompute.
+    const fromTool =
+      data.mutationScoreOfCoveredCode ??
+      data.metrics?.mutationScoreOfCoveredCode ??
+      mutationScoreCovered;
+    return {
+      mutationScoreCovered: fromTool,
+      mutationScore:
+        data.mutationScore ?? data.metrics?.mutationScore ?? mutationScore,
+      killed,
+      survived,
+      noCoverage,
+      timeout,
+      source: file,
+    };
+  }
+  return null;
+}
+
+function gateFromReport() {
+  const stats = readCoveredScore();
+  if (!stats) {
+    write({
+      schemaVersion: 1,
+      mode: "incremental",
+      base,
+      gate: "hard",
+      passed: false,
+      reasons: ["missing_stryker_json"],
+    });
+    console.error("run-mutation-js: FAIL missing Stryker JSON report");
+    process.exit(1);
+  }
+  const score = stats.mutationScoreCovered;
+  const reasons = [];
+  if (score == null) reasons.push("no_covered_mutants");
+  else if (score + 1e-9 < MIN_COVERED) {
+    reasons.push(`score_covered=${score}<${MIN_COVERED}`);
+  }
+  if (stats.survived > 0 && MIN_COVERED >= 100) {
+    reasons.push(`survived=${stats.survived}`);
+  }
+  const passed = reasons.length === 0;
+  write({
+    schemaVersion: 1,
+    mode: full ? "full" : "incremental",
+    base,
+    gate: "hard",
+    metric: "mutationScoreCovered",
+    minScoreCovered: MIN_COVERED,
+    passed,
+    reasons,
+    ...stats,
+  });
+  console.log(
+    `run-mutation-js: covered=${score} overall=${stats.mutationScore} ` +
+      `killed=${stats.killed} survived=${stats.survived}`,
+  );
+  if (!passed) {
+    console.error(`run-mutation-js: FAIL ${reasons.join(", ")}`);
+    process.exit(1);
+  }
+  console.log("run-mutation-js: PASS hard gate (mutationScoreCovered)");
+  process.exit(0);
 }
 
 if (!full) {
   const mutate = changed();
   if (!mutate.length) {
-    write({ schemaVersion: 1, mode: "incremental-skip", base, gate: "hard", passed: true });
+    write({
+      schemaVersion: 1,
+      mode: "incremental-skip",
+      base,
+      gate: "hard",
+      passed: true,
+      note: `No mutable source files changed vs ${base}`,
+    });
     console.log(`run-mutation-js: skip vs ${base}`);
     process.exit(0);
   }
   console.log(`run-mutation-js: ${mutate.length} file(s)`);
   const result = spawnSync("npx", ["stryker", "run", "--mutate", mutate.join(",")], {
-    cwd: root, stdio: "inherit",
+    cwd: root,
+    stdio: "inherit",
   });
-  process.exit(result.status ?? 1);
+  if ((result.status ?? 1) !== 0) {
+    write({
+      schemaVersion: 1,
+      mode: "incremental",
+      base,
+      gate: "hard",
+      passed: false,
+      reasons: [`stryker_exit=${result.status}`],
+    });
+    process.exit(result.status ?? 1);
+  }
+  gateFromReport();
 }
-process.exit(spawnSync("npx", ["stryker", "run"], { cwd: root, stdio: "inherit" }).status ?? 1);
+
+{
+  const result = spawnSync("npx", ["stryker", "run"], { cwd: root, stdio: "inherit" });
+  if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);
+  gateFromReport();
+}
