@@ -57,6 +57,53 @@ def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
     return sorted(out)
 
 
+def _is_count_membership_bypass(node: ast.Compare) -> bool:
+    """``assert expr.count(lit) >= 1`` / ``> 0`` / ``== 0`` ≡ membership checks."""
+    if len(node.ops) != 1 or len(node.comparators) != 1:
+        return False
+    left = node.left
+    if not isinstance(left, ast.Call):
+        return False
+    if not isinstance(left.func, ast.Attribute) or left.func.attr != "count":
+        return False
+    if not left.args or not isinstance(left.args[0], ast.Constant):
+        return False
+    right = node.comparators[0]
+    if not isinstance(right, ast.Constant) or not isinstance(right.value, int):
+        return False
+    op = node.ops[0]
+    val = right.value
+    if isinstance(op, ast.GtE) and val == 1:
+        return True
+    if isinstance(op, ast.Gt) and val == 0:
+        return True
+    if isinstance(op, (ast.Eq, ast.NotEq)) and val == 0:
+        return True
+    return False
+
+
+def _is_int_bool_truth_bypass(node: ast.Compare) -> bool:
+    """``assert int(x) == 1`` / ``bool(x) == True`` ≡ bare truthiness."""
+    if len(node.ops) != 1 or len(node.comparators) != 1:
+        return False
+    left = node.left
+    if not isinstance(left, ast.Call) or not isinstance(left.func, ast.Name):
+        return False
+    name = left.func.id
+    if name not in {"int", "bool"}:
+        return False
+    if not isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
+        return False
+    right = node.comparators[0]
+    if not isinstance(right, ast.Constant):
+        return False
+    if name == "int" and right.value in (0, 1):
+        return True
+    if name == "bool" and isinstance(right.value, bool):
+        return True
+    return False
+
+
 def _is_weak_assert(node: ast.Assert) -> bool:
     test = node.test
     if isinstance(test, ast.Constant) and isinstance(test.value, bool):
@@ -68,6 +115,8 @@ def _is_weak_assert(node: ast.Assert) -> bool:
     ):
         return True
     if isinstance(test, ast.Compare) and len(test.ops) == 1:
+        if _is_count_membership_bypass(test) or _is_int_bool_truth_bypass(test):
+            return True
         op = test.ops[0]
         if type(op) in _WEAK_COMPARE_OPS:
             return True

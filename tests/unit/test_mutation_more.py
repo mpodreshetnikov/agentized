@@ -58,5 +58,8 @@ def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
 def test_write_setup(tmp_path: Path):
     mut._write_setup(tmp_path, ["agentized/quality.py"])
     text = (tmp_path / "setup.cfg").read_text(encoding="utf-8")
-    assert text.count("only_mutate") >= 1
-    assert text.count("agentized/quality.py") >= 1
+    lines = text.splitlines()
+    idx = lines.index("only_mutate =")
+    assert lines[idx + 1] == "  agentized/quality.py"
+    # Durable header still present with the [mutmut] section.
+    assert lines[0] == "[mutmut]"

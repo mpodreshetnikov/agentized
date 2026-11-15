@@ -102,8 +102,12 @@ def test_claim_disabled_and_skip(tmp_path: Path):
 def test_empty_globs_need_claim():
     cfg = default_process_config()
     cfg["edit_path_globs"] = []
-    # Empty globs → every path needs a claim (sentinel 1, not bare truthy).
-    assert int(path_needs_claim("anything.py", cfg)) == 1
+    # Empty globs → every path needs a claim (concrete map, not int()/bool() cast).
+    assert {
+        "anything.py": path_needs_claim("anything.py", cfg),
+        "README.md": path_needs_claim("README.md", cfg),
+        "x": path_needs_claim("x", cfg),
+    } == {"anything.py": True, "README.md": True, "x": True}
 
 
 def test_load_bad_json(tmp_path: Path):
