@@ -22,8 +22,8 @@
     "gate": "hard",
     "scope": "covered_changed_lines",
     "base_ref": "origin/main",
-    "min_score_covered": 50,
-    "break_on_survived": false,
+    "min_score_covered": 100,
+    "break_on_survived": true,
     "break_on_no_tests": true,
     "include_globs": [
       "runtime/agentized/quality.py",
