@@ -17,8 +17,9 @@ def default_reporting_config() -> dict[str, Any]:
         "version": 1,
         "level": "short",
         "_comment": (
-            "level=short|technical. short is default: business-readable, compressed, "
-            "no code/SHAs. See acceptance-artifacts skill."
+            "level=short|technical. short is default: human 5-block report "
+            "(no code/SHAs/paths/caveman). technical = engineering depth. "
+            "See acceptance-artifacts skill."
         ),
     }
 

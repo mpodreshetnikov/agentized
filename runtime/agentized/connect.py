@@ -32,8 +32,8 @@ AGENTS_BLOCK_TEMPLATE = """{begin}
 - Перед первой правкой в agent/cloud сессии: `agentized env-check` (REFUSED → стоп; см. `docs/AGENT_ENVIRONMENT.md`).
 - Claim перед правками кода: `agentized claim <TASK_ID> --owner <you>` (см. `docs/process-control.md`).
 - **No GitHub Stacked PRs:** every PR targets `main` (or the repo default), never another feature/PR branch. Sequence merges, or ship one PR.
-- **Caveman `ultracave`:** working agents — max compression (no fluff/greetings/recaps). Keep facts, numbers, negations (`no`/`not`/`never`/`only`), decisions. Clear prose only for irreversible confirms, risk warnings, step sequences/test plans. **Exception:** the `reviewer` agent never uses caveman.
-- Handoff: `acceptance-artifacts` skill + `{context}/reporting.json` (`short` default / `technical`).
+- **Caveman `ultracave`:** working agents — max compression (no fluff/greetings/recaps). Keep facts, numbers, negations (`no`/`not`/`never`/`only`), decisions. Clear prose only for irreversible confirms, risk warnings, step sequences/test plans. **Exceptions:** the `reviewer` agent never uses caveman; **human-facing acceptance reports** never use caveman (5-block `short` prose).
+- Handoff: `acceptance-artifacts` skill + `{context}/reporting.json` (`short` default = human 5-block / `technical`).
 {end}
 """
 
@@ -48,8 +48,8 @@ CLAUDE_BLOCK_TEMPLATE = """{begin}
 - Before the first change in an agent/cloud session: `agentized env-check` (REFUSED → stop; see `docs/AGENT_ENVIRONMENT.md`).
 - Claim before code edits: `agentized claim <TASK_ID> --owner <you>` (see `docs/process-control.md`).
 - **No GitHub Stacked PRs:** every PR targets `main` (repo default), never another feature/PR branch.
-- **Caveman `ultracave`:** working agents — max compression; no fluff. **Exception:** `reviewer` never uses caveman.
-- Handoff: `acceptance-artifacts` + `{context}/reporting.json` (`short` / `technical`).
+- **Caveman `ultracave`:** working agents — max compression; no fluff. **Exceptions:** `reviewer` never uses caveman; human-facing acceptance reports never use caveman.
+- Handoff: `acceptance-artifacts` + `{context}/reporting.json` (`short` = human 5-block / `technical`).
 {end}
 """
 

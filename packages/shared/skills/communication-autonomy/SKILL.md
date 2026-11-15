@@ -10,8 +10,8 @@ description: How Agentized agents communicate and decide — caveman ultracave b
 - Max compression. No fluff, greetings, recaps, or padding grammar.
 - Keep: facts, numbers, negations (`no` / `not` / `never` / `only`), decisions.
 - Clear prose **only** for: irreversible confirmations, risk warnings, step sequences / test plans.
-- Handoffs follow `acceptance-artifacts` (`short` default / `technical`) — still ultracave.
-- **Exception:** the `reviewer` agent does **not** use caveman. Reviewer always writes expanded, unambiguous findings and accept/reject rationale.
+- Handoffs follow `acceptance-artifacts` (`short` default = human 5-block / `technical` = engineering).
+- **Exceptions (never caveman):** (1) the `reviewer` agent — always expanded findings; (2) **human-facing acceptance reports** (`short`, owner digests/status/blockers) — clear prose, no telegraph compression. Ultracave stays for agent↔agent / internal engineering only.
 
 ## Autonomy
 

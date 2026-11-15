@@ -49,7 +49,7 @@ Independent **read-only** reviewer role + orchestration skill, installed by `con
 - Claude: `.claude/agents/reviewer.md` → `claude-fable-5-2` + `disallowedTools`
 - Codex: `.codex/agents/reviewer.toml` **only** (never `.md`) → `gpt-6-astra`
 
-The reviewer **never** uses caveman/ultracave — expanded findings only.
+The reviewer **never** uses caveman/ultracave — expanded findings only. Human-facing acceptance reports (`short`, 5 blocks) also never use caveman — see the `acceptance-artifacts` skill.
 
 Config in [`context/quality.json`](../context/quality.json) → `reviewer`:
 
