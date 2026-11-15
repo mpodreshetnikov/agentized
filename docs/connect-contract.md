@@ -23,6 +23,7 @@
 
 | Артефакт | Поведение |
 |----------|-----------|
+| `{context}/` skeleton | Если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает |
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
 | `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |

@@ -126,12 +126,11 @@ def test_ensure_githooks_path_preserves_user(tmp_path: Path):
     assert ensure_githooks_path(tmp_path) == "skipped-cursor-agent-hooks"
 
 
-def test_connect_requires_nav(tmp_path: Path):
+def test_connect_creates_skeleton_when_nav_missing(tmp_path: Path):
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     (tmp_path / "context").mkdir()
-    try:
-        connect(tmp_path, context_rel="context", harnesses=[])
-        raised = False
-    except FileNotFoundError:
-        raised = True
-    assert raised
+    result = connect(tmp_path, context_rel="context", harnesses=[])
+    assert result["skeleton"]["created"] is True
+    assert (tmp_path / "context" / "NAV.md").is_file()
+    assert (tmp_path / "context" / "tasks" / "INDEX.md").is_file()
+    assert (tmp_path / "context" / "leases" / "INDEX.md").is_file()
