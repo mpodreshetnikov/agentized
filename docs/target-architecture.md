@@ -368,7 +368,7 @@ Connect не «ставит ещё один плагин ради плагина
    - A пишет Progress + закрывает lease + участвует в регулярном digest (dev и/или management);
    - B продолжает с актуальным контекстом;
    - опционально: второй code-репо в том же контексте.
-5. **Минимальные skills и hooks (спеки → pinned copy в проекте):** registry, lease-sync, digest, navigate + соответствующие hooks — для трёх harness.
+5. **Минимальные skills и hooks (спеки → pinned copy в проекте):** registry, lease-sync, digest, navigate, quality-gates, communication-autonomy, acceptance-artifacts + hooks (session-start, process-guard, lease-warn) — для трёх harness. Process-control: claim before edits + reviewable PR size (`docs/process-control.md`).
 6. **Runtime / docs в `mpodreshetnikov/agentized`** — не ждать отдельного «docs-only» этапа в Agent Store как SoT.
 7. **Дальше по мере необходимости:** усиление hooks, manager goals UI/flow, ужесточение lease-политики (если warn-only окажется недостаточным).
 

@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "coverage": {
+    "lines": 80,
+    "branches": 80
+  },
+  "modules": [
+    {
+      "id": "runtime",
+      "source": [
+        "runtime/agentized"
+      ],
+      "test_command": "python3 -m pytest tests/unit tests/quality -q --cov=runtime/agentized --cov-branch --cov-report=term-missing --cov-report=lcov:coverage/runtime/lcov.info --cov-report=json:coverage/runtime/coverage.json --cov-fail-under=0",
+      "coverage_lcov": "coverage/runtime/lcov.info",
+      "coverage_json": "coverage/runtime/coverage.json",
+      "thresholds": {}
+    }
+  ],
+  "mutation": {
+    "enabled": true,
+    "tool": "mutmut",
+    "gate": "hard",
+    "scope": "covered_changed_lines",
+    "base_ref": "origin/main",
+    "min_score_covered": 50,
+    "break_on_survived": false,
+    "break_on_no_tests": true,
+    "include_globs": [
+      "runtime/agentized/quality.py",
+      "runtime/agentized/paths.py",
+      "runtime/agentized/tasks.py",
+      "runtime/agentized/leases.py",
+      "runtime/agentized/hook_common.py"
+    ]
+  },
+  "gates": {
+    "pre_push": [
+      "mechanical",
+      "module_tests",
+      "coverage",
+      "mutation"
+    ],
+    "ci": [
+      "mechanical",
+      "module_tests",
+      "coverage",
+      "mutation"
+    ]
+  },
+  "reviewer": {
+    "enabled": true,
+    "helper_model": "composer-2",
+    "budget_max": 3,
+    "delta_lines": 200,
+    "harnesses": {
+      "cursor": {
+        "model": "grok-4.7[reasoning_effort=medium]",
+        "effort": "medium"
+      },
+      "claude": {
+        "model": "claude-fable-5-2",
+        "effort": "medium"
+      },
+      "codex": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      }
+    },
+    "sensitive_globs": [
+      "runtime/**",
+      "packages/shared/**",
+      ".github/workflows/**",
+      ".githooks/**",
+      "context/quality.json",
+      "context/process-control.json",
+      "context/env-check.json",
+      "AGENTS.md",
+      "docs/QUALITY.md",
+      "docs/process-control.md"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/session_start.py"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/process_guard.py",
+        "matcher": "Write|Edit"
+      },
+      {
+        "command": ".cursor/hooks/lease_warn.py",
+        "matcher": "Write|Edit|Shell|Bash"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/ensure_agent_hooks.py"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/lease_warn.py"
+      }
+    ]
+  }
+}

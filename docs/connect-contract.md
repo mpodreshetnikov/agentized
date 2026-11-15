@@ -11,8 +11,10 @@
 Команда:
 
 ```bash
-python3 runtime/agentized_cli.py connect
-# или: ./bin/agentized connect
+./bin/agentized connect
+# or: python3 runtime/agentized_cli.py connect
+# or (external repo with Agentized on PATH): agentized connect
+./bin/agentized connect --coverage 85   # optional threshold pin
 ```
 
 Идемпотентна. Повторный запуск дополняет/обновляет те же маркеры, не плодит дубликаты.
@@ -23,10 +25,21 @@ python3 runtime/agentized_cli.py connect
 |----------|-----------|
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
-| `{context}/skills/` | Pinned copy skills: `navigate`, `registry`, `lease-sync`, `digest` |
-| `{context}/hooks/scripts/` | Pinned copy hook-скриптов: `session_start.py`, `lease_warn.py` |
-| Session-start hook | Проверяет указатель Context/`NAV.md` и добавляет reminder в контекст сессии |
-| Lease-overlap hook | **Warn-only**: сообщает о пересечении write-paths, **не** блокирует запись |
+| `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
+| `{context}/agents/` | Pinned readonly `reviewer.md` (model from `quality.json` → `reviewer.model`) |
+| `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
+| `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
+| `{context}/quality.json` | Пороги coverage (default 80%) · modules · mutation hard gate; `connect --coverage <pct>` |
+| `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |
+| `.githooks/pre-push` | Шаблон → `agentized quality check` (+ process size warn); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |
+| `.github/workflows/ci.yml` | То же для CI workflow |
+| `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |
+| `{context}/env-check.json` | `cloud_git_hooks` warn\|refuse; connect создаёт default без clobber |
+| `scripts/cloud/configure-cursor-agent-hooks.sh` | 1-line Dashboard Install & Start (см. [`AGENT_ENVIRONMENT.md`](./AGENT_ENVIRONMENT.md)) |
+| Session-start hook | Context/`NAV.md` reminder + env-check; safe if local `runtime/` missing |
+| Process-guard hook | Claim required before Write/Edit (agent=refuse, local=warn) |
+| Lease-overlap hook | **Warn-only**: пересечение write-paths, **не** блокирует запись |
+| External connect | Нет локальных `packages/` / `templates/quality` → берёт их из **installed Agentized root** |
 | `.agentized/connect.json` | Локальный маркер состояния (в `.gitignore`) |
 
 По умолчанию Context = вложенный каталог `context/` в этом репозитории.
@@ -44,7 +57,7 @@ python3 runtime/agentized_cli.py connect
 | Путь | Назначение |
 |------|------------|
 | `.cursor/skills/*/SKILL.md` | Project skills |
-| `.cursor/hooks.json` | `sessionStart`, `preToolUse`, `afterFileEdit` |
+| `.cursor/hooks.json` | `sessionStart`, `preToolUse`, `beforeShellExecution` (git-hooks self-heal), `afterFileEdit` |
 | `.cursor/hooks/*.py` | Скрипты hooks |
 
 Опционально официальный local plugin (без marketplace):
@@ -65,7 +78,7 @@ cp -R packages/agentized-cursor ~/.cursor/plugins/local/agentized
 | Путь | Назначение |
 |------|------------|
 | `.claude/skills/*/SKILL.md` | Project skills |
-| `.claude/settings.json` → `hooks` | `SessionStart`, `PreToolUse` |
+| `.claude/settings.json` → `hooks` | `SessionStart`, `PreToolUse` (incl. `Bash` → `ensure_agent_hooks`) |
 | `.claude/hooks/*.py` | Скрипты |
 
 Опционально session plugin без публикации:
@@ -83,7 +96,7 @@ claude --plugin-dir packages/agentized-claude
 | Путь | Назначение |
 |------|------------|
 | `.agents/skills/*/SKILL.md` | Project skills (Codex также читает совместимые каталоги skills) |
-| `.codex/hooks.json` | Project hooks: `SessionStart`, `PreToolUse` |
+| `.codex/hooks.json` | Project hooks: `SessionStart`, `PreToolUse` (incl. `Bash` → `ensure_agent_hooks`) |
 | `.codex/hooks/*.py` | Скрипты |
 | `.agents/plugins/marketplace.json` | Локальный marketplace → `packages/agentized-codex` |
 

@@ -1,0 +1,53 @@
+{
+  "description": "Agentized project hooks (claim guard, warn-only leases, NAV reminder).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py\"",
+            "statusMessage": "Agentized NAV check",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/process_guard.py\"",
+            "statusMessage": "Agentized process guard",
+            "additionalContextLimit": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/lease_warn.py\"",
+            "statusMessage": "Agentized lease warn",
+            "additionalContextLimit": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/ensure_agent_hooks.py\"",
+            "statusMessage": "Agentized git-hooks self-heal",
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ]
+  }
+}
