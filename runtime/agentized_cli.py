@@ -55,6 +55,11 @@ def cmd_connect(args: argparse.Namespace) -> int:
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
+    sk = result.get("skeleton") or {}
+    if sk.get("created"):
+        print(f"  context skeleton: created ({', '.join(sk.get('files') or [])})")
+    else:
+        print("  context skeleton: existing (unchanged)")
     print(f"  AGENTS.md updated: {result['state']['agents_md_updated']}")
     print(f"  CLAUDE.md updated: {result['state']['claude_md_updated']}")
     print(f"  harnesses: {', '.join(harnesses)}")

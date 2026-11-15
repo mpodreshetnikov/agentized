@@ -690,6 +690,103 @@ def ensure_env_check_config(root: Path, context_rel: str) -> dict:
     return {"path": str(path.relative_to(root)), "created": created}
 
 
+# Minimal Context skeleton for a clean connect (never overwrites existing files).
+MINIMAL_NAV_MD = """# NAV — карта Project Context
+
+Один экран. Читай это первым после указателя в корневом `AGENTS.md`. Дальше — только ссылки отсюда.
+
+## Где что
+
+| Раздел | Путь | Назначение |
+|--------|------|------------|
+| Задачи (живая доска) | [`tasks/INDEX.md`](tasks/INDEX.md) | Активная работа: open / in-progress / blocked |
+| Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути (warn-only) |
+| Skills (pinned) | [`skills/`](skills/) | Skills после connect |
+| Hooks (pinned) | [`hooks/`](hooks/) | session-start · process-guard · lease warn |
+
+## Как искать задачи
+
+1. Открой живой индекс [`tasks/INDEX.md`](tasks/INDEX.md) (только open / in-progress / blocked).
+2. Дополнительно — **grep** по id, title, tags в файлах задач.
+3. **Запрещено** обходить весь каталог `tasks/` листингом как единственный вход.
+
+## Connect и harness
+
+После `agentized connect` skills/hooks попадают в project-пути Cursor / Claude Code / Codex.
+Leases только предупреждают, запись не блокируют.
+"""
+
+MINIMAL_TASKS_INDEX_MD = """# Задачи — живой индекс
+
+Генерируемый список **активной** работы. Не полный архив истории.
+
+Статусы в индексе: `open` · `in-progress` · `blocked`.
+
+Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.
+
+## open
+
+_(пусто — skeleton)_
+
+## in-progress
+
+_(пусто — skeleton)_
+
+## blocked
+
+_(пусто — skeleton)_
+"""
+
+MINIMAL_LEASES_INDEX_MD = """# Path leases — индекс
+
+Кто держит какие пути кода. Генерируемый индекс (skeleton — пусто).
+
+| путь | задача | владелец | истекает |
+|------|--------|----------|----------|
+| _(пусто)_ | | | |
+
+Политика v1: leases **предупреждают** о пересечении write-paths, запись не блокируют.
+"""
+
+
+def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict:
+    """Create minimal Context (NAV.md, tasks/, leases/) if missing.
+
+    If Context already has NAV.md, leave it alone — never overwrite user NAV
+    or existing index files.
+    """
+    ctx = root / context_rel
+    nav = ctx / "NAV.md"
+    if nav.exists():
+        return {
+            "created": False,
+            "path": context_rel,
+            "files": [],
+        }
+
+    created_files: list[str] = []
+    ctx.mkdir(parents=True, exist_ok=True)
+    (ctx / "tasks").mkdir(parents=True, exist_ok=True)
+    (ctx / "leases").mkdir(parents=True, exist_ok=True)
+
+    targets = (
+        (nav, MINIMAL_NAV_MD),
+        (ctx / "tasks" / "INDEX.md", MINIMAL_TASKS_INDEX_MD),
+        (ctx / "leases" / "INDEX.md", MINIMAL_LEASES_INDEX_MD),
+    )
+    for path, body in targets:
+        if path.exists():
+            continue
+        path.write_text(body.rstrip() + "\n", encoding="utf-8")
+        created_files.append(str(path.relative_to(root)))
+
+    return {
+        "created": bool(created_files),
+        "path": context_rel,
+        "files": created_files,
+    }
+
+
 def connect(
     root: Path,
     *,
@@ -698,9 +795,7 @@ def connect(
     coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
-    ctx = root / context_rel
-    if not (ctx / "NAV.md").exists():
-        raise FileNotFoundError(f"нет {context_rel}/NAV.md — сначала нужен skeleton Context")
+    skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
         begin=CONNECT_MARKER_BEGIN,
@@ -733,6 +828,7 @@ def connect(
     reporting = ensure_reporting_config(root, context_rel)
     reviewer = pin_reviewer_agents(root, context_rel)
     results = {
+        "skeleton": skeleton,
         "pinned": pinned,
         "quality": quality,
         "quality_templates": quality_templates,
