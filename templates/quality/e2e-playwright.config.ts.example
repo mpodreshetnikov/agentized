@@ -1,0 +1,30 @@
+/**
+ * E2E template (Playwright) for connected projects that have a UI.
+ * Agentized itself has no UI — keep e2e.enabled=false there.
+ *
+ * Rules (Maxim / Orbit):
+ * - Key scenarios only (not exhaustive UI coverage).
+ * - On failure: save video + screenshots as CI artifacts.
+ * - New e2e specs: run 3× to surface flakes.
+ * - No pixel compares, snapshot markup, or formal contracts.
+ */
+import { defineConfig, devices } from "@playwright/test";
+
+const isCI = !!process.env.CI;
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: isCI,
+  // New specs: prefer `test.describe.configure({ retries: 3 })` or tag `@new`.
+  retries: isCI ? 1 : 0,
+  reporter: [["list"], ["html", { open: "never" }]],
+  use: {
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
+  },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  outputDir: "test-results/e2e",
+});

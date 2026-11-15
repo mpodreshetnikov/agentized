@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from agentized import test_smells as smells
+
+
+def test_weak_oracle_and_mock_call_only(tmp_path: Path, monkeypatch):
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_weak.py").write_text(
+        "def test_weak():\n    x = 1\n    assert x\n    assert x is not None\n    assert not y\n",
+        encoding="utf-8",
+    )
+    (tests / "test_mock_only.py").write_text(
+        "def test_mock_only(m):\n    m.assert_called_once()\n",
+        encoding="utf-8",
+    )
+    (tests / "test_ok.py").write_text(
+        "def test_ok():\n    assert 1 + 1 == 2\n",
+        encoding="utf-8",
+    )
+    (tests / "test_patch.py").write_text(
+        "from unittest.mock import patch\n"
+        "@patch('agentized.quality.load_quality')\n"
+        "def test_patched(m):\n"
+        "    assert 1 == 1\n",
+        encoding="utf-8",
+    )
+    (tests / "test_eq_none.py").write_text(
+        "def test_eq_none():\n    x = None\n    assert x == None\n",
+        encoding="utf-8",
+    )
+    (tests / "broken.py").write_text("def (\n", encoding="utf-8")
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "warn",
+                "include_globs": ["tests/unit/**/*.py"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 0
+    summary = json.loads(
+        (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
+    )
+    kinds = {f["kind"] for f in summary["findings"]}
+    assert "weak_primary_oracle" in kinds
+    assert "mock_call_only" in kinds
+    assert "patch_decorator" in kinds
+    assert "syntax_error" in kinds
+
+
+def test_smells_disabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(smells, "load_quality", lambda *a, **k: {"test_smells": {"enabled": False}})
+    assert smells.run_test_smells(tmp_path) == 0
+
+
+def test_smells_hard_fails(tmp_path: Path, monkeypatch):
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_weak.py").write_text(
+        "def test_weak():\n    assert True\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "hard",
+                "include_globs": ["tests/unit/**/*.py"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 1
+
+
+def test_smells_hard_pass_clean(tmp_path: Path, monkeypatch):
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_ok.py").write_text("def test_ok():\n    assert 2 == 2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "hard",
+                "include_globs": ["tests/unit/**/*.py"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 0
+
+
+def test_glob_match_variants():
+    assert smells._glob_match("tests/unit/a.py", "tests/unit/**/*.py")
+    assert smells._glob_match("a/b/c.py", "**/c.py")
+    assert smells._glob_match("c.py", "**/c.py")
+    assert smells._glob_match("tests/unit/a.py", "tests/unit/*.py")
+    assert not smells._glob_match("docs/x.md", "tests/**/*.py")
+    assert smells._glob_match("pkg/tests/test_a.py", "**/test_*.py")
+    assert smells._glob_match("src/a/b.py", "src/**/b.py")
+    assert not smells._glob_match("x.py", "plain")
+
+
+def test_call_name_and_weak_helpers():
+    import ast
+
+    assert smells._call_name(ast.parse("foo.bar.baz", mode="eval").body) == "foo.bar.baz"
+    assert smells._call_name(ast.parse("42", mode="eval").body) == ""
+    node = ast.parse("assert x in y").body[0]
+    assert smells._is_weak_assert(node)
+    node2 = ast.parse("assert x == False").body[0]
+    assert smells._is_weak_assert(node2)
+    node3 = ast.parse("assert 1 + 1 == 2").body[0]
+    assert not smells._is_weak_assert(node3)
+    assert not smells._is_mock_assert_call(ast.parse("x = 1").body[0])
+
+
+def test_smells_main(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(smells, "find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(smells, "run_test_smells", lambda root, context="context": 0)
+    assert smells.main(["--context", "context"]) == 0
+    assert smells.main([]) == 0

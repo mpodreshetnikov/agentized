@@ -17,7 +17,7 @@ def test_mutation_skip_no_changed(tmp_path: Path, monkeypatch):
         mut,
         "load_quality",
         lambda *a, **k: {
-            "mutation": {"enabled": True, "min_score_covered": 50, "include_globs": []},
+            "mutation": {"enabled": True, "min_score_covered": 100, "include_globs": []},
             "modules": [{"source": ["runtime/agentized"]}],
         },
     )

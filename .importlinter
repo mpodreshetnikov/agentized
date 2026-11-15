@@ -1,0 +1,13 @@
+[importlinter]
+root_package = agentized
+include_external_packages = False
+
+[importlinter:contract:no-connect-from-reports]
+name = Coverage/mutation must not import connect
+type = forbidden
+source_modules =
+    agentized.coverage_report
+    agentized.mutation
+    agentized.coverage_check
+forbidden_modules =
+    agentized.connect

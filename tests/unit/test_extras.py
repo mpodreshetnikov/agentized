@@ -77,13 +77,19 @@ def test_quality_normalize_and_module_thresholds(tmp_path: Path):
         "coverage": {"lines": 77, "branches": 78},
         "modules": [{"id": "m", "source": ["x"], "thresholds": {"lines": 70}}],
         "mutation": {"gate": "hard", "min_score_covered": 55},
+        "test_smells": {"mode": "warn", "enabled": True},
+        "architecture": {"mode": "warn", "tool": "builtin"},
         "gates": {"ci": ["coverage"]},
     })
     data = load_quality(tmp_path)
     assert data["coverage"]["lines"] == 77.0
     assert data["coverage"]["branches"] == 78.0
     assert data["mutation"]["min_score_covered"] == 55
+    assert data["test_smells"]["mode"] == "warn"
+    assert data["architecture"]["tool"] == "builtin"
+    assert data["mutation"]["min_score_covered"] == 55
     assert data["gates"]["ci"] == ["coverage"]
+    assert default_quality_config()["mutation"]["min_score_covered"] == 100
     lines, branches = module_thresholds(data, data["modules"][0])
     assert lines == 70.0 and branches == 78.0
     lines2, branches2 = module_thresholds(data, {"thresholds": {}})

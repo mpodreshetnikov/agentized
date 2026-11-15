@@ -1,0 +1,225 @@
+"""Warn-first lint for weak oracles and mock-call-only tests.
+
+Config: context/quality.json → test_smells (mode: warn|hard).
+Does not replace the quality-gates skill rules — it only catches common smells.
+"""
+from __future__ import annotations
+
+import ast
+import fnmatch
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .paths import DEFAULT_CONTEXT, find_repo_root
+from .quality import load_quality
+
+_WEAK_COMPARE_OPS = {ast.Is, ast.IsNot, ast.In, ast.NotIn}
+_MOCK_ASSERT_ATTRS = {
+    "assert_called",
+    "assert_called_once",
+    "assert_called_with",
+    "assert_called_once_with",
+    "assert_any_call",
+    "assert_has_calls",
+    "assert_not_called",
+}
+
+
+def _glob_match(rel: str, pattern: str) -> bool:
+    """Match repo-relative paths; treat `**` as 'any directories'."""
+    if fnmatch.fnmatch(rel, pattern):
+        return True
+    if "**" not in pattern:
+        return False
+    # tests/unit/**/*.py → under tests/unit/ and ends with .py
+    if pattern.endswith("/**/*.py"):
+        prefix = pattern[: -len("/**/*.py")]
+        return rel.startswith(prefix + "/") and rel.endswith(".py")
+    if pattern.startswith("**/"):
+        rest = pattern[3:]
+        return fnmatch.fnmatch(rel, rest) or any(
+            fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
+        )
+    simplified = pattern.replace("/**/", "/").replace("**/", "").replace("**", "*")
+    return fnmatch.fnmatch(rel, simplified)
+
+
+def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
+    out: list[Path] = []
+    for path in root.rglob("*.py"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if any(_glob_match(rel, g) for g in globs):
+            out.append(path)
+    return sorted(out)
+
+
+def _is_weak_assert(node: ast.Assert) -> bool:
+    test = node.test
+    if isinstance(test, ast.Constant) and isinstance(test.value, bool):
+        return True
+    if isinstance(test, ast.Name):
+        return True
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not) and isinstance(
+        test.operand, ast.Name
+    ):
+        return True
+    if isinstance(test, ast.Compare) and len(test.ops) == 1:
+        op = test.ops[0]
+        if type(op) in _WEAK_COMPARE_OPS:
+            return True
+        if isinstance(op, (ast.Eq, ast.NotEq)) and isinstance(test.comparators[0], ast.Constant):
+            val = test.comparators[0].value
+            if val is None or isinstance(val, bool):
+                return True
+    return False
+
+
+def _is_mock_assert_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    func = node.value.func
+    if isinstance(func, ast.Attribute) and func.attr in _MOCK_ASSERT_ATTRS:
+        return True
+    return False
+
+
+def _call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _call_name(node.value)
+        return f"{base}.{node.attr}" if base else node.attr
+    return ""
+
+
+def _scan_file(path: Path, root: Path) -> list[dict]:
+    rel = path.relative_to(root).as_posix()
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
+    except SyntaxError as exc:
+        return [{"file": rel, "line": exc.lineno or 1, "kind": "syntax_error", "detail": str(exc)}]
+
+    findings: list[dict] = []
+    for fn in [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        if not fn.name.startswith("test"):
+            continue
+        body_nodes = list(ast.walk(fn))
+        asserts = [n for n in body_nodes if isinstance(n, ast.Assert)]
+        mock_asserts = [n for n in fn.body if _is_mock_assert_call(n)]
+        # Also walk nested for mock asserts
+        mock_asserts_deep = [
+            n
+            for n in body_nodes
+            if isinstance(n, ast.Expr)
+            and isinstance(n.value, ast.Call)
+            and isinstance(n.value.func, ast.Attribute)
+            and n.value.func.attr in _MOCK_ASSERT_ATTRS
+        ]
+
+        if asserts and all(_is_weak_assert(a) for a in asserts) and not mock_asserts_deep:
+            findings.append(
+                {
+                    "file": rel,
+                    "line": fn.lineno,
+                    "kind": "weak_primary_oracle",
+                    "detail": f"{fn.name}: only truthy/defined/membership asserts",
+                }
+            )
+
+        if mock_asserts_deep and not asserts:
+            findings.append(
+                {
+                    "file": rel,
+                    "line": fn.lineno,
+                    "kind": "mock_call_only",
+                    "detail": f"{fn.name}: mock call asserts without behavior oracle",
+                }
+            )
+
+        # patch("module.under.test...") as decorator — skill forbids mocking MUT
+        for dec in fn.decorator_list:
+            call = dec if isinstance(dec, ast.Call) else None
+            if call is None:
+                continue
+            name = _call_name(call.func)
+            if "patch" not in name:
+                continue
+            if call.args and isinstance(call.args[0], ast.Constant) and isinstance(
+                call.args[0].value, str
+            ):
+                target = call.args[0].value
+                findings.append(
+                    {
+                        "file": rel,
+                        "line": fn.lineno,
+                        "kind": "patch_decorator",
+                        "detail": f"{fn.name}: @patch({target!r}) — prefer fakes of collaborators, not MUT",
+                    }
+                )
+
+    return findings
+
+
+def run_test_smells(
+    root: Path | None = None,
+    *,
+    context: str = DEFAULT_CONTEXT,
+) -> int:
+    root = root or find_repo_root()
+    cfg = load_quality(root, context)
+    section = cfg.get("test_smells") or {}
+    if not section.get("enabled", False):
+        print("[test-smells] disabled — skip")
+        return 0
+
+    mode = str(section.get("mode") or "warn").lower()
+    globs = list(
+        section.get("include_globs")
+        or ["tests/unit/**/*.py", "tests/quality/**/*.py", "tests/**/test_*.py"]
+    )
+    files = _iter_test_files(root, globs)
+    findings: list[dict] = []
+    for path in files:
+        findings.extend(_scan_file(path, root))
+
+    out_dir = root / "reports" / "test-smells"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schemaVersion": 1,
+        "mode": mode,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "filesScanned": len(files),
+        "findings": findings,
+        "passed": True if mode == "warn" else not findings,
+    }
+    (out_dir / "test-smells-summary.json").write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
+
+    if findings:
+        print(f"[test-smells] {len(findings)} finding(s) (mode={mode})")
+        for item in findings[:40]:
+            print(f"  {item['file']}:{item['line']} {item['kind']}: {item['detail']}")
+        if len(findings) > 40:
+            print(f"  … +{len(findings) - 40} more")
+    else:
+        print(f"[test-smells] PASS (0 findings, {len(files)} files)")
+
+    if mode == "warn":
+        print("[test-smells] warn mode — not failing the gate")
+        return 0
+    return 0 if not findings else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(argv or sys.argv[1:])
+    context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
+    return run_test_smells(find_repo_root(), context=context)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,76 +1,33 @@
 """Versioned quality config (coverage thresholds, modules, mutation gate)."""
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from .paths import DEFAULT_CONTEXT
+from .quality_defaults import (
+    DEFAULT_COVERAGE_PCT,
+    SCHEMA_VERSION,
+    default_quality_config,
+)
+from .quality_io import read_json_object, write_json_object
 
 QUALITY_FILENAME = "quality.json"
-DEFAULT_COVERAGE_PCT = 80
-SCHEMA_VERSION = 1
 
-
-def default_quality_config() -> dict[str, Any]:
-    return {
-        "version": SCHEMA_VERSION,
-        "coverage": {"lines": DEFAULT_COVERAGE_PCT, "branches": DEFAULT_COVERAGE_PCT},
-        "modules": [
-            {
-                "id": "runtime",
-                "source": ["runtime/agentized"],
-                "test_command": (
-                    "python3 -m pytest tests/unit tests/quality -q --cov=runtime/agentized --cov-branch "
-                    "--cov-report=term-missing "
-                    "--cov-report=lcov:coverage/runtime/lcov.info "
-                    "--cov-report=json:coverage/runtime/coverage.json "
-                    "--cov-fail-under=0"
-                ),
-                "coverage_lcov": "coverage/runtime/lcov.info",
-                "coverage_json": "coverage/runtime/coverage.json",
-                "thresholds": {},
-            }
-        ],
-        "mutation": {
-            "enabled": True,
-            "tool": "mutmut",
-            "gate": "hard",
-            "scope": "covered_changed_lines",
-            "base_ref": "origin/main",
-            "min_score_covered": 50,
-            "break_on_survived": False,
-            "break_on_no_tests": True,
-            "include_globs": [
-                "runtime/agentized/quality.py",
-                "runtime/agentized/paths.py",
-                "runtime/agentized/tasks.py",
-                "runtime/agentized/leases.py",
-                "runtime/agentized/hook_common.py",
-            ],
-        },
-        "gates": {
-            "pre_push": ["mechanical", "module_tests", "coverage", "mutation"],
-            "ci": ["mechanical", "module_tests", "coverage", "mutation"],
-        },
-        # Sensitive globs / trivial filters live in review_budget.default_reviewer_config
-        # (keep this dict small — mutmut include_globs cover quality.py).
-        "reviewer": {
-            "enabled": True,
-            "helper_model": "composer-2",
-            "budget_max": 3,
-            "delta_lines": 200,
-            "harnesses": {
-                "cursor": {
-                    "model": "grok-4.7[reasoning_effort=medium]",
-                    "effort": "medium",
-                },
-                "claude": {"model": "claude-fable-5-2", "effort": "medium"},
-                "codex": {"model": "gpt-6-astra", "effort": "medium"},
-            },
-        },
-    }
+# Re-export for existing importers / tests.
+__all__ = [
+    "QUALITY_FILENAME",
+    "DEFAULT_COVERAGE_PCT",
+    "SCHEMA_VERSION",
+    "default_quality_config",
+    "quality_path",
+    "load_quality",
+    "save_quality",
+    "set_coverage_threshold",
+    "module_thresholds",
+    "set_reviewer_options",
+]
 
 
 def quality_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
@@ -78,20 +35,18 @@ def quality_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 
 
 def load_quality(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
-    path = quality_path(root, context_rel)
+    rel = context_rel
+    path = quality_path(root, rel)
     if not path.exists():
         return default_quality_config()
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"{path}: expected JSON object")
-    return _normalize(data)
+    return _normalize(read_json_object(path))
 
 
 def save_quality(root: Path, data: dict[str, Any], context_rel: str = DEFAULT_CONTEXT) -> Path:
-    path = quality_path(root, context_rel)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    rel = context_rel
+    path = quality_path(root, rel)
     normalized = _normalize(data)
-    path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    write_json_object(path, normalized)
     return path
 
 
@@ -107,13 +62,14 @@ def set_coverage_threshold(
     value = float(pct)
     if value < 0 or value > 100:
         raise ValueError("coverage threshold must be between 0 and 100")
-    data = load_quality(root, context_rel)
-    cov = data.setdefault("coverage", {})
+    rel = context_rel
+    data = load_quality(root, rel)
+    cov = data["coverage"]
     if lines:
         cov["lines"] = value
     if branches:
         cov["branches"] = value
-    save_quality(root, data, context_rel)
+    save_quality(root, data, rel)
     return data
 
 
@@ -139,6 +95,17 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         out["modules"] = data["modules"]
     mut_in = data.get("mutation") or {}
     out["mutation"].update({k: mut_in[k] for k in mut_in})
+    for key in (
+        "test_smells",
+        "architecture",
+        "property_based",
+        "e2e",
+        "shared_fixtures",
+        "batch_release",
+    ):
+        section = data.get(key)
+        if isinstance(section, dict):
+            out[key].update(section)
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
     rev_in = data.get("reviewer") or {}
@@ -157,11 +124,18 @@ def set_reviewer_options(
     budget_max: int | None = None,
     harness: str | None = None,
 ) -> dict[str, Any]:
-    data = load_quality(root, context_rel)
-    rev = data.setdefault("reviewer", {})
+    rel = context_rel
+    data = load_quality(root, rel)
+    rev = data["reviewer"]
     if harness:
-        harnesses = rev.setdefault("harnesses", {})
-        entry = harnesses.setdefault(harness, {})
+        harnesses = rev.get("harnesses")
+        if not isinstance(harnesses, dict):
+            harnesses = {}
+            rev["harnesses"] = harnesses
+        entry = harnesses.get(harness)
+        if not isinstance(entry, dict):
+            entry = {}
+            harnesses[harness] = entry
         if model is not None:
             entry["model"] = model
         if effort is not None:
@@ -175,5 +149,5 @@ def set_reviewer_options(
         rev["helper_model"] = helper_model
     if budget_max is not None:
         rev["budget_max"] = int(budget_max)
-    save_quality(root, data, context_rel)
+    save_quality(root, data, rel)
     return data
