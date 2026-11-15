@@ -41,9 +41,22 @@
 | Process-guard hook | Claim required before Write/Edit (agent=refuse, local=warn) |
 | Lease-overlap hook | **Warn-only**: пересечение write-paths, **не** блокирует запись |
 | External connect | Нет локальных `packages/` / `templates/quality` → берёт их из **installed Agentized root** |
+| `{context}/.agentized/managed.json` | Content-hash manifest of last Agentized-written skills / reviewer pins (committed). Untouched pins auto-update; user edits → `skipped_user`. Legacy (file exists, no entry): bootstrap — record current hash, no overwrite this run |
 | `.agentized/connect.json` | Локальный маркер состояния (в `.gitignore`) |
 
 По умолчанию Context = вложенный каталог `context/` в этом репозитории.
+
+### Managed pins (skills + reviewer)
+
+Connect writes skills (`packages/shared` → `{context}/skills` → harness mirrors) and reviewer agents under **managed-hash** rules:
+
+1. **No file** → create + record sha256.
+2. **File hash == manifest hash** (untouched) → overwrite with new template/render + update hash (harness auto-update / canon §11.16).
+3. **File hash ≠ manifest hash** → user edit → skip; path listed in connect `skipped_user`.
+4. **No manifest entry, file exists** (already-connected projects before managed.json) → **bootstrap**: record hash of current bytes, do **not** overwrite this run. Later connects follow rules 2–3.
+5. **`agentized review set`** → `pin_reviewer_agents(..., force=True)` always rewrites reviewer pins + updates hashes.
+
+Harness mirrors (`.cursor/skills`, `.claude/skills`, `.agents/skills`) copy from `{context}/skills` under the same rules, so an edit in Context propagates to untouched mirrors.
 
 ---
 
