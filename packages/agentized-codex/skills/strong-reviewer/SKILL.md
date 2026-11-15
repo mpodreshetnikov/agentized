@@ -16,7 +16,7 @@ Config: `{context}/quality.json` → `reviewer.*` (defaults set by connect).
 
 ## Caveman — **exception**
 
-The `reviewer` does **not** use caveman/ultracave. Always write **expanded, unambiguous** findings and accept/reject rationale. Working agents stay ultracave; reviewer never does.
+The `reviewer` does **not** use caveman/ultracave. Always write **expanded, unambiguous** findings and accept/reject rationale. Working agents stay ultracave for internal notes; reviewer never does. Human-facing acceptance reports also never use caveman (see `acceptance-artifacts`).
 
 ## Scope (task/PR budget)
 
