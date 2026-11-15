@@ -136,6 +136,8 @@ def test_custom_context_rel_and_exact_json_layout(tmp_path: Path):
     loaded = load_quality(nested, context_rel=ctx)
     assert loaded["reviewer"]["harnesses"]["codex"]["model"] == "m-codex"
     assert loaded["reviewer"]["helper_model"] == "помощник"
+    # ensure_ascii=False keeps Cyrillic literal (not \\uXXXX).
+    assert "помощник" in quality_path(nested, ctx).read_text(encoding="utf-8")
     # Seed effort then preserve it across model-only update (kills entry=None wipe).
     set_reviewer_options(nested, context_rel=ctx, harness="codex", model="m1", effort="high")
     set_reviewer_options(nested, context_rel=ctx, harness="codex", model="m2")

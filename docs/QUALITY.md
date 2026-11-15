@@ -4,7 +4,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 
 ## Config
 
-[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches. New connected projects default to **`mutation.min_score_covered = 100`** (gate `mutationScoreCovered` only).
+[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches. Connected projects **and** Agentized dogfood use **`mutation.min_score_covered = 100`** (gate `mutationScoreCovered` only — never overall `mutationScore`).
 
 ```bash
 ./bin/agentized connect --coverage 85
