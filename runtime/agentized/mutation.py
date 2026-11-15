@@ -24,6 +24,10 @@ source_paths = agentized
 pytest_add_cli_args_test_selection = tests/unit
 mutate_only_covered_lines = false
 use_git_change_detection = false
+# Equivalent lexemes (Python treats these the same) — do not count as survivors.
+ignore_lexemes =
+  utf-8
+  UTF-8
 also_copy =
   tests/
   context/
