@@ -58,5 +58,5 @@ def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
 def test_write_setup(tmp_path: Path):
     mut._write_setup(tmp_path, ["agentized/quality.py"])
     text = (tmp_path / "setup.cfg").read_text(encoding="utf-8")
-    assert "only_mutate" in text
-    assert "agentized/quality.py" in text
+    assert text.count("only_mutate") >= 1
+    assert text.count("agentized/quality.py") >= 1

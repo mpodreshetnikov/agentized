@@ -51,6 +51,37 @@ def test_ensure_quality_and_coverage(tmp_path: Path):
     assert info["created"] is True
     cfg = load_quality(tmp_path)
     assert cfg["coverage"]["lines"] == 88.0
+    assert cfg["test_smells"]["mode"] == "hard"
+    assert cfg["architecture"]["mode"] == "hard"
+    assert cfg["mutation"]["min_score_covered"] == 100
+
+
+def test_ensure_quality_upgrades_warn_modes(tmp_path: Path):
+    """Reconnect flips leftover warn→hard without clobbering other fields."""
+    _skeleton(tmp_path)
+    ensure_quality_config(tmp_path, "context")
+    from agentized.quality import save_quality
+
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 85, "branches": 85},
+            "test_smells": {"mode": "warn", "enabled": True},
+            "architecture": {"mode": "warn", "tool": "builtin"},
+            "modules": [{"id": "keep", "source": ["src"]}],
+        },
+    )
+    info = ensure_quality_config(tmp_path, "context")
+    assert info["created"] is False
+    assert set(info["upgraded_modes"]) == {"test_smells", "architecture"}
+    cfg = load_quality(tmp_path)
+    assert cfg["test_smells"]["mode"] == "hard"
+    assert cfg["architecture"]["mode"] == "hard"
+    assert cfg["coverage"]["lines"] == 85.0
+    assert cfg["modules"] == [{"id": "keep", "source": ["src"]}]
+    # Second pass: already hard → no upgrade list.
+    again = ensure_quality_config(tmp_path, "context")
+    assert again["upgraded_modes"] == []
 
 
 def test_safe_install_does_not_clobber_user(tmp_path: Path):

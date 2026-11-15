@@ -1,5 +1,5 @@
 /**
- * Optional ESLint starter for JS/TS test-smell warnings (mode=warn first).
+ * Optional ESLint starter for JS/TS test smells (pairs with hard test_smells gate).
  * Pair with quality-gates skill rules; do not duplicate a second skill.
  *
  * npm i -D eslint eslint-plugin-jest  (or vitest equivalent)
@@ -10,9 +10,9 @@ module.exports = {
       files: ["**/*.{test,spec}.{js,jsx,ts,tsx}"],
       rules: {
         // Prefer real oracles over truthy/defined-only checks.
-        "no-unused-expressions": "warn",
+        "no-unused-expressions": "error",
         // Discourage assert.ok / expect(x).toBeTruthy as sole oracle — enforce in review + skill.
-        "jest/valid-expect": "warn",
+        "jest/valid-expect": "error",
       },
     },
   ],

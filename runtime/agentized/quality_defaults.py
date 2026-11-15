@@ -51,7 +51,7 @@ def default_quality_config() -> dict[str, Any]:
         },
         "test_smells": {
             "enabled": True,
-            "mode": "warn",
+            "mode": "hard",
             "include_globs": [
                 "tests/unit/**/*.py",
                 "tests/quality/**/*.py",
@@ -60,7 +60,7 @@ def default_quality_config() -> dict[str, Any]:
         },
         "architecture": {
             "enabled": True,
-            "mode": "warn",
+            "mode": "hard",
             "tool": "import-linter",
             "config": ".importlinter",
             "source_roots": ["runtime/agentized"],

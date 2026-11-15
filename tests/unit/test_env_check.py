@@ -17,7 +17,8 @@ def test_local_human_passes(tmp_path: Path):
 def test_unknown_agent_refused(tmp_path: Path):
     result = ec.check(env={"AGENT": "1"}, repo_root=tmp_path, home=tmp_path / "home")
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "unknown"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_cursor_missing_hooks_refused(tmp_path: Path):
@@ -28,7 +29,8 @@ def test_cursor_missing_hooks_refused(tmp_path: Path):
         home=tmp_path / "home",
     )
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_cursor_hooks_ok_git_warn(tmp_path: Path):
@@ -58,8 +60,9 @@ def test_cursor_hooks_ok_git_warn(tmp_path: Path):
     # No agent-hooks dir → warn path
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=home)
     assert result["ok"] is True
-    assert "WARN" in result["message"]
-    assert "configure-cursor-agent-hooks.sh" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].count("WARN") >= 1
+    assert result["message"].count("configure-cursor-agent-hooks.sh") >= 1
 
 
 def test_cursor_git_refuse(tmp_path: Path):
@@ -113,7 +116,8 @@ def test_cursor_rejects_missing_script_files(tmp_path: Path):
     # scripts intentionally missing
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=tmp_path / "home")
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_codex_user_level_hooks_accepted(tmp_path: Path):
@@ -128,7 +132,8 @@ def test_codex_user_level_hooks_accepted(tmp_path: Path):
     empty.mkdir()
     result = ec.check(env={"CODEX_THREAD_ID": "t1"}, repo_root=empty, home=home)
     assert result["ok"] is True
-    assert "user-level" in result["message"]
+    assert result["severity"] == "codex"
+    assert result["message"].count("user-level") >= 1
 
 
 def test_install_and_problem_present(tmp_path: Path):
@@ -191,7 +196,7 @@ def test_install_missing_dispatcher(tmp_path: Path):
     # no .dispatcher
     result = cagh.install(repo, home=home)
     assert result["ok"] is False
-    assert "dispatcher" in result["message"]
+    assert result["message"].count("dispatcher") >= 1
 
 
 def test_unknown_labels():
@@ -232,5 +237,6 @@ def test_cursor_chain_ok_no_warn(tmp_path: Path):
     assert cagh.install(tmp_path, home=home)["ok"] is True
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=home)
     assert result["ok"] is True
-    assert "WARN" not in result["message"]
-    assert "git chain OK" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].count("WARN") == 0
+    assert result["message"].count("git chain OK") >= 1

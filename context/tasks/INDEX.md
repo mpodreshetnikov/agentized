@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261115-918b](T-261115-918b.md) — Hard quality gates by default (AGE-19) · claim: Maxim Podreshetnikov / cloud-agent bc-8d5fb6d4
 
 ## blocked
 

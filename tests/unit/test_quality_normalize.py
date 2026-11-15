@@ -25,7 +25,8 @@ def test_default_config_contract():
     assert cfg["coverage"]["lines"] == DEFAULT_COVERAGE_PCT
     assert cfg["mutation"]["min_score_covered"] == 100
     assert cfg["mutation"]["break_on_survived"] is True
-    assert cfg["test_smells"]["mode"] == "warn"
+    assert cfg["test_smells"]["mode"] == "hard"
+    assert cfg["architecture"]["mode"] == "hard"
     assert "mutation" in cfg["gates"]["ci"]
 
 

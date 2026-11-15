@@ -1,6 +1,6 @@
-"""Warn-first lint for weak oracles and mock-call-only tests.
+"""Hard-by-default lint for weak oracles and mock-call-only tests.
 
-Config: context/quality.json → test_smells (mode: warn|hard).
+Config: context/quality.json → test_smells (mode: hard|warn).
 Does not replace the quality-gates skill rules — it only catches common smells.
 """
 from __future__ import annotations
@@ -176,7 +176,7 @@ def run_test_smells(
         print("[test-smells] disabled — skip")
         return 0
 
-    mode = str(section.get("mode") or "warn").lower()
+    mode = str(section.get("mode") or "hard").lower()
     globs = list(
         section.get("include_globs")
         or ["tests/unit/**/*.py", "tests/quality/**/*.py", "tests/**/test_*.py"]

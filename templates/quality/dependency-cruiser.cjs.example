@@ -1,15 +1,15 @@
 /**
- * JS/TS module-boundary gate (dependency-cruiser) — warn-first pilot.
+ * JS/TS module-boundary gate (dependency-cruiser) — hard by default.
  * Alternative: eslint-plugin-boundaries.
  * Wire: `npx dependency-cruiser --config .dependency-cruiser.cjs src`
- * and set architecture.mode=warn in context/quality.json.
+ * and keep architecture.mode=hard in context/quality.json (default).
  */
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
     {
       name: "no-ui-in-core",
-      severity: "warn",
+      severity: "error",
       comment: "Core must not import UI shells",
       from: { path: "^src/core" },
       to: { path: "^src/ui" },

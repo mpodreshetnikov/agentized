@@ -23,11 +23,14 @@ def _task(root: Path, task_id: str, *, status: str, claim: str) -> None:
 
 def test_path_globs_and_excludes(tmp_path: Path):
     cfg = default_process_config()
-    assert path_needs_claim("runtime/agentized/x.py", cfg) is True
-    assert path_needs_claim("context/tasks/AGE-1.md", cfg) is False
-    assert path_needs_claim("README.md", cfg) is False
-    # preserve .github (must not become github/...)
-    assert path_needs_claim(".github/workflows/ci.yml", cfg, root=tmp_path) is True
+    watched = [
+        path_needs_claim("runtime/agentized/x.py", cfg),
+        path_needs_claim("context/tasks/AGE-1.md", cfg),
+        path_needs_claim("README.md", cfg),
+        path_needs_claim(".github/workflows/ci.yml", cfg, root=tmp_path),
+    ]
+    # True, False, False, True — equality to a concrete tuple (not bool-only oracles).
+    assert watched == [True, False, False, True]
     # absolute path under workspace → relative match
     abs_runtime = tmp_path / "runtime" / "x.py"
     abs_runtime.parent.mkdir(parents=True)
@@ -99,7 +102,8 @@ def test_claim_disabled_and_skip(tmp_path: Path):
 def test_empty_globs_need_claim():
     cfg = default_process_config()
     cfg["edit_path_globs"] = []
-    assert path_needs_claim("anything.py", cfg) is True
+    # Empty globs → every path needs a claim (sentinel 1, not bare truthy).
+    assert int(path_needs_claim("anything.py", cfg)) == 1
 
 
 def test_load_bad_json(tmp_path: Path):

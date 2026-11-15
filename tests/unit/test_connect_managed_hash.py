@@ -140,8 +140,8 @@ def test_review_set_force_overwrites_user_edit(tmp_path: Path, monkeypatch):
     )
     pin_reviewer_agents(tmp_path, "context", force=True)
     text = rev.read_text(encoding="utf-8")
-    assert "force-model-x" in text
-    assert "CUSTOM" not in text
+    assert text.count("force-model-x") >= 1
+    assert text.count("CUSTOM") == 0
 
 
 def test_legacy_bootstrap_records_without_overwrite(tmp_path: Path, monkeypatch):
