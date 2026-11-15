@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261115-c72f](T-261115-c72f.md) — Human 5-block acceptance reporting (AGE-18) · claim: bc-c7f15b62-fa19-5985-80af-61ba65f22291
+_(пусто)_
 
 ## blocked
 
