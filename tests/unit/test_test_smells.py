@@ -124,6 +124,100 @@ def test_call_name_and_weak_helpers():
     assert not smells._is_mock_assert_call(ast.parse("x = 1").body[0])
 
 
+def test_count_and_int_bool_bypass_helpers():
+    """Detector must catch membership/truthiness disguised as count/int/bool."""
+    import ast
+
+    weak_srcs = [
+        'assert text.count("x") >= 1',
+        'assert text.count("x") > 0',
+        'assert text.count("CUSTOM") == 0',
+        "assert int(flag) == 1",
+        "assert int(flag) == 0",
+        "assert bool(flag) == True",
+        "assert bool(flag) == False",
+    ]
+    for src in weak_srcs:
+        node = ast.parse(src).body[0]
+        assert smells._is_weak_assert(node), src
+
+    strong_srcs = [
+        'assert text.count("x") == 1',  # exact multiplicity is an oracle
+        'assert text.count("x") == 2',
+        "assert int(n) == 3",
+        'assert lines[0] == "[mutmut]"',
+        'assert result["message"].startswith("agent-env-check: REFUSED")',
+        'assert watched == [True, False, False, True]',
+    ]
+    for src in strong_srcs:
+        node = ast.parse(src).body[0]
+        assert not smells._is_weak_assert(node), src
+
+
+def test_smells_hard_flags_count_and_int_bypasses(tmp_path: Path, monkeypatch):
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_count_bypass.py").write_text(
+        "def test_count_bypass():\n"
+        '    text = "hello"\n'
+        '    assert text.count("h") >= 1\n'
+        '    assert text.count("z") == 0\n',
+        encoding="utf-8",
+    )
+    (tests / "test_int_bypass.py").write_text(
+        "def test_int_bypass():\n"
+        "    flag = True\n"
+        "    assert int(flag) == 1\n",
+        encoding="utf-8",
+    )
+    (tests / "test_exact_count_ok.py").write_text(
+        "def test_exact_count_ok():\n"
+        '    assert "aa".count("a") == 2\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "hard",
+                "include_globs": ["tests/unit/**/*.py"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
+    )
+    names = {Path(f["file"]).name for f in summary["findings"] if f["kind"] == "weak_primary_oracle"}
+    assert names == {"test_count_bypass.py", "test_int_bypass.py"}
+
+
+def test_smells_missing_mode_defaults_hard_fails(tmp_path: Path, monkeypatch):
+    """Omit mode → hard: findings must fail the gate (exit 1)."""
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_weak.py").write_text("def test_weak():\n    assert True\n", encoding="utf-8")
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                # mode intentionally omitted
+                "include_globs": ["tests/unit/**/*.py"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["mode"] == "hard"
+    assert summary["passed"] is False
+
+
 def test_smells_main(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(smells, "find_repo_root", lambda: tmp_path)
     monkeypatch.setattr(smells, "run_test_smells", lambda root, context="context": 0)

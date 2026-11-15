@@ -52,7 +52,7 @@ jobs:
           "${CLI[@]}" process size || true
           "${CLI[@]}" quality check
 
-      - name: Upload coverage + mutation + warn-gate summaries
+      - name: Upload coverage + mutation + gate summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:

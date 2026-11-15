@@ -820,11 +820,32 @@ def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | in
 
     path = quality_path(root, context_rel)
     created = not path.exists()
+    upgraded_modes: list[str] = []
     if created:
         save_quality(root, load_quality(root, context_rel), context_rel)
+    else:
+        # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
+        # Leaves intentional non-warn modes alone; does not touch other fields.
+        data = load_quality(root, context_rel)
+        dirty = False
+        for section_name in ("test_smells", "architecture"):
+            section = data.get(section_name)
+            if not isinstance(section, dict):
+                continue
+            if str(section.get("mode") or "").lower() == "warn":
+                section["mode"] = "hard"
+                upgraded_modes.append(section_name)
+                dirty = True
+        if dirty:
+            save_quality(root, data, context_rel)
     if coverage_pct is not None:
         set_coverage_threshold(root, coverage_pct, context_rel=context_rel)
-    return {"path": str(path.relative_to(root)), "created": created, "coverage_pct": coverage_pct}
+    return {
+        "path": str(path.relative_to(root)),
+        "created": created,
+        "coverage_pct": coverage_pct,
+        "upgraded_modes": upgraded_modes,
+    }
 
 
 def ensure_env_check_config(root: Path, context_rel: str) -> dict:

@@ -140,8 +140,9 @@ def test_review_set_force_overwrites_user_edit(tmp_path: Path, monkeypatch):
     )
     pin_reviewer_agents(tmp_path, "context", force=True)
     text = rev.read_text(encoding="utf-8")
-    assert "force-model-x" in text
-    assert "CUSTOM" not in text
+    model_lines = [ln for ln in text.splitlines() if ln.startswith("model:")]
+    assert model_lines == ["model: force-model-x"]
+    assert [ln for ln in text.splitlines() if ln == "CUSTOM"] == []
 
 
 def test_legacy_bootstrap_records_without_overwrite(tmp_path: Path, monkeypatch):

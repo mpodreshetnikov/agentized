@@ -1,10 +1,10 @@
 # Quality (Agentized)
 
-Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture warn pilots, pre-push/CI. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
+Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture hard gates (blocking by default), pre-push/CI. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
 
 ## Config
 
-[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches. Connected projects **and** Agentized dogfood use **`mutation.min_score_covered = 100`** (gate `mutationScoreCovered` only — never overall `mutationScore`).
+[`context/quality.json`](../context/quality.json) — versioned SoT. Default coverage **80%** lines & branches. Connected projects **and** Agentized dogfood use **`mutation.min_score_covered = 100`** (gate `mutationScoreCovered` only — never overall `mutationScore`). Test smells and architecture gates default to **`mode: hard`** (exit ≠ 0 on findings) — same as mutation.
 
 ```bash
 ./bin/agentized connect --coverage 85
@@ -17,8 +17,8 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
 | `mutation.gate` | `hard` on **`mutationScoreCovered`** for changed `include_globs` (default **100**; never gate overall `mutationScore`) |
 | `mutation.include_globs` | Which changed sources enter the mutation set (harness wiring often excluded) |
-| `test_smells` | Warn-first AST lint for weak oracles / mock-call-only (JS: eslint template) |
-| `architecture` | Warn-first module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
+| `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
+| `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |
 | `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
@@ -40,6 +40,10 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 ## Connect
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
+
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
+
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, `mutationScoreCovered=100`, coverage=80.
 
 ## Strong reviewer (AGE-11)
 

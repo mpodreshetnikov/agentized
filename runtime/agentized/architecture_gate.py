@@ -1,4 +1,4 @@
-"""Module-boundary architecture gate (warn-first pilot).
+"""Module-boundary architecture gate (hard by default).
 
 Python: prefer import-linter when installed; otherwise enforce simple
 forbidden-import edges from quality.json. JS/TS: see templates/quality
@@ -117,7 +117,7 @@ def run_architecture_gate(
         print("[architecture] disabled — skip")
         return 0
 
-    mode = str(section.get("mode") or "warn").lower()
+    mode = str(section.get("mode") or "hard").lower()
     tool = str(section.get("tool") or "builtin")
     findings: list[dict] = []
     tool_note = ""

@@ -28,8 +28,8 @@ description: High-signal testing strategy and Agentized coverage/mutation hard g
 |------|---------|--------|
 | Coverage | hard 80% lines+branches | Uncovered lines limited by coverage — not by mutation |
 | Mutation | hard **`mutationScoreCovered = 100%`** | Zero surviving mutants on covered lines; do **not** gate overall `mutationScore` |
-| Test smells | **warn** | Weak oracles / mock-call-only / `@patch` MUT |
-| Architecture | **warn** (pilot) | import-linter (Py) / dependency-cruiser (JS) |
+| Test smells | **hard** (blocking) | Weak oracles / mock-call-only / `@patch` MUT |
+| Architecture | **hard** (blocking) | import-linter (Py) / dependency-cruiser (JS) |
 | Batch release | process | Reviewed PRs may share one CI; keep “up-to-date before merge” |
 
 Mutation is **incremental** (changed files vs base), one command, required on CI + pre-push. If no relevant diff → skip **pass** (never false-fail). Compute covered score from tool JSON when built-in thresholds use the wrong metric (see `templates/quality/run-mutation-js.cjs.example`).
@@ -42,8 +42,9 @@ Mutation is **incremental** (changed files vs base), one command, required on CI
 ./tests/test_mechanical.sh
 ```
 
-- Do not bypass a red coverage or mutation gate.
+- Do not bypass a red coverage, mutation, test-smell, or architecture gate.
 - Do not lower `mutation.min_score_covered` below 100 to “make CI green” — strengthen tests instead.
+- Do not flip smells/architecture back to `warn` to green CI — fix the finding or add a pointwise allowlist with a reason comment.
 
 ## Connect templates
 

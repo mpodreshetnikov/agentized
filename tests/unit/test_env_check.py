@@ -17,7 +17,8 @@ def test_local_human_passes(tmp_path: Path):
 def test_unknown_agent_refused(tmp_path: Path):
     result = ec.check(env={"AGENT": "1"}, repo_root=tmp_path, home=tmp_path / "home")
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "unknown"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_cursor_missing_hooks_refused(tmp_path: Path):
@@ -28,7 +29,8 @@ def test_cursor_missing_hooks_refused(tmp_path: Path):
         home=tmp_path / "home",
     )
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_cursor_hooks_ok_git_warn(tmp_path: Path):
@@ -56,10 +58,22 @@ def test_cursor_hooks_ok_git_warn(tmp_path: Path):
     (tmp_path / ".githooks" / "pre-push").write_text("#!/bin/sh\n", encoding="utf-8")
     home = tmp_path / "home"
     # No agent-hooks dir → warn path
+    problem = cagh.git_hooks_problem(tmp_path, home=home)
+    assert problem == (
+        f"{cagh.agent_hooks_dir(tmp_path, home)} is missing "
+        "(Cursor agent-hooks not installed for this checkout)."
+    )
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=home)
     assert result["ok"] is True
-    assert "WARN" in result["message"]
-    assert "configure-cursor-agent-hooks.sh" in result["message"]
+    assert result["severity"] == "cursor"
+    git_warn = (
+        f"agent-env-check: WARN (cloud_git_hooks=warn). {problem}. "
+        f"Owner must paste before enabling refuse:\n  {ec.INSTALL_LINE}\n"
+        f"See {ec.DOC}. Flip context/env-check.json cloud_git_hooks → refuse after that."
+    )
+    assert result["message"] == (
+        "agent-env-check: Cursor project hooks reach this session.\n" + git_warn
+    )
 
 
 def test_cursor_git_refuse(tmp_path: Path):
@@ -113,7 +127,8 @@ def test_cursor_rejects_missing_script_files(tmp_path: Path):
     # scripts intentionally missing
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=tmp_path / "home")
     assert result["ok"] is False
-    assert "REFUSED" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"].startswith("agent-env-check: REFUSED")
 
 
 def test_codex_user_level_hooks_accepted(tmp_path: Path):
@@ -128,7 +143,10 @@ def test_codex_user_level_hooks_accepted(tmp_path: Path):
     empty.mkdir()
     result = ec.check(env={"CODEX_THREAD_ID": "t1"}, repo_root=empty, home=home)
     assert result["ok"] is True
-    assert "user-level" in result["message"]
+    assert result["severity"] == "codex"
+    assert result["message"] == (
+        "agent-env-check: Codex user-level hooks present (~/.codex/hooks.json)."
+    )
 
 
 def test_install_and_problem_present(tmp_path: Path):
@@ -189,9 +207,12 @@ def test_install_missing_dispatcher(tmp_path: Path):
     hooks = cagh.agent_hooks_dir(repo, home)
     hooks.mkdir(parents=True)
     # no .dispatcher
+    dispatcher = hooks / ".dispatcher"
     result = cagh.install(repo, home=home)
     assert result["ok"] is False
-    assert "dispatcher" in result["message"]
+    assert result["message"] == (
+        f"cursor-agent-git-hooks: {dispatcher} is missing; refusing to invent it."
+    )
 
 
 def test_unknown_labels():
@@ -232,5 +253,8 @@ def test_cursor_chain_ok_no_warn(tmp_path: Path):
     assert cagh.install(tmp_path, home=home)["ok"] is True
     result = ec.check(env={"CURSOR_AGENT": "1"}, repo_root=tmp_path, home=home)
     assert result["ok"] is True
-    assert "WARN" not in result["message"]
-    assert "git chain OK" in result["message"]
+    assert result["severity"] == "cursor"
+    assert result["message"] == (
+        "agent-env-check: Cursor project hooks reach this session. "
+        "Agent-hooks git chain OK."
+    )

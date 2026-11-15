@@ -61,6 +61,32 @@ def test_architecture_hard_fails_on_findings(tmp_path: Path, monkeypatch):
     assert arch.run_architecture_gate(tmp_path) == 1
 
 
+def test_architecture_missing_mode_defaults_hard_fails(tmp_path: Path, monkeypatch):
+    """Omit mode → hard: architecture findings must fail the gate (exit 1)."""
+    src = tmp_path / "runtime" / "agentized"
+    src.mkdir(parents=True)
+    (src / "mutation.py").write_text("import agentized.connect\n", encoding="utf-8")
+    monkeypatch.setattr(
+        arch,
+        "load_quality",
+        lambda *a, **k: {
+            "architecture": {
+                "enabled": True,
+                # mode intentionally omitted
+                "tool": "builtin",
+                "source_roots": ["runtime/agentized"],
+                "forbidden_edges": [{"from": "agentized.mutation", "to": "agentized.connect"}],
+            }
+        },
+    )
+    assert arch.run_architecture_gate(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/architecture/architecture-summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["mode"] == "hard"
+    assert summary["passed"] is False
+
+
 def test_architecture_hard_pass_clean(tmp_path: Path, monkeypatch):
     src = tmp_path / "runtime" / "agentized"
     src.mkdir(parents=True)
