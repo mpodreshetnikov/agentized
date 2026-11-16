@@ -1,7 +1,4 @@
-"""WIP autopilot + board metrics data hooks (``board.json`` / ``board/metrics.json``).
-
-CLI: ``agentized autopilot``. HTML render is ``agentized board`` (AGE-37). Fail-closed JSON/ints/paths.
-"""
+"""WIP autopilot + board metrics (``agentized autopilot``). HTML board is AGE-37."""
 from __future__ import annotations
 
 import re
@@ -20,7 +17,6 @@ DEFAULT_WIP_LIMIT = 3
 DEFAULT_WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 3650
 
-# Lead status set (#25 owns schema; autopilot defaults use queue/open + WIP).
 BOARD_STATUSES = (
     "idea",
     "open",
@@ -100,7 +96,6 @@ def _validate_metrics_rel(raw: Any) -> str:
 
 
 def _context_dir(root: Path, context_rel: str) -> Path:
-    """Resolved context directory; must stay under ``root`` (no ``..`` / symlink escape)."""
     root_res = root.resolve()
     rel = _require_safe_rel(context_rel, field="context")
     ctx = (root_res / rel).resolve()
@@ -112,7 +107,6 @@ def _context_dir(root: Path, context_rel: str) -> Path:
 
 
 def _under_context(root: Path, context_rel: str, *parts: str) -> Path:
-    """Resolved path under context; reject lexical and symlink escapes before write."""
     ctx = _context_dir(root, context_rel)
     target = ctx.joinpath(*parts).resolve()
     try:
@@ -137,7 +131,6 @@ def metrics_path(
 
 
 def _normalize_board(base: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
-    """Merge user data onto defaults; invalid ints/paths raise."""
     if not isinstance(data, dict):
         raise ValueError("board.json must be a JSON object")
     out = dict(base)
@@ -184,7 +177,6 @@ def save_board(
 def ensure_board_config(
     root: Path, context_rel: str = DEFAULT_CONTEXT
 ) -> dict[str, Any]:
-    """Pin default board.json without clobbering user edits."""
     path = board_config_path(root, context_rel)
     created = not path.exists()
     if created:
@@ -282,7 +274,6 @@ def pick_next_task(
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    """Recommend next queue/open task when under WIP limit. Never claims."""
     auto = cfg.get("autopilot")
     auto_dict = auto if isinstance(auto, dict) else {}
     limit = _require_positive_int(
@@ -438,7 +429,7 @@ def write_metrics(
     ensure_board_config(root, context_rel)
     when = now if now is not None else datetime.now(timezone.utc)
     cfg = load_board(root, context_rel)
-    tasks_dir = root / context_rel / "tasks"
+    tasks_dir = _under_context(root, context_rel, "tasks")
     payload = compute_metrics(tasks_dir, cfg, now=when)
     path = metrics_path(root, cfg, context_rel)
     write_json_object(path, payload)

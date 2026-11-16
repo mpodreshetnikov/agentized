@@ -74,7 +74,6 @@ EMPTY_COUNTS = {
     )
 }
 
-
 def _write_task(tasks, task_id, title, *, status, progress=None):
     text = render_task_file(task_id, title, status=status)
     if progress:
@@ -82,7 +81,6 @@ def _write_task(tasks, task_id, title, *, status, progress=None):
     path = tasks / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
     return path
-
 
 def _cfg(**kw):
     base = {
@@ -92,7 +90,6 @@ def _cfg(**kw):
     }
     base.update(kw)
     return base
-
 
 def test_defaults_helpers_normalize():
     assert default_board_config() == EXPECTED_DEFAULT
@@ -176,7 +173,6 @@ def test_defaults_helpers_normalize():
         "count_as_wip": ["blocked"],
     }
     assert custom["metrics"] == {"throughput_window_days": 5, "output": "deep/out.json"}
-
 
 def test_board_io_fail_closed(tmp_path: Path):
     assert load_board(tmp_path, "context") == EXPECTED_DEFAULT
@@ -281,7 +277,6 @@ def test_board_io_fail_closed(tmp_path: Path):
         write_metrics(leak_root, context_rel="context", now=NOW)
     assert list(outside.iterdir()) == []
 
-
 def test_progress_parsers():
     text = (
         "- 2026-99-99 99:99 UTC: junk\n"
@@ -314,7 +309,6 @@ def test_progress_parsers():
     assert task_id_day_utc("nope") is None
     assert task_id_day_utc("T-999999-abcd") is None
     assert task_created_at("T-261110-aaa", events).day == 10
-
 
 def test_wip_and_autopilot(tmp_path: Path):
     tasks = tmp_path / "tasks"
@@ -461,7 +455,6 @@ def test_wip_and_autopilot(tmp_path: Path):
         )["task"]["id"]
         == "T-261110-empty"
     )
-
 
 def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root, ctx = tmp_path, tmp_path / "context"
@@ -707,66 +700,24 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(board_mod, "pick_next_task", _pick_without_reason)
     assert compute_metrics(tasks, cfg, now=NOW)["autopilot"]["reason"] == ""
 
-    # future stamps must not inflate throughput / ages
+    slim = {
+        "wip_limit": 3,
+        "autopilot": {"enabled": True, "pick_from": ["open"], "count_as_wip": ["in-progress"]},
+        "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
+    }
     fut = tmp_path / "future-tasks"
     fut.mkdir()
-    _write_task(
-        fut,
-        "T-261114-fut",
-        "FutureDone",
-        status="done",
-        progress=[
-            "2026-11-14 08:00 UTC: claim by a",
-            "2026-11-20 08:00 UTC: статус → done",
-        ],
-    )
-    _write_task(
-        fut,
-        "T-261118-q",
-        "FutureQueue",
-        status="open",
-        progress=["2026-11-18 12:00 UTC: opened"],
-    )
-    _write_task(
-        fut,
-        "T-261118-b",
-        "FutureBlock",
-        status="blocked",
-        progress=["2026-11-18 06:00 UTC: статус → blocked"],
-    )
-    fut_m = compute_metrics(
-        fut,
-        {
-            "wip_limit": 3,
-            "autopilot": {
-                "enabled": True,
-                "pick_from": ["open"],
-                "count_as_wip": ["in-progress"],
-            },
-            "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
-        },
-        now=NOW,
-    )
-    assert fut_m["throughput"]["done_count"] == 0
-    assert fut_m["cycle_time"]["samples"] == 0
-    assert fut_m["queue_age"]["samples"] == 0
-    assert fut_m["blocked_age"]["samples"] == 0
-
+    _write_task(fut, "T-261114-fut", "F", status="done", progress=[
+        "2026-11-14 08:00 UTC: claim by a", "2026-11-20 08:00 UTC: статус → done"])
+    _write_task(fut, "T-261118-q", "Q", status="open", progress=["2026-11-18 12:00 UTC: opened"])
+    _write_task(fut, "T-261118-b", "B", status="blocked", progress=["2026-11-18 06:00 UTC: статус → blocked"])
+    fut_m = compute_metrics(fut, slim, now=NOW)
+    assert fut_m["throughput"]["done_count"] == fut_m["cycle_time"]["samples"] == 0
+    assert fut_m["queue_age"]["samples"] == fut_m["blocked_age"]["samples"] == 0
     with pytest.raises(ValueError) as ehuge_m:
-        compute_metrics(
-            fut,
-            {
-                "wip_limit": 2,
-                "metrics": {
-                    "throughput_window_days": MAX_WINDOW_DAYS + 1,
-                    "output": "board/metrics.json",
-                },
-            },
-            now=NOW,
-        )
-    assert ehuge_m.value.args == (
-        f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",
-    )
+        compute_metrics(fut, {**slim, "wip_limit": 2, "metrics": {
+            "throughput_window_days": MAX_WINDOW_DAYS + 1, "output": "board/metrics.json"}}, now=NOW)
+    assert ehuge_m.value.args == (f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",)
 
     bad_path = tmp_path / "T-261114-bin.md"
     bad_path.write_bytes(b"\xff\xfe not utf-8")
@@ -788,48 +739,24 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert board_mod._task_events(SimpleNamespace(path=good_path))[0][1] == "opened"
     assert seen == {"encoding": "utf-8"}
 
-    # boundary: stamp == now still included (<=, not <)
     edge = tmp_path / "edge-now-tasks"
     edge.mkdir()
-    _write_task(
-        edge,
-        "T-261116-eqq",
-        "EqQueue",
-        status="open",
-        progress=["2026-11-16 12:00 UTC: opened"],
-    )
-    _write_task(
-        edge,
-        "T-261116-eqb",
-        "EqBlock",
-        status="blocked",
-        progress=["2026-11-16 12:00 UTC: статус → blocked"],
-    )
-    _write_task(
-        edge,
-        "T-261116-eqd",
-        "EqDone",
-        status="done",
-        progress=[
-            "2026-11-16 10:00 UTC: claim by a",
-            "2026-11-16 12:00 UTC: статус → done",
-        ],
-    )
-    edge_m = compute_metrics(
-        edge,
-        {
-            "wip_limit": 3,
-            "autopilot": {
-                "enabled": True,
-                "pick_from": ["open"],
-                "count_as_wip": ["in-progress"],
-            },
-            "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
-        },
-        now=NOW,
-    )
-    assert edge_m["queue_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
-    assert edge_m["blocked_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
-    assert edge_m["cycle_time"]["samples"] == 1
-    assert edge_m["cycle_time"]["avg_hours"] == 2.0
+    _write_task(edge, "T-261116-eqq", "EqQ", status="open", progress=["2026-11-16 12:00 UTC: opened"])
+    _write_task(edge, "T-261116-eqb", "EqB", status="blocked", progress=["2026-11-16 12:00 UTC: статус → blocked"])
+    _write_task(edge, "T-261116-eqd", "EqD", status="done", progress=[
+        "2026-11-16 10:00 UTC: claim by a", "2026-11-16 12:00 UTC: статус → done"])
+    edge_m = compute_metrics(edge, slim, now=NOW)
+    assert edge_m["queue_age"] == edge_m["blocked_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
+    assert edge_m["cycle_time"]["samples"] == 1 and edge_m["cycle_time"]["avg_hours"] == 2.0
     assert edge_m["throughput"]["done_count"] == 1
+
+    # tasks symlink must not be followed by write_metrics
+    root_sy = tmp_path / "sy-root"
+    (root_sy / "context").mkdir(parents=True)
+    out_sy = tmp_path / "sy-out"
+    out_sy.mkdir()
+    (root_sy / "context" / "tasks").symlink_to(out_sy)
+    with pytest.raises(ValueError) as esy:
+        write_metrics(root_sy, context_rel="context", now=NOW)
+    assert esy.value.args == ("path escapes context directory",)
+    assert list(out_sy.iterdir()) == []

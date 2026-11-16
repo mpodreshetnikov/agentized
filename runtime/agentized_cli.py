@@ -45,6 +45,15 @@ def _ctx(root: Path, args) -> Path:
     return _context_dir(root, str(rel))
 
 
+def _path_under(ctx: Path, *parts: str) -> Path:
+    target = ctx.joinpath(*parts).resolve()
+    try:
+        target.relative_to(ctx)
+    except ValueError as exc:
+        raise ValueError("path escapes context directory") from exc
+    return target
+
+
 def cmd_connect(args: argparse.Namespace) -> int:
     root = find_repo_root()
     harnesses = args.harness
@@ -292,80 +301,100 @@ def cmd_quality(args: argparse.Namespace) -> int:
 
 def cmd_new(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    tasks_dir = ctx / "tasks"
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-
-    if not args.yes:
-        reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
-        if reply not in {"y", "yes", "д", "да"}:
-            print("отменено (нужно подтверждение человека)")
-            return 2
-
-    task_id = allocate_task_id(tasks_dir)
-    parent = args.parent or ""
-    text = render_task_file(
-        task_id,
-        args.title,
-        status="open",
-        tags=args.tags or "",
-        parent=parent,
-        goal=args.goal or "Что должно быть сделано.",
-    )
-    path = tasks_dir / f"{task_id}.md"
-    path.write_text(text, encoding="utf-8")
-    (tasks_dir / "INDEX.md").write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
-    print(f"создано: {path.relative_to(root)}")
+    try:
+        ctx = _ctx(root, args)
+        tasks_dir = _path_under(ctx, "tasks")
+        index_path = _path_under(ctx, "tasks", "INDEX.md")
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+        if not args.yes:
+            reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
+            if reply not in {"y", "yes", "д", "да"}:
+                print("отменено (нужно подтверждение человека)")
+                return 2
+        task_id = allocate_task_id(tasks_dir)
+        path = _path_under(ctx, "tasks", f"{task_id}.md")
+        path.write_text(
+            render_task_file(
+                task_id,
+                args.title,
+                status="open",
+                tags=args.tags or "",
+                parent=args.parent or "",
+                goal=args.goal or "Что должно быть сделано.",
+            ),
+            encoding="utf-8",
+        )
+        index_path.write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
+    except (OSError, ValueError, TypeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"создано: {path.relative_to(root.resolve())}")
     print(f"id: {task_id}")
     return 0
 
 
 def cmd_claim(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    path = ctx / "tasks" / f"{args.task_id}.md"
-    if not path.exists():
-        print(f"нет задачи {args.task_id}", file=sys.stderr)
+    try:
+        ctx = _ctx(root, args)
+        path = _path_under(ctx, "tasks", f"{args.task_id}.md")
+        index_path = _path_under(ctx, "tasks", "INDEX.md")
+        if not path.exists():
+            print(f"нет задачи {args.task_id}", file=sys.stderr)
+            return 1
+        text = set_field(path.read_text(encoding="utf-8"), "claim", args.owner)
+        text = set_field(text, "статус", "in-progress")
+        text = append_progress(text, f"claim by {args.owner}")
+        path.write_text(text, encoding="utf-8")
+        index_path.write_text(rebuild_task_index(path.parent), encoding="utf-8")
+    except (OSError, ValueError, TypeError) as exc:
+        print(str(exc), file=sys.stderr)
         return 1
-    text = path.read_text(encoding="utf-8")
-    text = set_field(text, "claim", args.owner)
-    text = set_field(text, "статус", "in-progress")
-    text = append_progress(text, f"claim by {args.owner}")
-    path.write_text(text, encoding="utf-8")
-    (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"claimed {args.task_id} → {args.owner} (статус: in-progress)")
     return 0
 
 
 def cmd_progress(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    path = ctx / "tasks" / f"{args.task_id}.md"
-    if not path.exists():
-        print(f"нет задачи {args.task_id}", file=sys.stderr)
+    try:
+        ctx = _ctx(root, args)
+        path = _path_under(ctx, "tasks", f"{args.task_id}.md")
+        if not path.exists():
+            print(f"нет задачи {args.task_id}", file=sys.stderr)
+            return 1
+        path.write_text(
+            append_progress(path.read_text(encoding="utf-8"), args.text),
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        print(str(exc), file=sys.stderr)
         return 1
-    text = append_progress(path.read_text(encoding="utf-8"), args.text)
-    path.write_text(text, encoding="utf-8")
-    print(f"progress appended → {path.relative_to(root)}")
+    print(f"progress appended → {path.relative_to(root.resolve())}")
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    path = ctx / "tasks" / f"{args.task_id}.md"
-    if not path.exists():
-        print(f"нет задачи {args.task_id}", file=sys.stderr)
+    try:
+        ctx = _ctx(root, args)
+        path = _path_under(ctx, "tasks", f"{args.task_id}.md")
+        index_path = _path_under(ctx, "tasks", "INDEX.md")
+        if not path.exists():
+            print(f"нет задачи {args.task_id}", file=sys.stderr)
+            return 1
+        if args.status not in ALL_STATUSES:
+            print(
+                f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}",
+                file=sys.stderr,
+            )
+            return 1
+        text = set_field(path.read_text(encoding="utf-8"), "статус", args.status)
+        text = append_progress(text, f"статус → {args.status}")
+        path.write_text(text, encoding="utf-8")
+        index_path.write_text(rebuild_task_index(path.parent), encoding="utf-8")
+    except (OSError, ValueError, TypeError) as exc:
+        print(str(exc), file=sys.stderr)
         return 1
-    if args.status not in ALL_STATUSES:
-        print(
-            f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}", file=sys.stderr
-        )
-        return 1
-    text = set_field(path.read_text(encoding="utf-8"), "статус", args.status)
-    text = append_progress(text, f"статус → {args.status}")
-    path.write_text(text, encoding="utf-8")
-    (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
     return 0
 
@@ -421,10 +450,14 @@ def cmd_index(args: argparse.Namespace) -> int:
     try:
         ctx = _ctx(root, args)
         ctx_rel = str(ctx.relative_to(root.resolve()))
-        tasks_index = rebuild_task_index(ctx / "tasks")
-        leases_index = rebuild_lease_index(ctx / "leases")
-        (ctx / "tasks" / "INDEX.md").write_text(tasks_index, encoding="utf-8")
-        (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
+        tasks_index_path = _path_under(ctx, "tasks", "INDEX.md")
+        leases_index_path = _path_under(ctx, "leases", "INDEX.md")
+        tasks_dir = tasks_index_path.parent
+        leases_dir = leases_index_path.parent
+        tasks_index = rebuild_task_index(tasks_dir)
+        leases_index = rebuild_lease_index(leases_dir)
+        tasks_index_path.write_text(tasks_index, encoding="utf-8")
+        leases_index_path.write_text(leases_index, encoding="utf-8")
         metrics = write_metrics(root, context_rel=ctx_rel)
     except (OSError, ValueError, TypeError, OverflowError) as exc:
         print(str(exc), file=sys.stderr)
@@ -440,7 +473,6 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 
 def cmd_autopilot(args: argparse.Namespace) -> int:
-    """WIP autopilot + metrics. Does not own ``agentized board`` (HTML renderer)."""
     from agentized.autopilot import (
         ensure_board_config,
         load_board,
@@ -482,7 +514,9 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
 
             cfg = load_board(root, ctx_rel)
             pick = pick_next_task(
-                list_tasks(ctx / "tasks"), cfg, now=datetime.now(timezone.utc)
+                list_tasks(_path_under(ctx, "tasks")),
+                cfg,
+                now=datetime.now(timezone.utc),
             )
             if args.json:
                 print(json.dumps(pick, ensure_ascii=False, indent=2))
