@@ -110,11 +110,77 @@ def test_empty_globs_need_claim():
     } == {"anything.py": True, "README.md": True, "x": True}
 
 
-def test_load_bad_json(tmp_path: Path):
+def test_load_bad_json_raises(tmp_path: Path):
+    import pytest
+
     (tmp_path / "context").mkdir()
     (tmp_path / "context" / "process-control.json").write_text("{nope", encoding="utf-8")
-    cfg = load_process_config(tmp_path)
-    assert cfg["reviewable_lines"] == 1500
+    with pytest.raises(ValueError, match="invalid JSON"):
+        load_process_config(tmp_path)
+
+
+def test_load_non_object_json_raises(tmp_path: Path):
+    import pytest
+
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text("[]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON object"):
+        load_process_config(tmp_path)
+
+
+def test_diff_insertions_git_error_raises(tmp_path: Path, monkeypatch):
+    import pytest
+    import subprocess
+    from agentized.process_control import _diff_insertions
+
+    class FakeProc:
+        def __init__(self, code: int, stderr: str = "boom"):
+            self.returncode = code
+            self.stdout = ""
+            self.stderr = stderr
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        calls.append(list(cmd))
+        return FakeProc(128, "fatal: bad revision")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="git diff failed"):
+        _diff_insertions(tmp_path, "origin/main")
+    assert len(calls) == 2
+    assert calls[0][3] == "origin/main...HEAD"
+    assert calls[1][3] == "origin/main"
+
+
+def test_size_cli_git_error_nonzero(tmp_path: Path, monkeypatch):
+    from agentized import process_control as pc
+
+    class FakeProc:
+        returncode = 128
+        stdout = ""
+        stderr = "fatal: bad"
+
+    monkeypatch.setattr(pc.subprocess, "run", lambda *a, **k: FakeProc())  # noqa: ARG005
+    monkeypatch.setattr(pc, "find_repo_root", lambda: tmp_path)
+    (tmp_path / "context").mkdir(exist_ok=True)
+    assert process_main(["size", "--context", "context"]) == 1
+
+
+def test_size_gate_hard_in_hooks_and_ci():
+    """Size must hard-fail: no soft `process size || true` in dogfood or templates."""
+    root = Path(__file__).resolve().parents[2]
+    paths = [
+        root / ".githooks" / "pre-push",
+        root / ".github" / "workflows" / "ci.yml",
+        root / "templates" / "quality" / "pre-push",
+        root / "templates" / "quality" / "ci.yml",
+    ]
+    soft = "process size || true"
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert soft not in text, f"{path} still soft-fails process size"
+        assert "process size" in text, f"{path} missing process size invocation"
 
 
 def test_diff_insertions_and_cli(tmp_path: Path, monkeypatch):

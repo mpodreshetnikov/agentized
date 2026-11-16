@@ -30,7 +30,8 @@
       "runtime/agentized/paths.py",
       "runtime/agentized/tasks.py",
       "runtime/agentized/leases.py",
-      "runtime/agentized/hook_common.py"
+      "runtime/agentized/hook_common.py",
+      "runtime/agentized/process_control.py"
     ]
   },
   "test_smells": {

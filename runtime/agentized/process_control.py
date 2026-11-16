@@ -56,10 +56,15 @@ def load_process_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[
         return cfg
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return cfg
-    if isinstance(data, dict):
-        cfg.update({k: data[k] for k in data})
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"process-control: invalid JSON in {path}: {exc}. See {DOC}."
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"process-control: {path} must be a JSON object, got {type(data).__name__}. See {DOC}."
+        )
+    cfg.update({k: data[k] for k in data})
     return cfg
 
 
@@ -164,7 +169,10 @@ def _diff_insertions(root: Path, base_ref: str) -> int:
             text=True,
         )
     if proc.returncode != 0:
-        return 0
+        detail = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+        raise RuntimeError(
+            f"process-control: git diff failed for {base_ref!r}: {detail}. See {DOC}."
+        )
     total = 0
     for line in proc.stdout.splitlines():
         parts = line.split("\t")
@@ -215,7 +223,11 @@ def main(argv: list[str] | None = None) -> int:
     root = find_repo_root()
     context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
     if args and args[0] == "size":
-        result = size_check(root, context_rel=context)
+        try:
+            result = size_check(root, context_rel=context)
+        except (RuntimeError, ValueError) as exc:
+            sys.stderr.write(str(exc) + "\n")
+            return 1
         stream = sys.stdout if result["level"] != "over" else sys.stderr
         stream.write(result["message"] + "\n")
         return 0 if result["ok"] else 1
