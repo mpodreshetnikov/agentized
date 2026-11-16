@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from agentized.process_control import (
@@ -65,20 +64,6 @@ def test_load_defaults_when_missing(tmp_path: Path):
     cfg = load_process_config(tmp_path)
     assert cfg["reviewable_lines"] == 1500
     assert cfg["warn_at_pct"] == 75
-    assert cfg["size_mode"] == "hard"
-    assert default_process_config()["size_mode"] == "hard"
-
-
-def test_load_rejects_non_hard_size_mode(tmp_path: Path):
-    import pytest
-
-    (tmp_path / "context").mkdir()
-    for bad in ("soft", "warn", "banana", ""):
-        (tmp_path / "context" / "process-control.json").write_text(
-            json.dumps({"size_mode": bad}) + "\n", encoding="utf-8"
-        )
-        with pytest.raises(ValueError, match="size_mode must be 'hard'"):
-            load_process_config(tmp_path)
 
 
 def test_size_check_levels(tmp_path: Path, monkeypatch):

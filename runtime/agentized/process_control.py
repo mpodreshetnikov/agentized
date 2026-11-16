@@ -28,7 +28,6 @@ def default_process_config() -> dict[str, Any]:
         "version": 1,
         "reviewable_lines": 1500,
         "warn_at_pct": 75,
-        "size_mode": "hard",
         "claim_required": True,
         "claim_mode_agent": "refuse",
         "claim_mode_local": "warn",

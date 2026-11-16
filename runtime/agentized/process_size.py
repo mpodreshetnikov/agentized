@@ -9,20 +9,10 @@ from typing import Any
 DOC = "docs/process-control.md"
 
 
-def require_hard_size_mode(cfg: dict[str, Any]) -> None:
-    """AGE-32: only size_mode=hard is valid; anything else raises."""
-    mode = cfg.get("size_mode", "hard")
-    if mode != "hard":
-        raise ValueError(
-            f"process-control: size_mode must be 'hard', got {mode!r}. See {DOC}."
-        )
-
-
 def load_process_config_file(path: Path, defaults: dict[str, Any]) -> dict[str, Any]:
     """Load process-control JSON. Missing file → copy of defaults; invalid → raise."""
     cfg = dict(defaults)
     if not path.exists():
-        require_hard_size_mode(cfg)
         return cfg
     try:
         # Locale/UTF-8 text mode — avoid a "utf-8"/"UTF-8" lexeme mutant pair.
@@ -36,7 +26,6 @@ def load_process_config_file(path: Path, defaults: dict[str, Any]) -> dict[str, 
             f"process-control: {path} must be a JSON object, got {type(data).__name__}. See {DOC}."
         )
     cfg.update({k: data[k] for k in data})
-    require_hard_size_mode(cfg)
     return cfg
 
 

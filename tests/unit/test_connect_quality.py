@@ -45,24 +45,11 @@ def _skeleton(root: Path) -> None:
     )
 
 
-def test_connect_writes_hard_size_mode_and_full_cover_globs(tmp_path: Path):
-    """Connect defaults: size_mode=hard + full-cover mutation include_globs."""
-    import json
-
-    from agentized.connect import ensure_process_control_config
+def test_connect_quality_ships_full_cover_mutation_globs(tmp_path: Path):
+    """Connect create uses full-cover mutation include_globs from defaults."""
     from agentized.quality_defaults import default_quality_config
 
     _skeleton(tmp_path)
-    info = ensure_process_control_config(tmp_path, "context")
-    assert info["created"] is True
-    pc = json.loads(
-        (tmp_path / "context" / "process-control.json").read_text(encoding="utf-8")
-    )
-    assert pc["size_mode"] == "hard"
-    assert pc["reviewable_lines"] == 1500
-    # Second connect must not clobber.
-    assert ensure_process_control_config(tmp_path, "context")["created"] is False
-
     qinfo = ensure_quality_config(tmp_path, "context")
     assert qinfo["created"] is True
     cfg = load_quality(tmp_path)

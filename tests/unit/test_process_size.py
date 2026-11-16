@@ -11,54 +11,26 @@ from agentized.process_size import (
     diff_insertions,
     load_process_config_file,
     parse_numstat,
-    require_hard_size_mode,
 )
 
 
 def test_load_missing_returns_defaults_copy(tmp_path: Path):
-    defaults = {"reviewable_lines": 1500, "warn_at_pct": 75, "size_mode": "hard"}
+    defaults = {"reviewable_lines": 1500, "warn_at_pct": 75}
     path = tmp_path / "missing.json"
     cfg = load_process_config_file(path, defaults)
-    assert cfg == {"reviewable_lines": 1500, "warn_at_pct": 75, "size_mode": "hard"}
+    assert cfg == {"reviewable_lines": 1500, "warn_at_pct": 75}
     cfg["reviewable_lines"] = 1
     assert defaults["reviewable_lines"] == 1500
-
-
-def test_require_hard_size_mode_accepts_hard_and_missing():
-    require_hard_size_mode({"size_mode": "hard"})
-    require_hard_size_mode({})  # missing → treated as hard
-
-
-def test_require_hard_size_mode_rejects_others():
-    for bad in ("soft", "warn", "banana", 1, True, None):
-        with pytest.raises(ValueError) as excinfo:
-            require_hard_size_mode({"size_mode": bad})
-        assert str(excinfo.value) == (
-            f"process-control: size_mode must be 'hard', got {bad!r}. See {DOC}."
-        )
-
-
-def test_load_rejects_non_hard_size_mode(tmp_path: Path):
-    path = tmp_path / "process-control.json"
-    path.write_text('{"size_mode": "soft"}\n', encoding="utf-8")
-    with pytest.raises(ValueError) as excinfo:
-        load_process_config_file(path, {"size_mode": "hard", "reviewable_lines": 1500})
-    assert str(excinfo.value) == (
-        "process-control: size_mode must be 'hard', got 'soft'. See docs/process-control.md."
-    )
 
 
 def test_load_valid_merges_over_defaults(tmp_path: Path):
     path = tmp_path / "process-control.json"
     # Non-ASCII forces utf-8 decode (kills encoding mutants).
-    path.write_bytes(b'{"reviewable_lines": 100, "note": "\xd1\x8f", "size_mode": "hard"}\n')
-    cfg = load_process_config_file(
-        path, {"reviewable_lines": 1500, "warn_at_pct": 75, "size_mode": "hard"}
-    )
+    path.write_bytes(b'{"reviewable_lines": 100, "note": "\xd1\x8f"}\n')
+    cfg = load_process_config_file(path, {"reviewable_lines": 1500, "warn_at_pct": 75})
     assert cfg["reviewable_lines"] == 100
     assert cfg["warn_at_pct"] == 75
     assert cfg["note"] == "я"
-    assert cfg["size_mode"] == "hard"
 
 
 def test_load_invalid_json_raises(tmp_path: Path):

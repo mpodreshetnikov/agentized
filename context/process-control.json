@@ -2,7 +2,6 @@
   "version": 1,
   "reviewable_lines": 1500,
   "warn_at_pct": 75,
-  "size_mode": "hard",
   "claim_required": true,
   "claim_mode_agent": "refuse",
   "claim_mode_local": "warn",

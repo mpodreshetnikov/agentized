@@ -31,7 +31,7 @@
 | `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
 | `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
 | `{context}/quality.json` | Coverage 80% · modules · mutation hard (`mutationScoreCovered=100`) · test_smells+architecture **hard** by default; reconnect flips leftover `warn`→`hard`; `connect --coverage <pct>` |
-| `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75% / `size_mode=hard`) |
+| `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |
 | `.githooks/pre-push` | Шаблон → `agentized quality check` (+ hard `process size`); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |
 | `.github/workflows/ci.yml` | То же для CI workflow |
 | `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |
