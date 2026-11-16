@@ -1,4 +1,4 @@
-"""File/CLI I/O for spec-approval (outside mutation include_globs)."""
+"""File/CLI I/O for spec-approval ."""
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,10 +1,14 @@
-"""IO tests for AGE-28 spec_approval_check (outside mutation gate)."""
+"""IO tests for AGE-28 spec_approval_check (mutation-covered)."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from agentized.spec_approval_defaults import default_spec_approval
-from agentized.spec_approval_io import load_spec_approval, spec_approval_check
+from agentized.spec_approval_defaults import checked_message, default_spec_approval
+from agentized.spec_approval_io import (
+    ensure_default_in_config,
+    load_spec_approval,
+    spec_approval_check,
+)
 from agentized.tasks import render_task_file
 
 
@@ -40,9 +44,13 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
         claim="alice",
     )
     disabled = spec_approval_check(root)
-    assert disabled["ok"] is True
-    assert disabled["mode"] == "disabled"
-    assert disabled["checked"] == 0
+    assert disabled == {
+        "ok": True,
+        "mode": "disabled",
+        "message": "",
+        "failures": [],
+        "checked": 0,
+    }
 
     policy = default_spec_approval()
     policy["enabled"] = True
@@ -60,7 +68,6 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
         claim="alice",
         extra="## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob\n",
     )
-    # open / non-complex ignored
     _write_task(
         tasks,
         "T-260101-cccc",
@@ -75,7 +82,6 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
         tags="simple",
         claim="alice",
     )
-    # still fails on aaaa
     still = spec_approval_check(root, policy=policy)
     assert still["ok"] is False
     assert still["checked"] == 2
@@ -86,7 +92,11 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
     assert ok["mode"] == "ok"
     assert ok["checked"] == 1
     assert ok["failures"] == []
-    assert "checked 1" in ok["message"]
+    assert ok["message"] == checked_message(1)
 
     loaded = load_spec_approval(root)
     assert loaded["enabled"] is False
+    merged = ensure_default_in_config({"version": 1})
+    assert merged["spec_approval"]["enabled"] is False
+    keep = ensure_default_in_config({"spec_approval": {"enabled": True}})
+    assert keep["spec_approval"]["enabled"] is True

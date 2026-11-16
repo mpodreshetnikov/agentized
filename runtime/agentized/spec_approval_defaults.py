@@ -1,4 +1,4 @@
-"""Defaults + constant lexemes for spec-approval (outside mutation include_globs)."""
+"""Defaults + constant lexemes for spec-approval ."""
 from __future__ import annotations
 
 from typing import Any

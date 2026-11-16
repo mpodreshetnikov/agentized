@@ -220,12 +220,11 @@ def run_mutation(
         ("agentized/" + p[len("runtime/agentized/") :]) if p.startswith("runtime/agentized/") else p
         for p in changed
     ]
-    test_selection = _tests_for_changed(root, changed)
     setup = root / "setup.cfg"
     backup = setup.read_text(encoding="utf-8") if setup.exists() else DURABLE_SETUP
     created_link = _ensure_agentized_link(root)
-    _write_setup(root, only, test_selection=test_selection)
-    print(f"[mutation] pytest selection: {' '.join(test_selection)}")
+    _write_setup(root, only)
+    print(f"[mutation] pytest selection: {' '.join(_test_selection_for(only, root))}")
     # Wipe prior mutants so a failed current run cannot PASS on cached results.
     mutants_dir = root / "mutants"
     if mutants_dir.exists():

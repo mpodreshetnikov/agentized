@@ -1,4 +1,4 @@
-"""Text helpers for spec-approval (outside mutation include_globs)."""
+"""Text helpers for spec-approval ."""
 from __future__ import annotations
 
 import re

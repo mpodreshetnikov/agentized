@@ -1,4 +1,4 @@
-"""Spec-approval decisions (AGE-28). Constants/text/IO live outside the gate."""
+"""Spec-approval decisions (AGE-28)"""
 from __future__ import annotations
 
 from typing import Any

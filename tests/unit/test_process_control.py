@@ -64,6 +64,17 @@ def test_load_defaults_when_missing(tmp_path: Path):
     cfg = load_process_config(tmp_path)
     assert cfg["reviewable_lines"] == 1500
     assert cfg["warn_at_pct"] == 75
+    assert default_process_config()["spec_approval"]["enabled"] is False
+    assert cfg["spec_approval"]["enabled"] is False
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text(
+        '{"spec_approval": {"enabled": true, "complex_tag": "hard"}}\n',
+        encoding="utf-8",
+    )
+    loaded = load_process_config(tmp_path)
+    assert loaded["spec_approval"]["enabled"] is True
+    assert loaded["spec_approval"]["complex_tag"] == "hard"
+    assert loaded["spec_approval"]["spec_heading"] == "## Spec"
 
 
 def test_size_check_levels(tmp_path: Path, monkeypatch):
