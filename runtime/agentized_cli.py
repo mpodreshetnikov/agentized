@@ -39,8 +39,10 @@ from agentized.tasks import (
 
 
 def _ctx(root: Path, args) -> Path:
+    from agentized.autopilot import _context_dir
+
     rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
-    return root / rel
+    return _context_dir(root, str(rel))
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
@@ -416,20 +418,20 @@ def cmd_index(args: argparse.Namespace) -> int:
     from agentized.autopilot import write_metrics
 
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    ctx_rel = str(ctx.relative_to(root))
-    tasks_index = rebuild_task_index(ctx / "tasks")
-    leases_index = rebuild_lease_index(ctx / "leases")
-    (ctx / "tasks" / "INDEX.md").write_text(tasks_index, encoding="utf-8")
-    (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
     try:
+        ctx = _ctx(root, args)
+        ctx_rel = str(ctx.relative_to(root.resolve()))
+        tasks_index = rebuild_task_index(ctx / "tasks")
+        leases_index = rebuild_lease_index(ctx / "leases")
+        (ctx / "tasks" / "INDEX.md").write_text(tasks_index, encoding="utf-8")
+        (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
         metrics = write_metrics(root, context_rel=ctx_rel)
     except (OSError, ValueError, TypeError, OverflowError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print("пересобраны:")
-    print(f"  {ctx.relative_to(root)}/tasks/INDEX.md")
-    print(f"  {ctx.relative_to(root)}/leases/INDEX.md")
+    print(f"  {ctx_rel}/tasks/INDEX.md")
+    print(f"  {ctx_rel}/leases/INDEX.md")
     print(f"  {metrics['path']}")
     if args.print:
         print("\n--- tasks/INDEX.md ---\n")
@@ -450,9 +452,9 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
     from agentized.tasks import list_tasks
 
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    ctx_rel = str(ctx.relative_to(root))
     try:
+        ctx = _ctx(root, args)
+        ctx_rel = str(ctx.relative_to(root.resolve()))
         # Pin board.json without touching connect.py (#18 full-file mutation).
         ensure_board_config(root, ctx_rel)
         if args.autopilot_cmd == "show":
