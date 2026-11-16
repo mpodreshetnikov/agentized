@@ -15,8 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .board_html_io import read_task_text, write_html
-from .tasks import TaskMeta, parse_task
-
+from .board_html_ui import (
+    CSS as _CSS,
+    DEFAULT_LANG,
+    DEFAULT_TITLE,
+    EMPTY_COLUMN_HTML,
+    FOR_REVIEW_NOTE,
+    UI,
+)
 CANONICAL_STATUSES: tuple[str, ...] = (
     "idea",
     "open",
@@ -48,22 +54,19 @@ COLUMN_FOR_STATUS: dict[str, str] = {
 }
 
 OVERDUE_HOURS = 12
-DEFAULT_LANG = "ru"
-DEFAULT_TITLE = "Доска задач Agentized"
 JOIN_NL = "\n"
-EMPTY_COLUMN_HTML = '<p class="empty">(пусто)</p>'
-FOR_REVIEW_NOTE = "только Maxim"
 
 HEADER_RE = re.compile(
     r"^#\s+(T-\d{6}-[a-z0-9]+)\s*[—\-–]\s*(.+)$",
 )
-VALUE_EXTRACT_RE = re.compile(r"(?im)^\s*Ценность:\s*(.+?)\s*$")
+VALUE_EXTRACT_RE = re.compile(r"(?im)^[ \t]*Ценность:[ \t]*(.+?)[ \t]*$")
 GOAL_RE = re.compile(
     r"(?ims)^##\s*Цель\s*\n+(.*?)(?=^##\s|\Z)",
 )
+# [ \t]* — not \s* — so blank `статус:` does not swallow the next line.
 FIELD_RE = re.compile(
     r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
-    r"review_note|acceptance_note|pr):\s*(.*)$",
+    r"review_note|acceptance_note|pr):[ \t]*(.*)$",
     re.MULTILINE,
 )
 PROGRESS_STAMP_RE = re.compile(
@@ -76,99 +79,39 @@ PROGRESS_ANY_STAMP_RE = re.compile(
     re.MULTILINE,
 )
 
-UI: dict[str, dict[str, str]] = {
-    "ru": {
-        "intro": "Канбан из context/tasks — статический HTML, без сети.",
-        "status": "Статус",
-        "claim": "Claim",
-        "blocked": "Блок",
-        "deadline": "Дедлайн",
-        "parent": "Родитель",
-        "subtasks": "Подзадачи",
-        "age": "В статусе",
-        "overdue": "Просрочено",
-        "updated": "Обновлено",
-        "generated": "Сгенерировано",
-        "empty": "(пусто)",
-        "for_review_note": FOR_REVIEW_NOTE,
-        "col_open": "Открыто",
-        "col_queue": "Очередь",
-        "col_in_progress": "В работе",
-        "col_for_review": "На ревью",
-        "col_blocked": "Заблокировано",
-        "col_done": "Готово",
-        "col_canceled": "Отменено",
-        "st_idea": "идея",
-        "st_open": "открыта",
-        "st_queue": "очередь",
-        "st_in-progress": "в работе",
-        "st_self-review": "самопроверка",
-        "st_for-review": "на ревью",
-        "st_blocked": "заблокирована",
-        "st_done": "готово",
-        "st_canceled": "отменена",
-    },
-    "en": {
-        "intro": "Kanban from context/tasks — static HTML, no network.",
-        "status": "Status",
-        "claim": "Claim",
-        "blocked": "Blocked",
-        "deadline": "Deadline",
-        "parent": "Parent",
-        "subtasks": "Subtasks",
-        "age": "In status",
-        "overdue": "Overdue",
-        "updated": "Updated",
-        "generated": "Generated",
-        "empty": "(empty)",
-        "for_review_note": "only Maxim",
-        "col_open": "Open",
-        "col_queue": "Queue",
-        "col_in_progress": "In Progress",
-        "col_for_review": "For Review",
-        "col_blocked": "Blocked",
-        "col_done": "Done",
-        "col_canceled": "Canceled",
-        "st_idea": "idea",
-        "st_open": "open",
-        "st_queue": "queue",
-        "st_in-progress": "in progress",
-        "st_self-review": "self-review",
-        "st_for-review": "for review",
-        "st_blocked": "blocked",
-        "st_done": "done",
-        "st_canceled": "canceled",
-    },
-}
-
-_CSS = (
-    ":root{--bg:#0f1419;--col:#1a2332;--card:#243044;--fg:#e7ecf3;"
-    "--muted:#9aa7b8;--acc:#5b9fd4;--warn:#e8a060;--bad:#e8a0a0}"
-    "*{box-sizing:border-box}"
-    "body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;"
-    "background:var(--bg);color:var(--fg)}"
-    "header{padding:1.25rem 1.5rem;border-bottom:1px solid #2a3548}"
-    "header h1{margin:0;font-size:1.35rem;font-weight:650}"
-    "header p{margin:.35rem 0 0;color:var(--muted);font-size:.9rem}"
-    ".board{display:flex;gap:.75rem;padding:1rem;overflow-x:auto;"
-    "align-items:flex-start}"
-    ".column{flex:0 0 16rem;background:var(--col);border-radius:8px;"
-    "padding:.75rem;min-height:12rem}"
-    ".column h2{margin:0 0 .75rem;font-size:.85rem;text-transform:uppercase;"
-    "letter-spacing:.04em;color:var(--muted);font-weight:600}"
-    ".column .count{color:var(--acc);font-weight:500}"
-    ".column .col-note{display:block;font-size:.72rem;font-weight:500;"
-    "text-transform:none;letter-spacing:0;color:var(--acc);margin-top:.25rem}"
-    ".card{background:var(--card);border-radius:6px;padding:.7rem .75rem;"
-    "margin:0 0 .6rem}"
-    ".card.overdue{outline:1px solid var(--warn)}"
-    ".card-title{margin:0 0 .35rem;font-size:.95rem;line-height:1.3}"
-    ".card-id,.card-status,.card-claim,.card-desc,.card-blocked,"
-    ".card-deadline,.card-parent,.card-subtasks,.card-age{margin:.2rem 0;"
-    "font-size:.78rem;color:var(--muted)}"
-    ".card-desc{color:var(--fg)}"
-    ".card-blocked,.card-overdue{color:var(--bad)}"
-    ".empty{color:var(--muted);font-size:.8rem;font-style:italic}"
+# Re-export presentation constants for tests / CLI docs.
+__all__ = (
+    "BoardError",
+    "CANONICAL_STATUSES",
+    "COLUMN_FOR_STATUS",
+    "DEFAULT_LANG",
+    "DEFAULT_TITLE",
+    "EMPTY_COLUMN_HTML",
+    "FOR_REVIEW_NOTE",
+    "JOIN_NL",
+    "OVERDUE_HOURS",
+    "STATUS_ALIASES",
+    "UI",
+    "_CSS",
+    "age_hours",
+    "board_columns",
+    "collect_board_cards",
+    "column_for_status",
+    "escape",
+    "extract_description",
+    "extract_fields",
+    "extract_goal_blurb",
+    "extract_value_line",
+    "generate_board",
+    "human_status",
+    "is_queue_overdue",
+    "normalize_status",
+    "parse_status_changed_at",
+    "render_board_html",
+    "require_status",
+    "require_task_header",
+    "ui_for",
+    "write_board",
 )
 
 
@@ -287,11 +230,11 @@ def parse_status_changed_at(text: str) -> datetime | None:
     return datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
 
 
-def age_hours(since: datetime | None, *, now: datetime | None = None) -> float | None:
+def age_hours(since: datetime | None, *, now: datetime) -> float | None:
+    """Age in hours. Caller supplies ``now`` (resolve wall-clock upstream)."""
     if since is None:
         return None
-    current = now or datetime.now(timezone.utc)
-    return (current - since).total_seconds() / 3600.0
+    return (now - since).total_seconds() / 3600.0
 
 
 def is_queue_overdue(status: str, hours: float | None) -> bool:
@@ -303,29 +246,30 @@ def is_queue_overdue(status: str, hours: float | None) -> bool:
     return hours > OVERDUE_HOURS
 
 
-def require_task_header(text: str, path: Path) -> None:
+def require_task_header(text: str, path: Path) -> re.Match[str]:
+    """Validate header; return match with task id + title groups."""
+    if not isinstance(path, Path):
+        raise TypeError("require_task_header path must be pathlib.Path")
     if not text.strip():
         raise BoardError(str(path), "empty file")
     first = text.splitlines()[0].strip()
-    if not HEADER_RE.match(first):
+    matched = HEADER_RE.match(first)
+    if not matched:
         raise BoardError(str(path), "unparseable or missing # T-… — title header")
+    return matched
 
 
 def _card_data(
-    meta: TaskMeta,
+    task_id: str,
+    title: str,
     text: str,
     *,
     path: Path,
     lang: str,
-    now: datetime | None,
+    now: datetime,
 ) -> dict[str, str]:
-    require_task_header(text, path)
     fields = extract_fields(text)
-    # Prefer file field; meta.status may default to idea for empty — refuse empty field.
-    raw_status = fields.get("статус")
-    if raw_status is None or not str(raw_status).strip():
-        raise BoardError(str(path), "missing status")
-    status = require_status(raw_status, path=str(path))
+    status = require_status(fields.get("статус"), path=str(path))
     changed = parse_status_changed_at(text)
     hours = age_hours(changed, now=now)
     overdue = is_queue_overdue(status, hours)
@@ -335,15 +279,15 @@ def _card_data(
         if hours is not None:
             age_label = f"{age_label} ({hours:.1f}h)"
     return {
-        "id": meta.task_id,
-        "title": meta.title,
+        "id": task_id,
+        "title": title,
         "status": status,
         "status_label": human_status(status, lang),
         "description": extract_description(text),
-        "claim": _plain(meta.claim) or _plain(fields.get("claim")),
-        "parent": _plain(meta.parent) or _plain(fields.get("родитель")),
-        "blocked_reason": _plain(fields.get("blocked_reason") or ""),
-        "blocked_deadline": _plain(fields.get("blocked_deadline") or ""),
+        "claim": _plain(fields.get("claim")),
+        "parent": _plain(fields.get("родитель")),
+        "blocked_reason": _plain(fields.get("blocked_reason")),
+        "blocked_deadline": _plain(fields.get("blocked_deadline")),
         "column": column_for_status(status),
         "updated": age_label,
         "overdue": "1" if overdue else "",
@@ -354,7 +298,7 @@ def collect_board_cards(
     tasks_dir: Path,
     *,
     lang: str = DEFAULT_LANG,
-    now: datetime | None = None,
+    now: datetime,
 ) -> list[dict[str, str]]:
     if not tasks_dir.is_dir():
         raise BoardError(str(tasks_dir), "missing context/tasks directory")
@@ -362,11 +306,17 @@ def collect_board_cards(
     paths = sorted(tasks_dir.glob("T-*.md"))
     for path in paths:
         text = read_task_text(path)
-        require_task_header(text, path)
-        meta = parse_task(path)
-        if meta is None:
-            raise BoardError(str(path), "unparseable task file")
-        cards.append(_card_data(meta, text, path=path, lang=lang, now=now))
+        matched = require_task_header(text, path)
+        cards.append(
+            _card_data(
+                matched.group(1),
+                matched.group(2).strip(),
+                text,
+                path=path,
+                lang=lang,
+                now=now,
+            )
+        )
     return cards
 
 
@@ -514,7 +464,7 @@ def generate_board(
     generated_at: str | None = None,
     title: str = DEFAULT_TITLE,
     lang: str = DEFAULT_LANG,
-    now: datetime | None = None,
+    now: datetime,
 ) -> str:
     cards = collect_board_cards(tasks_dir, lang=lang, now=now)
     return render_board_html(
@@ -529,7 +479,7 @@ def write_board(
     generated_at: str | None = None,
     title: str = DEFAULT_TITLE,
     lang: str = DEFAULT_LANG,
-    now: datetime | None = None,
+    now: datetime,
 ) -> Path:
     html_text = generate_board(
         tasks_dir,

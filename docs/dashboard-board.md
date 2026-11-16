@@ -2,7 +2,7 @@
 
 Harness-independent kanban from `context/tasks/*.md`. One self-contained HTML file. **No server, no auth, no deploy target in Agentized.**
 
-- **Renderer:** `runtime/agentized/board_html.py`
+- **Renderer:** `runtime/agentized/board_html.py` (+ `board_html_io.py`, `board_html_ui.py`)
 - **CLI:** `agentized board` = render only
 - **Autopilot / metrics / WIP:** `agentized autopilot` (AGE-30 / #19) — not this command
 - **Status gates:** AGE-22 · **status_guard:** AGE-38
@@ -15,7 +15,7 @@ Harness-independent kanban from `context/tasks/*.md`. One self-contained HTML fi
 ./bin/agentized board --stamp
 ```
 
-Fail-loud: missing `context/tasks`, empty file, missing/unknown status, or bad `# T-… — title` header → non-zero exit with `path: reason`.
+Fail-loud: missing `context/tasks`, empty file, missing/unknown status, or bad `# T-… — title` header → non-zero exit with `path: reason`. (`agentized board` = render only; metrics/WIP → `agentized autopilot` / #19.)
 
 Columns (RU): Открыто · Очередь (queue + self-review; overdue &gt;12h) · В работе · На ревью («только Maxim») · Заблокировано · Готово · Отменено.
 
