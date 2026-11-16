@@ -589,14 +589,20 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     assert str(e3.value) == MSG_GIT_ERROR.format(
         rel="context/tasks/T-261116-g1.md", ref="deadbeef", detail="fatal: bad object"
     )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: SimpleNamespace(
-            returncode=128, stdout="", stderr="fatal: path 'x' does not exist in 'deadbeef'"
-        ),
-    )
-    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef") == {}
+    (tasks / "T-261116-keep.md").write_text(_task("open"), encoding="utf-8")
+
+    def miss_then_ok(argv, **kwargs):
+        rel = str(argv[-1])
+        if rel.endswith("T-261116-g1.md") or rel.endswith("T-261116-os.md"):
+            return SimpleNamespace(
+                returncode=128, stdout="", stderr="fatal: path 'x' does not exist in 'x'"
+            )
+        return SimpleNamespace(returncode=0, stdout="kept\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", miss_then_ok)
+    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef") == {
+        "T-261116-keep.md": "kept\n"
+    }
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -606,14 +612,14 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
     assert str(e4.value) == MSG_GIT_ERROR.format(
         rel="context/tasks/T-261116-g1.md", ref="HEAD", detail="exit 7"
-    ) or "exit 7" in str(e4.value)
-
+    )
+    monkeypatch.setenv("MUTATION_BASE", "must-read-env")
+    assert resolve_validate_base_ref(tmp_path) == "must-read-env"
     root_s = str(tmp_path.resolve())
     mb_calls: list[list[str]] = []
 
     def fake_run(argv, **kwargs):
-        assert kwargs.get("check") is False
-        assert argv[2] == root_s  # repo_root, never None
+        assert kwargs.get("check") is False and argv[2] == root_s
         if "merge-base" in argv:
             mb_calls.append(list(argv))
             return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
@@ -624,18 +630,27 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
-    # no env / no explicit ref → merge-base needs real root (not None)
     assert previous_task_texts_from_git(tasks) == {
         "T-261116-g1.md": "blob\n",
+        "T-261116-keep.md": "blob\n",
         "T-261116-os.md": "blob\n",
     }
     assert mb_calls and mb_calls[0][2] == root_s
     other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
     other.mkdir(exist_ok=True)
-    (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
+    out = other / "T-261116-out.md"
+    out.write_text(_task("open"), encoding="utf-8")
+    try:
+        out.resolve().relative_to(tmp_path.resolve())
+    except ValueError as expected_exc:
+        detail = str(expected_exc)
+    else:
+        raise AssertionError("expected ValueError")
     with pytest.raises(RuntimeError) as e5:
         previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
-    assert str(e5.value).startswith("git error reading T-261116-out.md at HEAD:")
+    assert str(e5.value) == MSG_GIT_ERROR.format(
+        rel="T-261116-out.md", ref="HEAD", detail=detail
+    )
 
 
 def test_two_commit_open_to_done_vs_base(tmp_path: Path):
