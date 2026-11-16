@@ -2,12 +2,10 @@
 title = "Agentized"
 
 [extend]
-# Use built-in gitleaks rules; allowlist only Agentized noise paths.
+useDefault = true
 
 [allowlist]
 description = "Agentized generated/report paths"
 paths = [
   '''(^|/)(coverage|reports|mutants|\.artifacts)/''',
-  '''(^|/)coverage/.*''',
-  '''(^|/)reports/.*''',
 ]

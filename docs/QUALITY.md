@@ -20,7 +20,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head **raw bytes** (encoding cookie respected). Missing base, decode/parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
-| `secrets` | Hard-by-default **gitleaks** scan (AGE-29); missing binary fails closed when `mode=hard`; config `.gitleaks.toml` |
+| `secrets` | Hard-by-default **gitleaks** scan (AGE-29); `.gitleaks.toml` must set `[extend] useDefault = true`; missing binary fails closed; `enabled=false` fails unless `disable_decision` has reason + unexpired `expires` (reconnect forces `enabled=true` otherwise) |
 | `property_based` | Hypothesis / fast-check pilot modules |
 | `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |

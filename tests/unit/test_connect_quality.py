@@ -135,6 +135,86 @@ def test_ensure_quality_injects_missing_secrets(tmp_path: Path):
     assert again["upgraded_modes"] == []
 
 
+def test_ensure_quality_forces_secrets_enabled_without_decision(tmp_path: Path):
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    _skeleton(tmp_path)
+    path = tmp_path / "context" / "quality.json"
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "secrets": {"enabled": False, "mode": "hard", "tool": "gitleaks"},
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    info = ensure_quality_config(tmp_path, "context")
+    assert info["upgraded_modes"] == ["secrets_enabled"]
+    forced = load_quality(tmp_path)["secrets"]
+    assert forced["enabled"] is True
+    assert forced["mode"] == "hard"
+
+    # Valid decision → leave disabled alone.
+    expires = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "secrets": {
+                    "enabled": False,
+                    "mode": "hard",
+                    "tool": "gitleaks",
+                    "disable_decision": {"reason": "temp fixture", "expires": expires},
+                },
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    kept = ensure_quality_config(tmp_path, "context")
+    assert kept["upgraded_modes"] == []
+    kept_secrets = load_quality(tmp_path)["secrets"]
+    assert kept_secrets["enabled"] is False
+    assert kept_secrets["disable_decision"]["reason"] == "temp fixture"
+
+
+def test_pin_gitleaks_toml_managed(tmp_path: Path):
+    """First connect creates .gitleaks.toml; reconnect unchanged; user edit skipped."""
+    from agentized.managed import load_managed
+
+    _skeleton(tmp_path)
+    # Local template source for pin.
+    tpl = tmp_path / "templates" / "quality" / "gitleaks.toml.example"
+    tpl.write_text(
+        'title = "Agentized"\n\n[extend]\nuseDefault = true\n',
+        encoding="utf-8",
+    )
+    first = pin_quality_templates(tmp_path, "context")
+    assert first["gitleaks_config"] == "created"
+    dst = tmp_path / ".gitleaks.toml"
+    assert dst.is_file()
+    assert "useDefault = true" in dst.read_text(encoding="utf-8")
+    man = load_managed(tmp_path, "context")
+    assert ".gitleaks.toml" in man["files"]
+
+    second = pin_quality_templates(tmp_path, "context")
+    assert second["gitleaks_config"] == "unchanged"
+
+    # User edit → skipped_user; content preserved.
+    dst.write_text("# user custom\n", encoding="utf-8")
+    third = pin_quality_templates(tmp_path, "context")
+    assert third["gitleaks_config"] == "skipped_user"
+    assert dst.read_text(encoding="utf-8") == "# user custom\n"
+    # Manifest still records the key.
+    man2 = load_managed(tmp_path, "context")
+    assert ".gitleaks.toml" in man2["files"]
+
+
 def test_safe_install_does_not_clobber_user(tmp_path: Path):
     src = tmp_path / "tpl"
     src.write_text(f"# {QUALITY_MARKER}\nA\n", encoding="utf-8")

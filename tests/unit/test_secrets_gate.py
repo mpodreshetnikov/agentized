@@ -1,9 +1,29 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from agentized.secrets_gate import _build_cmd, _mode, run_secrets_gate
+import pytest
+
+from agentized.secrets_gate import (
+    _build_cmd,
+    _mode,
+    disable_decision_valid,
+    run_secrets_gate,
+)
+
+
+def _require_gitleaks() -> str:
+    exe = shutil.which("gitleaks")
+    if exe:
+        return exe
+    if os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true":
+        pytest.fail("gitleaks must be installed in CI for secrets gate tests")
+    pytest.skip("gitleaks not installed locally")
 
 
 def _quality(root: Path, secrets: dict) -> None:
@@ -49,9 +69,49 @@ def test_build_cmd_skips_missing_config(tmp_path: Path):
     assert cmd[0:2] == ["gitleaks", "detect"]
 
 
-def test_disabled_skips(tmp_path: Path):
+def test_disabled_without_decision_hard_fails(tmp_path: Path):
     _quality(tmp_path, {"enabled": False, "mode": "hard"})
+    assert run_secrets_gate(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["findings"][0]["kind"] == "disabled_without_decision"
+    assert summary["passed"] is False
+
+
+def test_disabled_with_valid_decision_skips(tmp_path: Path):
+    expires = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _quality(
+        tmp_path,
+        {
+            "enabled": False,
+            "mode": "hard",
+            "disable_decision": {"reason": "fixture repo, no secrets", "expires": expires},
+        },
+    )
     assert run_secrets_gate(tmp_path) == 0
+    summary = json.loads(
+        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["toolNote"] == "disabled_by_decision"
+    assert summary["findings"] == []
+
+
+def test_disable_decision_valid_rules():
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    cases = [
+        ({}, False),
+        ({"disable_decision": {"reason": "x"}}, False),
+        ({"disable_decision": {"reason": "x", "expires": "not-a-date"}}, False),
+        ({"disable_decision": {"reason": "x", "expires": past}}, False),
+        ({"disable_decision": {"reason": "x", "expires": future}}, True),
+    ]
+    assert [disable_decision_valid(cfg) for cfg, _ in cases] == [want for _, want in cases]
 
 
 def test_missing_binary_hard_fails(tmp_path: Path, monkeypatch):
@@ -314,6 +374,73 @@ def test_bad_json_report_falls_back(tmp_path: Path, monkeypatch):
 def test_main_entrypoint(tmp_path: Path, monkeypatch):
     from agentized import secrets_gate as sg
 
-    _quality(tmp_path, {"enabled": False})
+    _quality(tmp_path, {"enabled": True, "mode": "hard"})
     monkeypatch.setattr(sg, "find_repo_root", lambda: tmp_path)
-    assert sg.main(["--context", "context"]) == 0
+    monkeypatch.setattr(sg.shutil, "which", lambda *_: None)
+    assert sg.main(["--context", "context"]) == 1
+
+
+def _init_git_repo(path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "root"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_real_gitleaks_detects_planted_secrets(tmp_path: Path):
+    """Integration: real gitleaks + pinned config must catch planted tokens."""
+    _require_gitleaks()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    # Build fixtures at runtime so the commit has no contiguous secret literals
+    # (GitHub push protection); values still match default gitleaks rules.
+    github = "ghp_" + "wWHhP5N9XzvB6c3dEfGhIjKlMnOpQrStUvWx"
+    stripe = "sk_live_" + "51Hq" + ("abcdefghijklmnopqrstuvwxyz" * 2) + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+    (repo / "leak.txt").write_text(f"{github}\n{stripe}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "leak.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "plant"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    # Pinned Agentized config (useDefault=true).
+    root_cfg = Path(__file__).resolve().parents[2] / "templates" / "quality" / "gitleaks.toml.example"
+    (repo / ".gitleaks.toml").write_text(root_cfg.read_text(encoding="utf-8"), encoding="utf-8")
+    _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
+    assert run_secrets_gate(repo) == 1
+    summary = json.loads(
+        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["toolRc"] == 1
+    assert len(summary["findings"]) >= 1
+    assert summary["passed"] is False
+
+
+def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
+    _require_gitleaks()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "ok.txt").write_text("hello agentized\n", encoding="utf-8")
+    subprocess.run(["git", "add", "ok.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "clean"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    root_cfg = Path(__file__).resolve().parents[2] / "templates" / "quality" / "gitleaks.toml.example"
+    (repo / ".gitleaks.toml").write_text(root_cfg.read_text(encoding="utf-8"), encoding="utf-8")
+    _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
+    assert run_secrets_gate(repo) == 0
+    summary = json.loads(
+        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["toolRc"] == 0
+    assert summary["findings"] == []
+    assert summary["passed"] is True

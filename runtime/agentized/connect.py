@@ -772,22 +772,29 @@ def ensure_githooks_path(root: Path) -> str:
     return "preserved-user"
 
 
-def pin_quality_templates(root: Path) -> dict:
+def pin_quality_templates(
+    root: Path,
+    context_rel: str = DEFAULT_CONTEXT,
+    *,
+    manifest: dict | None = None,
+) -> dict:
     """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
 
     External repos without `templates/quality` use the installed Agentized root.
-    AGE-29: also pin `.gitleaks.toml` when missing (never clobber an existing file).
+    AGE-29: pin `.gitleaks.toml` via managed.json (created / unchanged / skipped_user).
     """
     templates = _quality_templates_dir(root)
     gitleaks_src = templates / "gitleaks.toml.example"
     gitleaks_dst = root / ".gitleaks.toml"
-    if gitleaks_src.exists() and not gitleaks_dst.exists():
-        gitleaks_dst.write_text(gitleaks_src.read_text(encoding="utf-8"), encoding="utf-8")
-        gitleaks_status = "created"
-    elif gitleaks_dst.exists():
-        gitleaks_status = "unchanged"
-    else:
+    if not gitleaks_src.exists():
         gitleaks_status = "missing-src"
+    else:
+        man = manifest if manifest is not None else load_managed(root, context_rel)
+        gitleaks_status = managed_copy_file(
+            root, context_rel, gitleaks_src, gitleaks_dst, manifest=man
+        )
+        if manifest is None:
+            save_managed(root, context_rel, man)
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
@@ -862,6 +869,22 @@ def ensure_quality_config(
                 section["mode"] = "hard"
                 if section_name not in upgraded_modes:
                     upgraded_modes.append(section_name)
+                dirty = True
+        # AGE-29: force secrets.enabled=true unless a valid disable_decision exists.
+        from .secrets_gate import disable_decision_valid
+
+        secrets = data.get("secrets")
+        if isinstance(secrets, dict):
+            enabled = secrets.get("enabled", True)
+            disabled = enabled is False or enabled == 0 or str(enabled).lower() in {
+                "false",
+                "0",
+                "no",
+            }
+            if disabled and not disable_decision_valid(secrets):
+                secrets["enabled"] = True
+                if "secrets_enabled" not in upgraded_modes:
+                    upgraded_modes.append("secrets_enabled")
                 dirty = True
         if dirty:
             save_quality(root, data, context_rel)
@@ -1022,7 +1045,7 @@ def connect(
     manifest = load_managed(root, context_rel)
     pinned = pin_context_skills_hooks(root, context_rel, manifest=manifest)
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
-    quality_templates = pin_quality_templates(root)
+    quality_templates = pin_quality_templates(root, context_rel, manifest=manifest)
     env_check = ensure_env_check_config(root, context_rel)
     process = ensure_process_control_config(root, context_rel)
     from .reporting import ensure_reporting_config

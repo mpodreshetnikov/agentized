@@ -2,7 +2,8 @@
 
 Runs `gitleaks detect` against the repo. Default mode is hard/blocking on
 pre-push and CI (via `quality check` gates). Missing binary fails closed when
-mode=hard.
+mode=hard. `enabled: false` also fails closed in hard mode unless an explicit
+disable_decision (reason + unexpired expiry) is recorded.
 """
 from __future__ import annotations
 
@@ -25,6 +26,29 @@ REPORT_DIR = "reports/secrets"
 def _mode(section: dict[str, Any]) -> str:
     mode = str(section.get("mode") or "hard").lower()
     return mode if mode in {"hard", "warn"} else "hard"
+
+
+def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """True only with non-empty reason and unexpired ISO expiry (Maxim hard-default)."""
+    decision = section.get("disable_decision")
+    if not isinstance(decision, dict):
+        return False
+    reason = str(decision.get("reason") or "").strip()
+    expires_raw = str(
+        decision.get("expires") or decision.get("expiry") or decision.get("expires_at") or ""
+    ).strip()
+    if not reason or not expires_raw:
+        return False
+    try:
+        expires = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    return expires > clock
 
 
 def _resolve_gitleaks(section: dict[str, Any]) -> str | None:
@@ -64,6 +88,33 @@ def _build_cmd(
     return cmd
 
 
+def _write_summary(
+    summary_path: Path,
+    *,
+    mode: str,
+    binary: str | None,
+    config_rel: str | None,
+    findings: list[dict[str, Any]],
+    tool_rc: int | None,
+    tool_note: str,
+) -> dict[str, Any]:
+    passed = True if mode == "warn" else not findings
+    payload = {
+        "schemaVersion": 1,
+        "mode": mode,
+        "tool": "gitleaks",
+        "binary": binary,
+        "config": config_rel,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "findings": findings,
+        "passed": passed,
+        "toolRc": tool_rc,
+        "toolNote": tool_note,
+    }
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
+
+
 def run_secrets_gate(
     root: Path | None = None,
     *,
@@ -72,23 +123,54 @@ def run_secrets_gate(
     root = root or find_repo_root()
     cfg = load_quality(root, context)
     section = cfg.get("secrets") or {}
-    if not section.get("enabled", True):
-        print("[secrets] disabled — skip")
-        return 0
-
     mode = _mode(section)
     out_dir = root / str(section.get("report_dir") or REPORT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "gitleaks-report.json"
     summary_path = out_dir / "secrets-summary.json"
-
-    binary = _resolve_gitleaks(section)
     config_rel = str(section.get("config") or DEFAULT_CONFIG)
     config_path = root / config_rel
+
+    enabled = section.get("enabled", True)
+    if enabled is False or enabled == 0 or str(enabled).lower() in {"false", "0", "no"}:
+        if disable_decision_valid(section):
+            print("[secrets] disabled by recorded decision — skip")
+            _write_summary(
+                summary_path,
+                mode=mode,
+                binary=None,
+                config_rel=config_rel if config_path.is_file() else None,
+                findings=[],
+                tool_rc=None,
+                tool_note="disabled_by_decision",
+            )
+            return 0
+        detail = (
+            "secrets.enabled=false without a valid disable_decision "
+            "(reason + unexpired expires). Hard-by-default — record a decision "
+            f"or set enabled=true. See {DOC}."
+        )
+        findings = [{"file": "", "kind": "disabled_without_decision", "detail": detail}]
+        _write_summary(
+            summary_path,
+            mode=mode,
+            binary=None,
+            config_rel=config_rel if config_path.is_file() else None,
+            findings=findings,
+            tool_rc=None,
+            tool_note=detail,
+        )
+        print(f"[secrets] 1 finding(s) (mode={mode})")
+        print(f"  (repo): disabled_without_decision: {detail[:200]}")
+        if mode == "warn":
+            print("[secrets] warn mode — not failing the gate")
+            return 0
+        return 1
 
     findings: list[dict[str, Any]] = []
     tool_note = ""
     tool_rc: int | None = None
+    binary = _resolve_gitleaks(section)
 
     if binary is None:
         tool_note = (
@@ -109,7 +191,6 @@ def run_secrets_gate(
         tool_rc = proc.returncode
         tool_note = ((proc.stdout or "") + (proc.stderr or "")).strip()[:4000]
         if tool_rc == 1:
-            # Leaks found — prefer structured report when present.
             leaks: list[Any] = []
             if report_path.is_file():
                 try:
@@ -151,20 +232,15 @@ def run_secrets_gate(
                 }
             )
 
-    passed = True if mode == "warn" else not findings
-    payload = {
-        "schemaVersion": 1,
-        "mode": mode,
-        "tool": "gitleaks",
-        "binary": binary,
-        "config": config_rel if config_path.is_file() else None,
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "findings": findings,
-        "passed": passed,
-        "toolRc": tool_rc,
-        "toolNote": tool_note,
-    }
-    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    _write_summary(
+        summary_path,
+        mode=mode,
+        binary=binary,
+        config_rel=config_rel if config_path.is_file() else None,
+        findings=findings,
+        tool_rc=tool_rc,
+        tool_note=tool_note,
+    )
 
     if findings:
         print(f"[secrets] {len(findings)} finding(s) (mode={mode})")
@@ -174,7 +250,7 @@ def run_secrets_gate(
         if len(findings) > 30:
             print(f"  … +{len(findings) - 30} more")
     else:
-        print(f"[secrets] PASS (0 findings, tool=gitleaks)")
+        print("[secrets] PASS (0 findings, tool=gitleaks)")
 
     if mode == "warn":
         print("[secrets] warn mode — not failing the gate")

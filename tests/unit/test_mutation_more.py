@@ -149,6 +149,12 @@ def test_write_setup(tmp_path: Path):
     assert lines[0] == "[mutmut]"
     sel = lines.index("pytest_add_cli_args_test_selection =")
     assert lines[sel + 1] == "  tests/unit/test_quality.py"
+    # AGE-29 rejection: mutmut sandbox copies packages/runtime/templates for skill+connect.
+    also_idx = lines.index("also_copy =")
+    also_block = lines[also_idx + 1 : also_idx + 9]
+    assert also_block.count("  packages/") == 1
+    assert also_block.count("  runtime/") == 1
+    assert also_block.count("  templates/") == 1
 
 
 def test_test_selection_multi_file(tmp_path: Path):
