@@ -25,20 +25,20 @@ from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import (
     ALL_STATUSES,
+    INDEX_ACTIVE_STATUSES,
     extract_status,
     normalize_status,
     previous_task_texts_from_git,
+    rebuild_task_index_active,
     resolve_validate_base_ref,
     validate_task_text,
     validate_tasks_dir,
 )
 from agentized.tasks import (
-    ACTIVE_STATUSES,
     allocate_task_id,
     append_progress,
     list_tasks,
     parse_task,
-    rebuild_task_index,
     render_task_file,
     set_field,
 )
@@ -322,15 +322,15 @@ def cmd_new(args: argparse.Namespace) -> int:
         tags=args.tags or "",
         parent=parent,
         goal=args.goal or "Что должно быть сделано.",
-        value=value,
     )
+    text = text.replace("\n## Цель", f"\nЦенность: {value}\n\n## Цель", 1)
     gate = validate_task_text(text, old_status=None, require_value=True, check_transition=False)
     if not gate.ok:
         print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
         return 1
     path = tasks_dir / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
-    (tasks_dir / "INDEX.md").write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
+    (tasks_dir / "INDEX.md").write_text(rebuild_task_index_active(tasks_dir), encoding="utf-8")
     print(f"создано: {path.relative_to(root)}")
     print(f"id: {task_id}")
     return 0
@@ -356,7 +356,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
         return 1
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(
-        rebuild_task_index(ctx / "tasks"), encoding="utf-8"
+        rebuild_task_index_active(ctx / "tasks"), encoding="utf-8"
     )
     print(f"claimed {args.task_id} → {args.owner} (статус: in-progress)")
     return 0
@@ -408,7 +408,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(
-        rebuild_task_index(ctx / "tasks"), encoding="utf-8"
+        rebuild_task_index_active(ctx / "tasks"), encoding="utf-8"
     )
     print(f"{args.task_id}: статус → {new_status} (файл не перемещался)")
     return 0
@@ -444,7 +444,7 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
 def cmd_index(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx = _ctx(root, args)
-    tasks_index = rebuild_task_index(ctx / "tasks")
+    tasks_index = rebuild_task_index_active(ctx / "tasks")
     leases_index = rebuild_lease_index(ctx / "leases")
     (ctx / "tasks" / "INDEX.md").write_text(tasks_index, encoding="utf-8")
     (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
@@ -487,7 +487,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     tasks = list_tasks(ctx / "tasks")
     index_text = (ctx / "tasks" / "INDEX.md").read_text(encoding="utf-8") if (ctx / "tasks" / "INDEX.md").exists() else ""
     for t in tasks:
-        if t.status in ACTIVE_STATUSES and t.task_id not in index_text:
+        if t.status in INDEX_ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
 
     # Hard status gates (AGE-22) — snapshot fields + transition vs PR base
@@ -589,7 +589,7 @@ def cmd_sync_status(args: argparse.Namespace) -> int:
     ctx = _ctx(root, args)
     state = load_state(root)
     tasks = list_tasks(ctx / "tasks")
-    active = [t for t in tasks if t.status in ACTIVE_STATUSES]
+    active = [t for t in tasks if t.status in INDEX_ACTIVE_STATUSES]
     leases = list_leases(ctx / "leases")
     print("sync-status")
     print(f"  connected: {'yes' if state else 'no'}")
@@ -631,7 +631,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{day}.md"
     tasks = list_tasks(ctx / "tasks")
-    active = [t for t in tasks if t.status in ACTIVE_STATUSES]
+    active = [t for t in tasks if t.status in INDEX_ACTIVE_STATUSES]
     done = [t for t in tasks if t.status == "done"]
     leases = list_leases(ctx / "leases")
     if args.type == "development":

@@ -1,8 +1,10 @@
 """Hard status-transition gates for context/tasks/*.md (AGE-22).
 
-Invalid transitions and missing required fields → blocking failure.
-Canonical status set (board / autopilot / metrics must coordinate here):
-idea / open / queue / in-progress / self-review / for-review / blocked / done / canceled.
+Invalid transitions / missing fields → blocking failure.
+
+Canonical status owner for Agentized (board AGE-37/#30, autopilot, INDEX).
+Import ``CANONICAL_STATUSES``, ``STATUS_ALIASES``, ``COLUMN_FOR_STATUS``,
+``normalize_status`` from here — #30 stub must match; rebase keeps them identical.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from pathlib import Path
 
 TEXT_ENCODING = "utf-8"
 
-# Canonical statuses (board columns use open/queue as one column).
+# Canonical statuses — owned by AGE-22; board/CLI/INDEX consume these.
 CANONICAL_STATUSES: tuple[str, ...] = (
     "idea",
     "open",
@@ -36,28 +38,28 @@ STATUS_ALIASES: dict[str, str] = {
 
 ALL_STATUSES: tuple[str, ...] = CANONICAL_STATUSES + ("dropped", "queued")
 
-# Board column id ← status (idea/open/queue share the open column).
+# INDEX / claim active lanes (not board columns).
+INDEX_ACTIVE_STATUSES: tuple[str, ...] = (
+    "open",
+    "queue",
+    "in-progress",
+    "self-review",
+    "for-review",
+    "blocked",
+)
+
+# Board columns (AGE-37): self-review sits in Queue (Maxim); idea/open → Open.
 COLUMN_FOR_STATUS: dict[str, str] = {
     "idea": "open",
     "open": "open",
-    "queue": "open",
+    "queue": "queue",
+    "self-review": "queue",
     "in-progress": "in-progress",
-    "self-review": "self-review",
     "for-review": "for-review",
     "blocked": "blocked",
     "done": "done",
     "canceled": "canceled",
 }
-
-BOARD_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("open", "Open / Queue"),
-    ("in-progress", "In Progress"),
-    ("self-review", "Self-Review"),
-    ("for-review", "For Review"),
-    ("blocked", "Blocked"),
-    ("done", "Done"),
-    ("canceled", "Canceled"),
-)
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "idea": frozenset({"open", "queue", "canceled"}),
@@ -160,10 +162,9 @@ def _nonempty_field(fields: dict[str, str], *keys: str) -> str:
 
 
 def is_real_pr_ref(value: str | None) -> bool:
-    raw = (value or "").strip()
-    if not raw or raw.startswith("_"):
+    if value is None:
         return False
-    return PR_REF_RE.match(raw) is not None
+    return PR_REF_RE.match(value.strip()) is not None
 
 
 def _has_review_evidence(fields: dict[str, str]) -> bool:
@@ -265,7 +266,7 @@ def validate_task_text(
         if not tr.ok:
             errors.extend(tr.errors)
 
-    req = validate_status_requirements(text, status=new_status)
+    req = validate_status_requirements(text)
     if not req.ok:
         errors.extend(req.errors)
 
@@ -285,14 +286,12 @@ def validate_task_file(
         return GateResult(False, (MSG_MISSING_FILE.format(path=path),))
     text = path.read_bytes().decode(TEXT_ENCODING)
     if old_text is None:
-        return validate_task_text(
-            text, require_value=require_value, check_transition=False
-        )
+        # old_status defaults to None → transition check skipped
+        return validate_task_text(text, require_value=require_value)
     return validate_task_text(
         text,
         old_status=extract_status(old_text),
         require_value=require_value,
-        check_transition=True,
     )
 
 
@@ -315,6 +314,19 @@ def _git_missing_path(stderr: str) -> bool:
     )
 
 
+def _git_err(rel: str, ref: str, detail: str) -> RuntimeError:
+    return RuntimeError(MSG_GIT_ERROR.format(rel=rel, ref=ref, detail=detail))
+
+
+def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def previous_task_texts_from_git(
     tasks_dir: Path,
     *,
@@ -333,24 +345,16 @@ def previous_task_texts_from_git(
         try:
             rel = path.resolve().relative_to(root.resolve()).as_posix()
         except ValueError as exc:
-            raise RuntimeError(
-                MSG_GIT_ERROR.format(rel=path.name, ref=base, detail=str(exc))
-            ) from exc
+            raise _git_err(path.name, base, str(exc)) from exc
         try:
-            proc = subprocess.run(
-                ["git", "-C", str(root), "show", f"{base}:{rel}"],
-                capture_output=True,
-                text=True,
-            )
+            proc = _run_git(root, ["show", f"{base}:{rel}"])
         except OSError as exc:
-            raise RuntimeError(
-                MSG_GIT_ERROR.format(rel=rel, ref=base, detail=str(exc))
-            ) from exc
+            raise _git_err(rel, base, str(exc)) from exc
         if proc.returncode != 0:
             err = proc.stderr or proc.stdout or f"exit {proc.returncode}"
             if _git_missing_path(err):
                 continue
-            raise RuntimeError(MSG_GIT_ERROR.format(rel=rel, ref=base, detail=err.strip()))
+            raise _git_err(rel, base, err.strip())
         out[path.name] = proc.stdout
     return out
 
@@ -367,11 +371,7 @@ def resolve_validate_base_ref(repo_root: Path, *, explicit: str | None = None) -
     if env:
         return env
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), "merge-base", "origin/main", "HEAD"],
-            capture_output=True,
-            text=True,
-        )
+        proc = _run_git(repo_root, ["merge-base", "origin/main", "HEAD"])
     except OSError as exc:
         raise RuntimeError(f"git merge-base failed: {exc}") from exc
     if proc.returncode == 0:
@@ -379,6 +379,47 @@ def resolve_validate_base_ref(repo_root: Path, *, explicit: str | None = None) -
         if sha:
             return sha
     return "origin/main"
+
+
+def rebuild_task_index_active(tasks_dir: Path) -> str:
+    """INDEX with AGE-22 active lanes (queue / self-review / for-review)."""
+    from .tasks import list_tasks
+
+    tasks = list_tasks(tasks_dir)
+    buckets: dict[str, list[str]] = {s: [] for s in INDEX_ACTIVE_STATUSES}
+    for t in tasks:
+        if t.status not in buckets:
+            continue
+        parent = (
+            f" (родитель: {t.parent})"
+            if t.parent and not t.parent.startswith("_")
+            else ""
+        )
+        claim = (
+            f" · claim: {t.claim}"
+            if t.claim and not t.claim.startswith("_")
+            else ""
+        )
+        buckets[t.status].append(
+            f"- [{t.task_id}]({t.path.name}) — {t.title}{parent}{claim}"
+        )
+
+    def section(name: str) -> str:
+        rows = buckets[name]
+        body = "\n".join(rows) if rows else "_(пусто)_"
+        return f"## {name}\n\n{body}\n"
+
+    sections = "\n".join(section(name) for name in INDEX_ACTIVE_STATUSES)
+    status_list = " · ".join(f"`{s}`" for s in INDEX_ACTIVE_STATUSES)
+    return (
+        "# Задачи — живой индекс\n\n"
+        "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
+        f"Статусы в индексе: {status_list}.\n\n"
+        "Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.\n\n"
+        f"{sections}\n"
+        "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом с этим индексом; "
+        "при смене статуса файл **не перемещается**.\n"
+    )
 
 
 def validate_tasks_dir(

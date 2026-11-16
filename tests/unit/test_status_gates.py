@@ -410,61 +410,69 @@ def test_validate_tasks_dir_require_value_false(tmp_path: Path):
     assert validate_tasks_dir(tmp_path, require_value=False) == GateResult(True)
 
 
-def test_claim_transition_paths():
+def test_claim_and_file_edges(tmp_path: Path):
     from agentized.tasks import append_progress, render_task_file, set_field
 
-    def claim_text(status: str, owner: str = "alice") -> tuple[str, str]:
-        old = render_task_file(
-            "T-261116-clm", "Claim me", status=status, value="people get work done"
-        )
-        text = set_field(old, "claim", owner)
-        text = set_field(text, "статус", "in-progress")
-        text = append_progress(text, f"claim by {owner}")
-        return old, text
+    def claim(status: str) -> str:
+        old = render_task_file("T-261116-clm", "Claim me", status=status)
+        old = old.replace("\n## Цель", "\nЦенность: people get work done\n\n## Цель", 1)
+        text = set_field(set_field(old, "claim", "alice"), "статус", "in-progress")
+        return append_progress(text, "claim by alice")
 
     for st in ("open", "queue", "in-progress"):
-        _, text = claim_text(st)
-        assert validate_task_text(
-            text, old_status=st, require_value=True, check_transition=True
-        ) == GateResult(True)
-    _, text = claim_text("idea")
-    assert validate_task_text(
-        text, old_status="idea", require_value=True, check_transition=True
-    ) == GateResult(
-        False,
-        (
-            MSG_ILLEGAL.format(
-                old="idea",
-                new="in-progress",
-                allowed=sorted(ALLOWED_TRANSITIONS["idea"]),
+        assert validate_task_text(claim(st), old_status=st) == GateResult(True)
+    for st in ("idea", "canceled"):
+        bad = validate_task_text(claim(st), old_status=st)
+        assert bad == GateResult(
+            False,
+            (
+                MSG_ILLEGAL.format(
+                    old=st,
+                    new="in-progress",
+                    allowed=sorted(ALLOWED_TRANSITIONS[st]),
+                ),
             ),
-        ),
-    )
-    _, text = claim_text("canceled")
-    assert validate_task_text(
-        text, old_status="canceled", require_value=True, check_transition=True
-    ) == GateResult(
-        False,
-        (
-            MSG_ILLEGAL.format(
-                old="canceled",
-                new="in-progress",
-                allowed=sorted(ALLOWED_TRANSITIONS["canceled"]),
-            ),
-        ),
-    )
+        )
 
-
-def test_validate_task_file_empty_old(tmp_path: Path):
     path = tmp_path / "T-261116-eo.md"
     path.write_text(_task("open"), encoding="utf-8")
-    bad = validate_task_file(path, old_text="# T\n\nЦенность: x\n")
-    assert bad == GateResult(False, (MSG_MISSING_STATUS,))
+    assert validate_task_file(path, old_text="# T\n\nЦенность: x\n") == GateResult(
+        False, (MSG_MISSING_STATUS,)
+    )
     assert validate_task_file(path, old_text=None) == GateResult(True)
+    path.write_text(_task("open", value=False), encoding="utf-8")
+    assert validate_task_file(path, require_value=True) == GateResult(
+        False, (MSG_MISSING_VALUE,)
+    )
+    assert validate_task_file(path, old_text=_task("idea"), require_value=True) == GateResult(
+        False, (MSG_MISSING_VALUE,)
+    )
+    assert validate_task_file(path, old_text=_task("idea"), require_value=False) == GateResult(
+        True
+    )
+    path.write_text(_task("done", extra="acceptance_note: ok"), encoding="utf-8")
+    bad = validate_task_file(path, old_text=_task("open"), require_value=False)
+    assert bad.ok is False and bad.errors[0].startswith("illegal transition open → done")
+
+    a, b = tmp_path / "T-261116-a.md", tmp_path / "T-261116-b.md"
+    a.write_text(_task("open"), encoding="utf-8")
+    b.write_text(_task("open", value=False), encoding="utf-8")
+    cont = validate_tasks_dir(
+        tmp_path, previous_by_name={"T-261116-a.md": "# T\n\nЦенность: x\n"}
+    )
+    assert any("T-261116-a.md" in e and "статус" in e for e in cont.errors)
+    assert any("T-261116-b.md" in e and "Ценность" in e for e in cont.errors)
 
 
-def test_default_repo_root_and_git_oserror(tmp_path: Path, monkeypatch):
-    from agentized.status_gates import default_repo_root_for_tasks
+def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
+    from agentized.status_gates import (
+        CANONICAL_STATUSES,
+        COLUMN_FOR_STATUS,
+        MSG_GIT_ERROR,
+        STATUS_ALIASES,
+        _git_missing_path,
+        default_repo_root_for_tasks,
+    )
     import subprocess
 
     class FakePath:
@@ -475,19 +483,226 @@ def test_default_repo_root_and_git_oserror(tmp_path: Path, monkeypatch):
         def parents(self):
             return (Path("/"),)
 
+    class TwoParents:
+        def resolve(self):
+            return Path("/repo/tasks")
+
+        @property
+        def parents(self):
+            return (Path("/repo"), Path("/"))
+
     assert default_repo_root_for_tasks(FakePath()) == Path("/only")
+    assert default_repo_root_for_tasks(TwoParents()) == Path("/")
+
+    pr_samples = {
+        None: "reject",
+        "": "reject",
+        "   ": "reject",
+        "_placeholder": "reject",
+        "_(пусто)_": "reject",
+        "#12": "accept",
+        "PR #12": "accept",
+        "https://github.com/o/r/pull/9": "accept",
+        "merged": "reject",
+    }
+    assert {k: ("accept" if is_real_pr_ref(k) else "reject") for k in pr_samples} == pr_samples
+
+    assert CANONICAL_STATUSES == (
+        "idea",
+        "open",
+        "queue",
+        "in-progress",
+        "self-review",
+        "for-review",
+        "blocked",
+        "done",
+        "canceled",
+    )
+    assert STATUS_ALIASES == {"dropped": "canceled", "queued": "queue"}
+    assert COLUMN_FOR_STATUS == {
+        "idea": "open",
+        "open": "open",
+        "queue": "queue",
+        "self-review": "queue",
+        "in-progress": "in-progress",
+        "for-review": "for-review",
+        "blocked": "blocked",
+        "done": "done",
+        "canceled": "canceled",
+    }
+    assert set(COLUMN_FOR_STATUS) == set(CANONICAL_STATUSES)
+
+    miss = {
+        "fatal: path not in 'HEAD'": "missing",
+        "exists on disk, but not in 'abc'": "missing",
+        "fatal: path 'x' does not exist in 'HEAD'": "missing",
+        "fatal: bad object": "other",
+    }
+    assert {k: ("missing" if _git_missing_path(k) else "other") for k in miss} == miss
 
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "T-261116-os.md").write_text(_task("open"), encoding="utf-8")
 
-    def boom(*a, **k):
-        raise OSError("boom")
-
-    monkeypatch.setattr(subprocess, "run", boom)
-    with pytest.raises(RuntimeError):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    with pytest.raises(RuntimeError) as excinfo:
         previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
+    assert str(excinfo.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks/T-261116-os.md", ref="HEAD", detail="boom"
+    )
     monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as excinfo2:
         resolve_validate_base_ref(tmp_path)
+    assert str(excinfo2.value) == "git merge-base failed: boom"
+
+    calls: list[list[str]] = []
+
+    def ok_mb(argv, **kwargs):
+        calls.append(list(argv))
+        assert kwargs.get("capture_output") is True and kwargs.get("text") is True
+        return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", ok_mb)
+    assert resolve_validate_base_ref(tmp_path) == "abc123"
+    assert calls == [["git", "-C", str(tmp_path), "merge-base", "origin/main", "HEAD"]]
+    for stdout in ("  \n", "", None):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *a, stdout=stdout, **k: SimpleNamespace(
+                returncode=0, stdout=stdout, stderr=""
+            ),
+        )
+        assert resolve_validate_base_ref(tmp_path) == "origin/main"
+
+    (tasks / "T-261116-g1.md").write_text(_task("open"), encoding="utf-8")
+
+    def fail_show(argv, **kwargs):
+        assert argv[:4] == ["git", "-C", str(tmp_path), "show"]
+        assert kwargs.get("check") is False
+        return SimpleNamespace(returncode=128, stdout="", stderr="fatal: bad object")
+
+    monkeypatch.setattr(subprocess, "run", fail_show)
+    with pytest.raises(RuntimeError) as e3:
+        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef")
+    assert str(e3.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks/T-261116-g1.md", ref="deadbeef", detail="fatal: bad object"
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=128, stdout="", stderr="fatal: path 'x' does not exist in 'deadbeef'"
+        ),
+    )
+    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef") == {}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=7, stdout="", stderr=""),
+    )
+    with pytest.raises(RuntimeError) as e4:
+        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
+    assert str(e4.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks/T-261116-g1.md", ref="HEAD", detail="exit 7"
+    ) or "exit 7" in str(e4.value)
+
+    def fake_run(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "show" in argv:
+            return SimpleNamespace(returncode=0, stdout="blob\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("MUTATION_BASE", "HEAD")
+    assert previous_task_texts_from_git(tasks) == {
+        "T-261116-g1.md": "blob\n",
+        "T-261116-os.md": "blob\n",
+    }
+    other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    other.mkdir(exist_ok=True)
+    (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
+    with pytest.raises(RuntimeError) as e5:
+        previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
+    assert str(e5.value).startswith("git error reading T-261116-out.md at HEAD:")
+
+
+def test_two_commit_open_to_done_vs_base(tmp_path: Path):
+    import os
+    import subprocess
+
+    root = tmp_path / "repo"
+    tasks = root / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "T-261116-ci.md").write_text(_task("open"), encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    (tasks / "T-261116-ci.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "bad"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    os.environ["MUTATION_BASE"] = base
+    try:
+        result = validate_tasks_dir(
+            tasks, previous_by_name=previous_task_texts_from_git(tasks, repo_root=root)
+        )
+    finally:
+        os.environ.pop("MUTATION_BASE", None)
+    assert result.ok is False
+    assert any("illegal transition open → done" in e for e in result.errors)
+
+
+def test_rebuild_task_index_active(tmp_path: Path):
+    from agentized.status_gates import INDEX_ACTIVE_STATUSES, rebuild_task_index_active
+
+    def write(name: str, status: str, *, title: str, parent: str, claim: str) -> None:
+        tid = name.removesuffix(".md")
+        (tmp_path / name).write_text(
+            f"# {tid} — {title}\n\nстатус: {status}\nтеги: t\n"
+            f"родитель: {parent}\nclaim: {claim}\n\nЦенность: v\n\n## Цель\n\nGoal.\n",
+            encoding="utf-8",
+        )
+
+    write("T-261116-idx.md", "queue", title="Demo", parent="AGE-22", claim="alice")
+    write("T-261116-ph.md", "open", title="Ph", parent="_x", claim="_y")
+    write("T-261116-done.md", "done", title="Done", parent="_(пусто)_", claim="_(пусто)_")
+    write("T-261116-ip.md", "in-progress", title="Work", parent="_(пусто)_", claim="bob")
+    expected = (
+        "# Задачи — живой индекс\n\n"
+        "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
+        "Статусы в индексе: `open` · `queue` · `in-progress` · `self-review` · "
+        "`for-review` · `blocked`.\n\n"
+        "Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог "
+        "`tasks/`.\n\n"
+        "## open\n\n- [T-261116-ph](T-261116-ph.md) — Ph\n\n"
+        "## queue\n\n"
+        "- [T-261116-idx](T-261116-idx.md) — Demo (родитель: AGE-22) · claim: alice\n\n"
+        "## in-progress\n\n- [T-261116-ip](T-261116-ip.md) — Work · claim: bob\n\n"
+        "## self-review\n\n_(пусто)_\n\n## for-review\n\n_(пусто)_\n\n"
+        "## blocked\n\n_(пусто)_\n\n"
+        "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом "
+        "с этим индексом; при смене статуса файл **не перемещается**.\n"
+    )
+    assert rebuild_task_index_active(tmp_path) == expected
+    assert list(INDEX_ACTIVE_STATUSES) == [
+        "open",
+        "queue",
+        "in-progress",
+        "self-review",
+        "for-review",
+        "blocked",
+    ]
