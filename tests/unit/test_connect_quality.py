@@ -45,6 +45,20 @@ def _skeleton(root: Path) -> None:
     )
 
 
+def test_connect_quality_ships_full_cover_mutation_globs(tmp_path: Path):
+    """Connect create uses full-cover mutation include_globs from defaults."""
+    from agentized.quality_defaults import default_quality_config
+
+    _skeleton(tmp_path)
+    qinfo = ensure_quality_config(tmp_path, "context")
+    assert qinfo["created"] is True
+    cfg = load_quality(tmp_path)
+    assert cfg["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
+    assert default_quality_config()["mutation"]["include_globs"] == [
+        "runtime/agentized/*.py"
+    ]
+
+
 def test_ensure_quality_and_coverage(tmp_path: Path):
     _skeleton(tmp_path)
     info = ensure_quality_config(tmp_path, "context", coverage_pct=88)

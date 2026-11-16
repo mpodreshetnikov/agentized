@@ -18,9 +18,9 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 
 `process_guard` hook runs on Write/Edit (and Codex `apply_patch`) before lease-warn.
 
-## Reviewable PR size
+## Reviewable PR size (AGE-32 / AGE-35)
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`). Warn at **75%** of the limit; over the limit fails `agentized process size` (hard gate in pre-push and CI). Git errors while measuring size fail closed (non-zero). Broken `process-control.json` raises — no silent defaults.
+Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Over the limit **hard-fails** `agentized process size` (exit 1). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
 
 ```bash
 ./bin/agentized process size
