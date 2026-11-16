@@ -16,12 +16,11 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: cursor-cloud
 - [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) · claim: cloud-agent-4e38
 
 ## self-review
 
-_(пусто)_
+- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: cursor-cloud
 
 ## for-review
 

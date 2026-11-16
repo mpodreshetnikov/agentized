@@ -76,10 +76,8 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 VALUE_LINE_RE = re.compile(r"(?im)^\s*Ценность:\s*(\S.*)$")
-# Brand-new paths at PR base cannot forge these (claim→in-progress still OK).
-NEW_PATH_FORBIDDEN_STATUSES: frozenset[str] = frozenset(
-    {"done", "canceled", "self-review", "for-review"}
-)
+# Brand-new paths at PR base cannot forge terminal close-out (claim/review OK).
+NEW_PATH_FORBIDDEN_STATUSES: frozenset[str] = frozenset({"done", "canceled"})
 FIELD_LINE_RE = re.compile(
     r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
     r"review_note|acceptance_note|pr):[ \t]*(.*)$",

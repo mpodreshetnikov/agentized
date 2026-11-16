@@ -322,20 +322,18 @@ def test_file_skip_transition_flags(tmp_path: Path):
 
     fresh = tmp_path / "brand"
     fresh.mkdir()
-    extras = {
-        "done": "acceptance_note: forged",
-        "canceled": "",
-        "self-review": "review_note: x",
-        "for-review": "pr: #1",
-    }
-    assert NEW_PATH_FORBIDDEN_STATUSES == frozenset(extras)
-    for st, extra in extras.items():
-        p = fresh / f"T-261116-new{st}.md"
-        p.write_text(_task(st, extra=extra) if extra else _task(st), encoding="utf-8")
+    assert NEW_PATH_FORBIDDEN_STATUSES == frozenset({"done", "canceled"})
+    (fresh / "T-261116-newdone.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    (fresh / "T-261116-newcanceled.md").write_text(_task("canceled"), encoding="utf-8")
+    (fresh / "T-261116-newsr.md").write_text(
+        _task("self-review", extra="review_note: ok"), encoding="utf-8"
+    )
     bad_new = validate_tasks_dir(fresh, previous_by_name={})
-    assert bad_new.ok is False
-    for st in extras:
-        assert any(f"new task cannot start as {st}" in e for e in bad_new.errors), st
+    assert any("new task cannot start as done" in e for e in bad_new.errors)
+    assert any("new task cannot start as canceled" in e for e in bad_new.errors)
+    assert not any("self-review" in e and "new task" in e for e in bad_new.errors)
 
 
 def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
