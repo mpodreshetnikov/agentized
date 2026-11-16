@@ -482,7 +482,7 @@ def install_cursor(
                 {"command": ".cursor/hooks/ensure_agent_hooks.py"}
             ],
             "afterFileEdit": [
-                {"command": ".cursor/hooks/lease_warn.py"},
+                {"command": ".cursor/hooks/lease_warn.py"}
             ],
         },
     }
@@ -554,7 +554,7 @@ def install_claude(
                 {
                     "type": "command",
                     "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py\"",
-                },
+                }
             ],
         },
         {
@@ -653,7 +653,7 @@ def install_codex(
                             ),
                             "statusMessage": "Agentized process guard",
                             "additionalContextLimit": 5000,
-                        },
+                        }
                     ],
                 },
                 {
@@ -734,14 +734,14 @@ def _safe_install_template(src: Path, dst: Path) -> str:
     body = src.read_text(encoding="utf-8")
     if not dst.exists():
         dst.write_text(body, encoding="utf-8")
-        if src.name in {"pre-push", "pre-commit"}:
+        if src.name == "pre-push":
             dst.chmod(dst.stat().st_mode | 0o111)
         return "created"
     existing = dst.read_text(encoding="utf-8")
     if QUALITY_MARKER in existing:
         if existing != body:
             dst.write_text(body, encoding="utf-8")
-            if src.name in {"pre-push", "pre-commit"}:
+            if src.name == "pre-push":
                 dst.chmod(dst.stat().st_mode | 0o111)
             return "updated"
         return "unchanged"
@@ -787,9 +787,6 @@ def pin_quality_templates(root: Path) -> dict:
     """
     templates = _quality_templates_dir(root)
     result = {
-        "pre_commit": _safe_install_template(
-            templates / "pre-commit", root / ".githooks" / "pre-commit"
-        ),
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
