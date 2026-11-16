@@ -6,6 +6,7 @@ Harness-independent kanban from `context/tasks/*.md`. One self-contained HTML fi
 - **CLI:** `agentized board` = render only
 - **Autopilot / metrics / WIP:** `agentized autopilot` (AGE-30 / #19) — not this command
 - **Status gates:** AGE-22 · **status_guard:** AGE-38
+- **Reviewers:** `context/merge_policy.json` → `human_participants` (for-review note)
 
 ## Generate
 
@@ -15,12 +16,12 @@ Harness-independent kanban from `context/tasks/*.md`. One self-contained HTML fi
 ./bin/agentized board --stamp
 ```
 
-Fail-loud: missing `context/tasks`, empty file, missing/unknown status, or bad `# T-… — title` header → non-zero exit with `path: reason`. (`agentized board` = render only; metrics/WIP → `agentized autopilot` / #19.)
+Fail-loud: bad UTF-8, empty file, header id ≠ stem, duplicate id/field, missing/unknown status, bad/future Progress stamp → non-zero exit `path: reason`. Fields only from header (before first `##`). Age = last Progress stamp with `→ <current status>` (optional `статус`/`status`/`task`); no match → unknown age → queue/self-review overdue.
 
-Columns (RU): Открыто · Очередь (queue + self-review; overdue &gt;12h) · В работе · На ревью («только Maxim») · Заблокировано · Готово · Отменено.
+Columns follow `status_gates.COLUMN_FOR_STATUS` (#25 @ f44e46e): Открыто (idea+open) · Очередь (queue + self-review; overdue &gt;12ч) · В работе · На ревью (только &lt;reviewer&gt;) · Заблокировано · Готово · Отменено.
 
-Description on cards: short `## Цель` line, else `Ценность:`.
+Status vocabulary: import `CANONICAL_STATUSES` / `STATUS_ALIASES` / `COLUMN_FOR_STATUS` / `normalize_status` from `status_gates` (#25) — board does not keep a local list.
 
 ## CI dogfood
 
-Generate + upload `task-board` artifact runs with `if: always()` (even if quality fails).
+Board step must fail on bad tasks (no soft `|| echo`). Upload `task-board` stays `if: always()`.

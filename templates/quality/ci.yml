@@ -65,7 +65,7 @@ jobs:
             echo "agentized CLI not found" >&2
             exit 1
           fi
-          "${CLI[@]}" board -o board.html || echo "board generation failed (tasks may be invalid)" >&2
+          "${CLI[@]}" board -o board.html
 
       - name: Upload coverage + mutation + gate summaries
         if: always()

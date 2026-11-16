@@ -8,50 +8,29 @@ Fail-loud on bad task files. Deterministic HTML unless generated_at is set.
 from __future__ import annotations
 
 import html
+import json
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .board_html_io import read_task_text, write_html
+from .board_html_io import ENCODING, read_task_text, write_html
 from .board_html_ui import (
     CSS as _CSS,
     DEFAULT_LANG,
     DEFAULT_TITLE,
     EMPTY_COLUMN_HTML,
-    FOR_REVIEW_NOTE,
     UI,
+    for_review_note,
 )
-CANONICAL_STATUSES: tuple[str, ...] = (
-    "idea",
-    "open",
-    "queue",
-    "in-progress",
-    "self-review",
-    "for-review",
-    "blocked",
-    "done",
-    "canceled",
+from .status_gates import (
+    CANONICAL_STATUSES,
+    COLUMN_FOR_STATUS,
+    STATUS_ALIASES,
+    normalize_status,
 )
-
-STATUS_ALIASES: dict[str, str] = {
-    "dropped": "canceled",
-    "queued": "queue",
-}
-
-# Self-review sits in Queue (Maxim). idea/open share Open.
-COLUMN_FOR_STATUS: dict[str, str] = {
-    "idea": "open",
-    "open": "open",
-    "queue": "queue",
-    "self-review": "queue",
-    "in-progress": "in-progress",
-    "for-review": "for-review",
-    "blocked": "blocked",
-    "done": "done",
-    "canceled": "canceled",
-}
 
 OVERDUE_HOURS = 12
 JOIN_NL = "\n"
@@ -69,9 +48,10 @@ FIELD_RE = re.compile(
     r"review_note|acceptance_note|pr):[ \t]*(.*)$",
     re.MULTILINE,
 )
-PROGRESS_STAMP_RE = re.compile(
+# Optional статус|status|task before →; captures destination status.
+PROGRESS_ARROW_RE = re.compile(
     r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC:.*"
-    r"(?:статус|status)\s*→\s*([^\s,;]+)",
+    r"(?:(?:статус|status|task)\s*)?→\s*([^\s,;]+)",
     re.MULTILINE | re.IGNORECASE,
 )
 PROGRESS_ANY_STAMP_RE = re.compile(
@@ -79,7 +59,6 @@ PROGRESS_ANY_STAMP_RE = re.compile(
     re.MULTILINE,
 )
 
-# Re-export presentation constants for tests / CLI docs.
 __all__ = (
     "BoardError",
     "CANONICAL_STATUSES",
@@ -87,7 +66,6 @@ __all__ = (
     "DEFAULT_LANG",
     "DEFAULT_TITLE",
     "EMPTY_COLUMN_HTML",
-    "FOR_REVIEW_NOTE",
     "JOIN_NL",
     "OVERDUE_HOURS",
     "STATUS_ALIASES",
@@ -102,11 +80,15 @@ __all__ = (
     "extract_fields",
     "extract_goal_blurb",
     "extract_value_line",
+    "for_review_note",
     "generate_board",
+    "header_block",
     "human_status",
     "is_queue_overdue",
-    "normalize_status",
+    "load_human_participants",
+    "normalize_status",  # re-export status_gates
     "parse_status_changed_at",
+    "remember_task_id",
     "render_board_html",
     "require_status",
     "require_task_header",
@@ -132,6 +114,7 @@ def ui_for(lang: str) -> dict[str, str]:
 
 
 def board_columns(lang: str = DEFAULT_LANG) -> tuple[tuple[str, str], ...]:
+    """Seven board columns; ids align with status_gates.COLUMN_FOR_STATUS values."""
     u = ui_for(lang)
     return (
         ("open", u["col_open"]),
@@ -146,14 +129,6 @@ def board_columns(lang: str = DEFAULT_LANG) -> tuple[tuple[str, str], ...]:
 
 def escape(text: str | None) -> str:
     return html.escape("" if text is None else text)
-
-
-def normalize_status(raw: str | None) -> str:
-    """Map aliases only; empty stays empty (caller refuses)."""
-    s = ("" if raw is None else raw).strip().lower()
-    if not s:
-        return ""
-    return STATUS_ALIASES.get(s, s)
 
 
 def require_status(raw: str | None, *, path: str) -> str:
@@ -211,27 +186,66 @@ def extract_description(text: str | None) -> str:
     return extract_value_line(text)
 
 
-def extract_fields(text: str | None) -> dict[str, str]:
+def header_block(text: str) -> str:
+    """Fields live only before the first markdown ``##`` section."""
+    if text.startswith("##"):
+        return ""
+    idx = text.find("\n##")
+    if idx == -1:
+        return text
+    return text[:idx]
+
+
+def extract_fields(text: str | None, *, path: str = "<text>") -> dict[str, str]:
     if text is None:
         return {}
-    return {k: v.strip() for k, v in FIELD_RE.findall(text)}
+    header = header_block(text)
+    out: dict[str, str] = {}
+    for m in FIELD_RE.finditer(header):
+        key = m.group(1)
+        if key in out:
+            raise BoardError(path, f"duplicate field {key}")
+        out[key] = m.group(2).strip()
+    return out
 
 
-def parse_status_changed_at(text: str) -> datetime | None:
-    """Last Progress stamp that mentions status → …; else last Progress stamp."""
-    matches = list(PROGRESS_STAMP_RE.finditer(text))
-    if matches:
-        stamp = matches[-1].group(1)
-    else:
-        any_m = list(PROGRESS_ANY_STAMP_RE.finditer(text))
-        if not any_m:
-            return None
-        stamp = any_m[-1].group(1)
-    return datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+def _parse_stamp(stamp_s: str, *, path: str, now: datetime) -> datetime:
+    try:
+        stamp = datetime.strptime(stamp_s, "%Y-%m-%d %H:%M").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        raise BoardError(path, f"bad progress stamp {stamp_s!r}") from None
+    if stamp > now:
+        raise BoardError(path, f"future progress stamp {stamp_s}")
+    return stamp
+
+
+def parse_status_changed_at(
+    text: str,
+    status: str,
+    *,
+    path: str,
+    now: datetime,
+) -> datetime | None:
+    """Last Progress stamp with ``→ <current status>``. No match → None."""
+    want = normalize_status(status)
+    # Validate every Progress stamp (bad/future → BoardError).
+    for any_m in PROGRESS_ANY_STAMP_RE.finditer(text):
+        _parse_stamp(any_m.group(1), path=path, now=now)
+    last: datetime | None = None
+    for m in PROGRESS_ARROW_RE.finditer(text):
+        stamp = _parse_stamp(m.group(1), path=path, now=now)
+        dest = normalize_status(m.group(2))
+        if dest == want:
+            last = stamp
+    return last
 
 
 def age_hours(since: datetime | None, *, now: datetime) -> float | None:
     """Age in hours. Caller supplies ``now`` (resolve wall-clock upstream)."""
+    if not isinstance(now, datetime):
+        raise TypeError("age_hours now must be datetime")
     if since is None:
         return None
     return (now - since).total_seconds() / 3600.0
@@ -259,6 +273,41 @@ def require_task_header(text: str, path: Path) -> re.Match[str]:
     return matched
 
 
+def load_human_participants(context_dir: Path) -> list[str]:
+    path = context_dir / "merge_policy.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_bytes().decode(ENCODING))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BoardError(str(path), f"invalid merge_policy: {exc}") from None
+    if "human_participants" not in data:
+        return []
+    raw = data["human_participants"]
+    if not isinstance(raw, list):
+        raise BoardError(str(path), "human_participants must be a list")
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def remember_task_id(seen: dict[str, Path], task_id: str, path: Path) -> None:
+    """Record task id; duplicate id → BoardError (exact path + reason)."""
+    if not isinstance(path, Path):
+        raise TypeError("remember_task_id path must be pathlib.Path")
+    if task_id in seen:
+        raise BoardError(
+            str(path),
+            f"duplicate task id {task_id} (also {seen[task_id]})",
+        )
+    seen[task_id] = path
+
+
+def _read_task(path: Path) -> str:
+    try:
+        return read_task_text(path)
+    except UnicodeDecodeError as exc:
+        raise BoardError(str(path), f"invalid utf-8: {exc.reason}") from None
+
+
 def _card_data(
     task_id: str,
     title: str,
@@ -268,16 +317,18 @@ def _card_data(
     lang: str,
     now: datetime,
 ) -> dict[str, str]:
-    fields = extract_fields(text)
+    fields = extract_fields(text, path=str(path))
     status = require_status(fields.get("статус"), path=str(path))
-    changed = parse_status_changed_at(text)
+    changed = parse_status_changed_at(text, status, path=str(path), now=now)
     hours = age_hours(changed, now=now)
     overdue = is_queue_overdue(status, hours)
+    u = ui_for(lang)
+    unit = u["hours_unit"]
     age_label = ""
     if changed is not None:
         age_label = changed.strftime("%Y-%m-%d %H:%M UTC")
         if hours is not None:
-            age_label = f"{age_label} ({hours:.1f}h)"
+            age_label = f"{age_label} ({hours:.1f}{unit})"
     return {
         "id": task_id,
         "title": title,
@@ -303,13 +354,21 @@ def collect_board_cards(
     if not tasks_dir.is_dir():
         raise BoardError(str(tasks_dir), "missing context/tasks directory")
     cards: list[dict[str, str]] = []
+    seen_ids: dict[str, Path] = {}
     paths = sorted(tasks_dir.glob("T-*.md"))
     for path in paths:
-        text = read_task_text(path)
+        text = _read_task(path)
         matched = require_task_header(text, path)
+        task_id = matched.group(1)
+        if task_id != path.stem:
+            raise BoardError(
+                str(path),
+                f"header id {task_id!r} != file stem {path.stem!r}",
+            )
+        remember_task_id(seen_ids, task_id, path)
         cards.append(
             _card_data(
-                matched.group(1),
+                task_id,
                 matched.group(2).strip(),
                 text,
                 path=path,
@@ -334,6 +393,7 @@ def _subtask_ids(cards: list[dict[str, str]]) -> dict[str, list[str]]:
 
 def _render_card(card: dict[str, str], children: list[str], u: dict[str, str]) -> str:
     overdue_cls = " overdue" if card.get("overdue") else ""
+    unit = u["hours_unit"]
     parts = [
         f'<article class="card{overdue_cls}">',
         f'<h3 class="card-title">{escape(card["title"])}</h3>',
@@ -347,12 +407,12 @@ def _render_card(card: dict[str, str], children: list[str], u: dict[str, str]) -
     )
     if card.get("updated"):
         parts.append(
-            f'<p class="card-age">{escape(u["updated"])}: {escape(card["updated"])}</p>'
+            f'<p class="card-age">{escape(u["age"])}: {escape(card["updated"])}</p>'
         )
     if card.get("overdue"):
         parts.append(
             f'<p class="card-overdue">{escape(u["overdue"])} '
-            f"(&gt;{OVERDUE_HOURS}h)</p>"
+            f"(&gt;{OVERDUE_HOURS}{unit})</p>"
         )
     if card.get("claim"):
         parts.append(
@@ -386,6 +446,8 @@ def _render_column(
     items: list[dict[str, str]],
     children_map: dict[str, list[str]],
     u: dict[str, str],
+    *,
+    review_note: str = "",
 ) -> str:
     empty_html = f'<p class="empty">{escape(u["empty"])}</p>'
     if not items:
@@ -395,8 +457,8 @@ def _render_column(
             _render_card(card, children_map.get(card["id"]) or [], u) for card in items
         )
     note = ""
-    if col_id == "for-review":
-        note = f'\n<span class="col-note">{escape(u["for_review_note"])}</span>'
+    if col_id == "for-review" and review_note:
+        note = f'\n<span class="col-note">{escape(review_note)}</span>'
     return (
         f'<section class="column" data-column="{escape(col_id)}">\n'
         f'<h2>{escape(col_label)} <span class="count">({len(items)})</span>'
@@ -412,6 +474,7 @@ def render_board_html(
     generated_at: str | None = None,
     title: str = DEFAULT_TITLE,
     lang: str = DEFAULT_LANG,
+    reviewers: Sequence[str] | None = None,
 ) -> str:
     u = ui_for(lang)
     columns = board_columns(lang)
@@ -423,10 +486,15 @@ def render_board_html(
             raise BoardError(card.get("id") or "?", f"unknown column {raw!r}")
         by_col[raw].append(card)
 
+    note = for_review_note(lang, list(reviewers or ()))
     columns_html: list[str] = []
     for col_id, col_label in columns:
         items = sorted(by_col[col_id], key=lambda c: c["id"])
-        columns_html.append(_render_column(col_id, col_label, items, children_map, u))
+        columns_html.append(
+            _render_column(
+                col_id, col_label, items, children_map, u, review_note=note
+            )
+        )
 
     if generated_at:
         stamp = (
@@ -465,10 +533,17 @@ def generate_board(
     title: str = DEFAULT_TITLE,
     lang: str = DEFAULT_LANG,
     now: datetime,
+    reviewers: Sequence[str] | None = None,
 ) -> str:
     cards = collect_board_cards(tasks_dir, lang=lang, now=now)
+    if reviewers is None:
+        reviewers = load_human_participants(tasks_dir.parent)
     return render_board_html(
-        cards, generated_at=generated_at, title=title, lang=lang
+        cards,
+        generated_at=generated_at,
+        title=title,
+        lang=lang,
+        reviewers=reviewers,
     )
 
 
@@ -480,6 +555,7 @@ def write_board(
     title: str = DEFAULT_TITLE,
     lang: str = DEFAULT_LANG,
     now: datetime,
+    reviewers: Sequence[str] | None = None,
 ) -> Path:
     html_text = generate_board(
         tasks_dir,
@@ -487,6 +563,7 @@ def write_board(
         title=title,
         lang=lang,
         now=now,
+        reviewers=reviewers,
     )
     write_html(out_path, html_text)
     return out_path

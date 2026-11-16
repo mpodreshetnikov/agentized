@@ -1,19 +1,33 @@
-"""Presentation strings/CSS for board_html (outside mutation include_globs).
+"""Presentation strings/CSS for board_html (i18n + stylesheet).
 
-Logic stays in board_html.py; this module is i18n + stylesheet only.
+Logic stays in board_html.py. This module is on mutation include_globs —
+golden tests must keep mutationScoreCovered at 100% (no pragmas).
 """
 from __future__ import annotations
 
-FOR_REVIEW_NOTE = "только Maxim"
+from collections.abc import Sequence
+
 DEFAULT_LANG = "ru"
 DEFAULT_TITLE = "Доска задач Agentized"
 EMPTY_COLUMN_HTML = '<p class="empty">(пусто)</p>'
+
+
+def for_review_note(lang: str, participants: Sequence[str]) -> str:
+    """Build for-review column note from merge_policy.human_participants."""
+    if participants:
+        name = participants[0]
+    else:
+        name = "рецензент" if lang == "ru" else "reviewer"
+    if lang == "ru":
+        return f"только {name}"
+    return f"only {name}"
+
 
 UI: dict[str, dict[str, str]] = {
     "ru": {
         "intro": "Канбан из context/tasks — статический HTML, без сети.",
         "status": "Статус",
-        "claim": "Claim",
+        "claim": "Исполнитель",
         "blocked": "Блок",
         "deadline": "Дедлайн",
         "parent": "Родитель",
@@ -23,7 +37,6 @@ UI: dict[str, dict[str, str]] = {
         "updated": "Обновлено",
         "generated": "Сгенерировано",
         "empty": "(пусто)",
-        "for_review_note": FOR_REVIEW_NOTE,
         "col_open": "Открыто",
         "col_queue": "Очередь",
         "col_in_progress": "В работе",
@@ -40,6 +53,7 @@ UI: dict[str, dict[str, str]] = {
         "st_blocked": "заблокирована",
         "st_done": "готово",
         "st_canceled": "отменена",
+        "hours_unit": "ч",
     },
     "en": {
         "intro": "Kanban from context/tasks — static HTML, no network.",
@@ -54,7 +68,6 @@ UI: dict[str, dict[str, str]] = {
         "updated": "Updated",
         "generated": "Generated",
         "empty": "(empty)",
-        "for_review_note": "only Maxim",
         "col_open": "Open",
         "col_queue": "Queue",
         "col_in_progress": "In Progress",
@@ -71,6 +84,7 @@ UI: dict[str, dict[str, str]] = {
         "st_blocked": "blocked",
         "st_done": "done",
         "st_canceled": "canceled",
+        "hours_unit": "h",
     },
 }
 
