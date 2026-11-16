@@ -1,24 +1,17 @@
-"""Pure connect dry-run action helpers (AGE-36) — mutation include_globs.
+"""Pure connect dry-run decisions (AGE-36) — mutation include_globs.
 
-Assembler that inventories all paths lives in connect_dry_run (I/O wiring).
-Accuracy rules from Lead #21 item 6 live here as testable decisions:
+Lead #21 item 6 accuracy:
 - quality.json may update (warn→hard / --coverage), never a false skip
 - pin trees: skip when content identical to source
-- refuse exit code for dry-run/uninstall
+- refuse exit for dry-run/uninstall
 """
 from __future__ import annotations
 
 import hashlib
-import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
-from .connect import QUALITY_MARKER
-from .paths import CONNECT_MARKER_BEGIN, CONNECT_MARKER_END
 from .quality import load_quality, quality_path
-
-ALLOWED_ACTIONS = frozenset({"create", "update", "merge", "skip", "refuse"})
 
 
 def file_digest(path: Path) -> str:
@@ -29,12 +22,12 @@ def tree_digests(root: Path) -> dict[str, str]:
     if not root.exists():
         return {}
     out: dict[str, str] = {}
-    for path in root.rglob("*"):
+    for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
+        if path.suffix == ".pyc" or any(part == "__pycache__" for part in path.parts):
             continue
-        rel = str(path.relative_to(root)).replace("\\", "/")
+        rel = path.relative_to(root).as_posix()
         out[rel] = file_digest(path)
     return out
 
@@ -54,20 +47,6 @@ def plan_pin_tree_action(dst: Path, src: Path | None = None) -> str:
     if src.is_dir() and dst.is_dir():
         return "skip" if trees_identical(src, dst) else "update"
     return "update"
-
-
-def plan_marker_action(path: Path, body: str, *, create: bool) -> str:
-    if not path.exists():
-        return "create" if create else "skip"
-    existing = path.read_text(encoding="utf-8")
-    if CONNECT_MARKER_BEGIN in existing and CONNECT_MARKER_END in existing:
-        pre = existing.split(CONNECT_MARKER_BEGIN, 1)[0]
-        post = existing.split(CONNECT_MARKER_END, 1)[1]
-        new_text = pre.rstrip() + "\n\n" + body.rstrip() + "\n" + post.lstrip("\n")
-        if not new_text.endswith("\n"):
-            new_text += "\n"
-        return "skip" if new_text == existing else "update"
-    return "merge"
 
 
 def plan_ensure_json(path: Path) -> str:
@@ -91,51 +70,11 @@ def plan_quality_action(
     if coverage_pct is not None:
         cov = data.get("coverage") or {}
         wanted = float(coverage_pct)
-        if float(cov.get("lines", -1)) != wanted or float(cov.get("branches", -1)) != wanted:
+        lines = float(cov["lines"]) if "lines" in cov else -1.0
+        branches = float(cov["branches"]) if "branches" in cov else -1.0
+        if lines != wanted or branches != wanted:
             return "update"
     return "skip"
-
-
-def plan_template_action(src: Path, dst: Path) -> str:
-    if not src.exists():
-        return "skip"
-    if not dst.exists():
-        return "create"
-    existing = dst.read_text(encoding="utf-8")
-    if QUALITY_MARKER not in existing:
-        return "skip"
-    body = src.read_text(encoding="utf-8")
-    return "skip" if existing == body else "update"
-
-
-def plan_hooks_path_action(root: Path) -> str:
-    if not ((root / ".git").exists() or (root / ".git").is_file()):
-        return "skip"
-    proc = subprocess.run(
-        ["git", "config", "--local", "--get", "core.hooksPath"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    current = (proc.stdout or "").strip() if proc.returncode == 0 else ""
-    wanted = ".githooks"
-    if not current:
-        return "create"
-    norm = current.replace("\\", "/").rstrip("/")
-    if norm in {wanted, str((root / wanted).resolve()).replace("\\", "/")}:
-        return "skip"
-    return "skip"
-
-
-def plan_json_document_action(path: Path, desired: dict[str, Any]) -> str:
-    text = json.dumps(desired, indent=2) + "\n"
-    if not path.exists():
-        return "create"
-    try:
-        existing = path.read_text(encoding="utf-8")
-    except OSError:
-        return "update"
-    return "skip" if existing == text else "update"
 
 
 def plans_include_refuse(planned: list[dict[str, Any]]) -> bool:

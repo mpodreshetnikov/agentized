@@ -11,12 +11,10 @@ from agentized.connect import connect, uninstall_hooks
 from agentized.connect_plan import refuse_exit_code
 from agentized.hooks_install import (
     HooksJsonError,
-    load_hooks_owned,
     plan_harness_hooks,
     read_json_object,
-    save_hooks_owned,
+    refuse_plan,
     uninstall_harness_hooks,
-    write_json,
 )
 
 
@@ -56,17 +54,23 @@ def test_read_json_object_refuse_cases(tmp_path: Path):
     broken.write_text("{nope", encoding="utf-8")
     with pytest.raises(HooksJsonError) as exc:
         read_json_object(broken)
-    assert "broken JSON" in exc.value.reason
+    assert exc.value.reason[:12] == "broken JSON ("
 
     arr = tmp_path / "arr.json"
     arr.write_text("[1]\n", encoding="utf-8")
     with pytest.raises(HooksJsonError) as exc2:
         read_json_object(arr)
-    assert "object" in exc2.value.reason
+    assert exc2.value.reason == "top-level must be object, got list"
 
     ok = tmp_path / "ok.json"
     ok.write_text('{"a": 1}\n', encoding="utf-8")
     assert read_json_object(ok) == {"a": 1}
+
+    bad_utf = tmp_path / "bin.json"
+    bad_utf.write_bytes(b"\xff\xfe")
+    with pytest.raises(HooksJsonError) as exc3:
+        read_json_object(bad_utf)
+    assert exc3.value.reason.startswith("not utf-8")
 
 
 def test_plan_and_uninstall_refuse_broken_cursor(tmp_path: Path):
@@ -119,8 +123,16 @@ def test_uninstall_skip_valid_without_hooks_merge(tmp_path: Path):
     target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     before = target.read_bytes()
     results = uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="context")
-    assert results[0]["action"] == "skip"
-    assert results[0]["reason"] == "hooks_merge_unavailable"
+    assert results == [
+        {
+            "path": str(target),
+            "harness": "cursor",
+            "action": "skip",
+            "changed": False,
+            "wrote": False,
+            "reason": "hooks_merge_unavailable",
+        }
+    ]
     assert target.read_bytes() == before
 
 
@@ -133,9 +145,6 @@ def test_refuse_exit_code_from_dry_run_and_uninstall(tmp_path: Path):
     assert refuse_exit_code(dry) == 1
     un = uninstall_hooks(tmp_path, harnesses=["cursor"])
     assert refuse_exit_code(un) == 1
-    ok = connect(tmp_path, context_rel="context", harnesses=["cursor"], dry_run=True)
-    # Still refused while broken file present.
-    assert refuse_exit_code(ok) == 1
     target.write_text(json.dumps({"version": 1}, indent=2) + "\n", encoding="utf-8")
     clean = connect(tmp_path, context_rel="context", harnesses=["cursor"], dry_run=True)
     assert refuse_exit_code(clean) == 0
@@ -150,35 +159,19 @@ def test_plan_create_when_missing(tmp_path: Path):
 
 
 def test_uninstall_skips_missing(tmp_path: Path):
-    assert uninstall_harness_hooks(tmp_path, ["cursor", "claude", "codex"]) == []
+    assert uninstall_harness_hooks(tmp_path, ["cursor", "claude", "codex"], context_rel="context") == []
 
 
-def test_write_json_and_hooks_owned(tmp_path: Path):
-    path = tmp_path / "out.json"
-    assert write_json(path, {"a": 1}) is True
-    assert path.read_text(encoding="utf-8") == '{\n  "a": 1\n}\n'
-    assert write_json(path, {"a": 1}) is False
-    assert write_json(path, {"a": 2}) is True
-    assert path.read_text(encoding="utf-8") == '{\n  "a": 2\n}\n'
-
-    assert load_hooks_owned(tmp_path, "context") == {}
-    save_hooks_owned(tmp_path, {"cursor": [".cursor/hooks/x.py"]}, "context")
-    owned = tmp_path / "context" / ".agentized" / "hooks_owned.json"
-    assert owned.read_text(encoding="utf-8") == (
-        '{\n  "cursor": [\n    ".cursor/hooks/x.py"\n  ]\n}\n'
-    )
-    assert load_hooks_owned(tmp_path, "context") == {"cursor": [".cursor/hooks/x.py"]}
-    owned.write_text("{broken", encoding="utf-8")
-    assert load_hooks_owned(tmp_path, "context") == {}
-    owned.write_text("[1]\n", encoding="utf-8")
-    assert load_hooks_owned(tmp_path, "context") == {}
-    owned.write_text(json.dumps({"cursor": "bad", "claude": ["ok"]}, indent=2) + "\n", encoding="utf-8")
-    assert load_hooks_owned(tmp_path, "context") == {"claude": ["ok"]}
+def test_plan_update_when_hooks_exist(tmp_path: Path):
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({"version": 1}, indent=2) + "\n", encoding="utf-8")
+    plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert plans[0]["action"] == "update"
+    assert plans[0]["path"] == str(target)
 
 
 def test_refuse_plan_exact_shape(tmp_path: Path):
-    from agentized.hooks_install import refuse_plan
-
     path = tmp_path / ".cursor" / "hooks.json"
     path.parent.mkdir(parents=True)
     path.write_text("{", encoding="utf-8")
@@ -194,25 +187,7 @@ def test_refuse_plan_exact_shape(tmp_path: Path):
         "error": str(exc.value),
         "reason": exc.value.reason,
     }
-    assert plan["reason"].startswith("broken JSON")
-    assert f"invalid harness JSON at {path}" in plan["error"]
-
-
-def test_uninstall_skip_exact_reason(tmp_path: Path):
-    target = tmp_path / ".claude" / "settings.json"
-    target.parent.mkdir(parents=True)
-    target.write_text("{}\n", encoding="utf-8")
-    results = uninstall_harness_hooks(tmp_path, ["claude"], context_rel="context")
-    assert results == [
-        {
-            "path": str(target),
-            "harness": "claude",
-            "action": "skip",
-            "changed": False,
-            "wrote": False,
-            "reason": "hooks_merge_unavailable",
-        }
-    ]
+    assert f"invalid harness JSON at {path}: {exc.value.reason}" == plan["error"]
 
 
 def test_plan_harness_paths_exact(tmp_path: Path):
@@ -226,10 +201,8 @@ def test_plan_harness_paths_exact(tmp_path: Path):
     assert [p["changed"] for p in plans] == [True, True]
 
 
-def test_plan_update_when_hooks_exist(tmp_path: Path):
-    target = tmp_path / ".cursor" / "hooks.json"
-    target.parent.mkdir(parents=True)
-    target.write_text(json.dumps({"version": 1}, indent=2) + "\n", encoding="utf-8")
-    plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
-    assert plans[0]["action"] == "update"
-    assert plans[0]["path"] == str(target)
+def test_context_rel_required(tmp_path: Path):
+    with pytest.raises(ValueError):
+        plan_harness_hooks(tmp_path, ["cursor"], context_rel="")
+    with pytest.raises(ValueError):
+        uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="")

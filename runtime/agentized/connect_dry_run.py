@@ -16,16 +16,19 @@ from .connect import (
     _shared_skills,
 )
 from .connect_plan import (
-    ALLOWED_ACTIONS,
     plan_ensure_json,
+    plan_pin_tree_action,
+    plan_quality_action,
+    plans_include_refuse,
+)
+from .connect_plan_io import (
     plan_hooks_path_action,
     plan_json_document_action,
     plan_marker_action,
-    plan_pin_tree_action,
-    plan_quality_action,
     plan_template_action,
-    plans_include_refuse,
 )
+
+ALLOWED_ACTIONS = frozenset({"create", "update", "merge", "skip", "refuse"})
 from .hooks_install import plan_harness_hooks
 from .paths import CONNECT_MARKER_BEGIN, CONNECT_MARKER_END, DEFAULT_CONTEXT
 

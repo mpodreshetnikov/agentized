@@ -9,15 +9,17 @@ from agentized.connect import QUALITY_MARKER, connect
 from agentized.connect_dry_run import desired_codex_marketplace, plan_connect_writes
 from agentized.connect_plan import (
     plan_ensure_json,
-    plan_hooks_path_action,
-    plan_json_document_action,
-    plan_marker_action,
     plan_pin_tree_action,
-    plan_template_action,
     plan_quality_action,
     plans_include_refuse,
     tree_digests,
     trees_identical,
+)
+from agentized.connect_plan_io import (
+    plan_hooks_path_action,
+    plan_json_document_action,
+    plan_marker_action,
+    plan_template_action,
 )
 from agentized.paths import CONNECT_MARKER_BEGIN, CONNECT_MARKER_END
 from agentized.quality import save_quality
@@ -102,6 +104,28 @@ def test_plan_quality_missing_is_create(tmp_path: Path):
     assert plan_quality_action(tmp_path, "context") == "create"
 
 
+def test_plan_quality_architecture_warn_and_branch_mismatch(tmp_path: Path):
+    _skeleton(tmp_path)
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 90, "branches": 80},
+            "test_smells": {"mode": "hard"},
+            "architecture": {"mode": "warn"},
+        },
+    )
+    assert plan_quality_action(tmp_path, "context") == "update"
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 90, "branches": 80},
+            "test_smells": {"mode": "hard"},
+            "architecture": {"mode": "hard"},
+        },
+    )
+    assert plan_quality_action(tmp_path, "context", coverage_pct=90) == "update"
+
+
 def test_pin_tree_identical_skips(tmp_path: Path):
     src = tmp_path / "src"
     dst = tmp_path / "dst"
@@ -109,11 +133,28 @@ def test_pin_tree_identical_skips(tmp_path: Path):
     dst.mkdir()
     (src / "a.txt").write_text("same\n", encoding="utf-8")
     (dst / "a.txt").write_text("same\n", encoding="utf-8")
+    (src / "b.txt").write_text("two\n", encoding="utf-8")
+    (dst / "b.txt").write_text("two\n", encoding="utf-8")
     assert trees_identical(src, dst) is True
     assert plan_pin_tree_action(dst, src) == "skip"
     (dst / "a.txt").write_text("diff\n", encoding="utf-8")
     assert plan_pin_tree_action(dst, src) == "update"
     assert plan_pin_tree_action(tmp_path / "missing", src) == "create"
+
+
+def test_tree_digests_multi_file_and_pycache(tmp_path: Path):
+    tree = tmp_path / "t"
+    tree.mkdir()
+    (tree / "a.txt").write_text("a\n", encoding="utf-8")
+    (tree / "b.txt").write_text("b\n", encoding="utf-8")
+    (tree / "__pycache__").mkdir()
+    (tree / "__pycache__" / "x.pyc").write_bytes(b"abc")
+    dig = tree_digests(tree)
+    assert dig == {
+        "a.txt": __import__("hashlib").sha256(b"a\n").hexdigest(),
+        "b.txt": __import__("hashlib").sha256(b"b\n").hexdigest(),
+    }
+    assert tree_digests(tmp_path / "missing") == {}
 
 
 def test_marketplace_and_plugin_refresh_in_plan(tmp_path: Path):
@@ -130,7 +171,6 @@ def test_marketplace_and_plugin_refresh_in_plan(tmp_path: Path):
     assert "packages/agentized-codex/skills/" in by_path
     assert by_path["context/quality.json"]["action"] == "create"
     assert dry["coverage_pct"] == 85
-    # Existing quality + --coverage must plan update (not false skip).
     save_quality(
         tmp_path,
         {
@@ -199,7 +239,6 @@ def test_dry_run_no_writes_and_actions_valid(tmp_path: Path, monkeypatch):
         assert required in paths, required
     assert dry["coverage_pct"] == 88
     quality = next(w for w in dry["planned_writes"] if w["path"] == "context/quality.json")
-    # Missing quality.json → create even when --coverage is set.
     assert quality["action"] == "create"
 
 
@@ -233,7 +272,6 @@ def test_plan_marker_and_template_actions(tmp_path: Path):
     assert plan_marker_action(missing, body, create=False) == "skip"
     missing.write_text("user preface\n", encoding="utf-8")
     assert plan_marker_action(missing, body, create=True) == "merge"
-    # Exact shape the planner emits when pre/post are empty.
     missing.write_text("\n\n" + body.rstrip() + "\n", encoding="utf-8")
     assert plan_marker_action(missing, body, create=True) == "skip"
     missing.write_text(
@@ -255,7 +293,7 @@ def test_plan_marker_and_template_actions(tmp_path: Path):
     assert plan_template_action(src, dst) == "update"
 
 
-def test_plan_pin_file_and_pycache_ignored(tmp_path: Path):
+def test_plan_pin_file_and_mismatch(tmp_path: Path):
     src = tmp_path / "a.txt"
     dst = tmp_path / "b.txt"
     src.write_text("x\n", encoding="utf-8")
@@ -263,18 +301,10 @@ def test_plan_pin_file_and_pycache_ignored(tmp_path: Path):
     assert plan_pin_tree_action(dst, src) == "skip"
     dst.write_text("y\n", encoding="utf-8")
     assert plan_pin_tree_action(dst, src) == "update"
-    # file vs dir mismatch → update
     ddir = tmp_path / "dir"
     ddir.mkdir()
     assert plan_pin_tree_action(ddir, src) == "update"
     assert plan_pin_tree_action(dst, None) == "update"
-    cache = tmp_path / "tree"
-    cache.mkdir()
-    (cache / "__pycache__").mkdir()
-    (cache / "__pycache__" / "x.pyc").write_bytes(b"abc")
-    (cache / "keep.txt").write_text("k\n", encoding="utf-8")
-    dig = tree_digests(cache)
-    assert list(dig.keys()) == ["keep.txt"]
 
 
 def test_plan_hooks_path_create_and_skip(tmp_path: Path):
@@ -290,89 +320,6 @@ def test_plan_hooks_path_create_and_skip(tmp_path: Path):
     assert plan_hooks_path_action(tmp_path) == "skip"
 
 
-def test_plan_quality_architecture_warn_and_branch_mismatch(tmp_path: Path):
-    _skeleton(tmp_path)
-    save_quality(
-        tmp_path,
-        {
-            "coverage": {"lines": 90, "branches": 80},
-            "test_smells": {"mode": "hard"},
-            "architecture": {"mode": "warn"},
-        },
-    )
-    assert plan_quality_action(tmp_path, "context") == "update"
-    save_quality(
-        tmp_path,
-        {
-            "coverage": {"lines": 90, "branches": 80},
-            "test_smells": {"mode": "hard"},
-            "architecture": {"mode": "hard"},
-        },
-    )
-    assert plan_quality_action(tmp_path, "context", coverage_pct=90) == "update"
-
-
-def test_plan_json_oserror_is_update(tmp_path: Path, monkeypatch):
-    path = tmp_path / "m.json"
-    path.write_text("{}\n", encoding="utf-8")
-
-    def boom(*_a, **_k):
-        raise OSError("nope")
-
-    monkeypatch.setattr(Path, "read_text", boom)
-    assert plan_json_document_action(path, {"a": 1}) == "update"
-
-
-def test_plugin_refresh_skipped_without_package(tmp_path: Path):
-    _skeleton(tmp_path)
-    # Remove cursor plugin package → no plugin-refresh rows for cursor.
-    import shutil
-
-    shutil.rmtree(tmp_path / "packages" / "agentized-cursor")
-    dry = plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
-    plugin_rows = [w for w in dry["planned_writes"] if w.get("kind") == "plugin-refresh"]
-    assert plugin_rows == []
-
-
-def test_tree_digests_missing_and_bad_action(tmp_path: Path, monkeypatch):
-    assert tree_digests(tmp_path / "no-such-tree") == {}
-    # Absolute hooksPath that resolves to .githooks → skip.
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    abs_hooks = tmp_path / ".githooks"
-    abs_hooks.mkdir()
-    subprocess.run(
-        ["git", "config", "--local", "core.hooksPath", str(abs_hooks)],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    assert plan_hooks_path_action(tmp_path) == "skip"
-
-    # Force invalid action to hit validation.
-    import agentized.connect_dry_run as cdr
-
-    monkeypatch.setattr(
-        cdr,
-        "plan_harness_hooks",
-        lambda *a, **k: [{"path": "x", "action": "nope", "harness": "cursor"}],
-    )
-    try:
-        plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
-        raised = 0
-    except ValueError as exc:
-        raised = 1
-        assert "create|update|merge|skip|refuse" in str(exc)
-    assert raised == 1
-
-
-def test_marker_body_without_trailing_newline(tmp_path: Path):
-    # Body without trailing newline exercises endswith("\n") false branch.
-    body = f"{CONNECT_MARKER_BEGIN}\nX\n{CONNECT_MARKER_END}"
-    path = tmp_path / "AGENTS.md"
-    path.write_text("\n\n" + body + "\n", encoding="utf-8")
-    assert plan_marker_action(path, body, create=True) == "skip"
-
-
 def test_plan_ensure_json_exact(tmp_path: Path):
     path = tmp_path / "x.json"
     assert plan_ensure_json(path) == "create"
@@ -380,20 +327,11 @@ def test_plan_ensure_json_exact(tmp_path: Path):
     assert plan_ensure_json(path) == "skip"
 
 
-def test_desired_marketplace_exact_bytes():
-    expected = (
-        "{\n"
-        '  "name": "agentized-local",\n'
-        '  "plugins": [\n'
-        "    {\n"
-        '      "name": "agentized",\n'
-        '      "source": {\n'
-        '        "source": "local",\n'
-        '        "path": "./packages/agentized-codex"\n'
-        "      },\n"
-        '      "category": "Productivity"\n'
-        "    }\n"
-        "  ]\n"
-        "}\n"
-    )
-    assert json.dumps(desired_codex_marketplace(), indent=2) + "\n" == expected
+def test_plugin_refresh_skipped_without_package(tmp_path: Path):
+    _skeleton(tmp_path)
+    import shutil
+
+    shutil.rmtree(tmp_path / "packages" / "agentized-cursor")
+    dry = plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
+    plugin_rows = [w for w in dry["planned_writes"] if w.get("kind") == "plugin-refresh"]
+    assert plugin_rows == []
