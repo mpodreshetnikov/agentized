@@ -28,15 +28,34 @@ def test_section_tags_approvers():
 
 
 def test_placeholder_and_email_match():
-    assert is_placeholder_spec("") is True
-    assert is_placeholder_spec("_(todo)_") is True
-    assert is_placeholder_spec("TODO") is True
-    assert is_placeholder_spec("…") is True
-    assert is_placeholder_spec("...") is True
-    assert is_placeholder_spec("Ship the gate.") is False
+    placeholders = {
+        "": is_placeholder_spec(""),
+        "_(todo)_": is_placeholder_spec("_(todo)_"),
+        "TODO": is_placeholder_spec("TODO"),
+        "…": is_placeholder_spec("…"),
+        "...": is_placeholder_spec("..."),
+        "Ship the gate.": is_placeholder_spec("Ship the gate."),
+    }
+    assert placeholders == {
+        "": True,
+        "_(todo)_": True,
+        "TODO": True,
+        "…": True,
+        "...": True,
+        "Ship the gate.": False,
+    }
     allow = ["bob@example.com", "Alice <alice@x.test>"]
-    assert participant_email_matches("bob@example.com", allow) is True
-    assert participant_email_matches("Bob <bob@example.com>", allow) is True
-    assert participant_email_matches("bob", allow) is False
-    assert participant_email_matches("Alice", allow) is False
-    assert participant_email_matches("eve@example.com", allow) is False
+    matches = {
+        "bob_email": participant_email_matches("bob@example.com", allow),
+        "bob_angle": participant_email_matches("Bob <bob@example.com>", allow),
+        "local": participant_email_matches("bob", allow),
+        "name": participant_email_matches("Alice", allow),
+        "eve": participant_email_matches("eve@example.com", allow),
+    }
+    assert matches == {
+        "bob_email": True,
+        "bob_angle": True,
+        "local": False,
+        "name": False,
+        "eve": False,
+    }
