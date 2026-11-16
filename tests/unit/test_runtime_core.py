@@ -18,6 +18,8 @@ def test_paths_and_state(tmp_path: Path, monkeypatch):
 
 
 def test_tasks(tmp_path: Path):
+    from agentized.tasks import ACTIVE_STATUSES
+
     a = allocate_task_id(tmp_path, day="261113"); (tmp_path / f"{a}.md").write_text("x", encoding="utf-8")
     assert allocate_task_id(tmp_path, day="261113") != a
     path = tmp_path / "T-261113-abc.md"
@@ -30,6 +32,17 @@ def test_tasks(tmp_path: Path):
     assert "in-progress" in set_field(base, "статус", "in-progress")
     assert "did" in append_progress(base, "did") and set_field("", "claim", "x").startswith("claim:")
     assert "## Progress" in append_progress("# T-261113-abc — X\n", "start")
+    # Index must list in-flight review/queue lanes (not only open/in-progress/blocked).
+    review = tmp_path / "T-261113-rev.md"
+    review.write_text(
+        render_task_file("T-261113-rev", "Rev", status="self-review", value="v"),
+        encoding="utf-8",
+    )
+    idx = rebuild_task_index(tmp_path)
+    for st in ACTIVE_STATUSES:
+        assert f"## {st}" in idx
+    assert "T-261113-rev" in idx
+    assert "`self-review`" in idx
 
 
 def test_leases(tmp_path: Path):

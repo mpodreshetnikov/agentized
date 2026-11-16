@@ -6,11 +6,27 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-ACTIVE_STATUSES = ("open", "in-progress", "blocked")
-ALL_STATUSES = ("idea", "open", "in-progress", "blocked", "done", "dropped")
+from .status_gates import ALL_STATUSES as GATE_ALL_STATUSES
+from .status_gates import normalize_status
+
+ACTIVE_STATUSES = (
+    "open",
+    "queue",
+    "in-progress",
+    "self-review",
+    "for-review",
+    "blocked",
+)
+WORK_STATUSES = ACTIVE_STATUSES
+ALL_STATUSES = GATE_ALL_STATUSES
 
 TASK_ID_RE = re.compile(r"^T-\d{6}-[a-z0-9]{3,8}$")
-FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):\s*(.*)$", re.MULTILINE)
+FIELD_RE = re.compile(
+    r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
+    r"review_note|acceptance_note|pr):[ \t]*(.*)$",
+    re.MULTILINE,
+)
+VALUE_LINE_RE = re.compile(r"(?im)^\s*Ценность:\s*(.+?)\s*$")
 
 
 @dataclass
@@ -22,6 +38,11 @@ class TaskMeta:
     tags: str
     parent: str
     claim: str
+    value: str = ""
+    blocked_reason: str = ""
+    blocked_deadline: str = ""
+    review_note: str = ""
+    acceptance_note: str = ""
 
 
 def utc_now_stamp() -> str:
@@ -53,14 +74,25 @@ def parse_task(path: Path) -> TaskMeta | None:
     else:
         task_id, title = m.group(1), m.group(2).strip()
     fields = {k: v.strip() for k, v in FIELD_RE.findall(text)}
+    value_m = VALUE_LINE_RE.search(text)
+    raw_status = fields.get("статус")
+    if raw_status is None:
+        status = ""
+    else:
+        status = normalize_status(raw_status)
     return TaskMeta(
         path=path,
         task_id=task_id,
         title=title,
-        status=(fields.get("статус") or "idea").strip(),
+        status=status,
         tags=(fields.get("теги") or "").strip(),
         parent=(fields.get("родитель") or "").strip(),
         claim=(fields.get("claim") or "").strip(),
+        value=(value_m.group(1).strip() if value_m else ""),
+        blocked_reason=(fields.get("blocked_reason") or "").strip(),
+        blocked_deadline=(fields.get("blocked_deadline") or "").strip(),
+        review_note=(fields.get("review_note") or "").strip(),
+        acceptance_note=(fields.get("acceptance_note") or "").strip(),
     )
 
 
@@ -82,16 +114,33 @@ def render_task_file(
     parent: str = "",
     claim: str = "",
     goal: str = "Что должно быть сделано.",
+    value: str = "",
+    blocked_reason: str = "",
+    blocked_deadline: str = "",
+    review_note: str = "",
+    acceptance_note: str = "",
 ) -> str:
     parent_val = parent or "_(пусто для корневой задачи; для подзадачи — путь или id родителя)_"
     claim_val = claim or "_(пусто или кто ведёт)_"
     tags_val = tags or "_(нет)_"
+    value_line = value.strip() or "_(одна фраза простым языком — зачем это людям)_"
+    extras = ""
+    if blocked_reason:
+        extras += f"blocked_reason: {blocked_reason}\n"
+    if blocked_deadline:
+        extras += f"blocked_deadline: {blocked_deadline}\n"
+    if review_note:
+        extras += f"review_note: {review_note}\n"
+    if acceptance_note:
+        extras += f"acceptance_note: {acceptance_note}\n"
     return (
         f"# {task_id} — {title}\n\n"
         f"статус: {status}\n"
         f"теги: {tags_val}\n"
         f"родитель: {parent_val}\n"
-        f"claim: {claim_val}\n\n"
+        f"claim: {claim_val}\n"
+        f"{extras}\n"
+        f"Ценность: {value_line}\n\n"
         f"## Цель\n\n{goal}\n\n"
         f"## Progress\n\n_(append-only)_\n\n"
         f"## Decision Log\n\n_(append-only)_\n"
@@ -143,14 +192,14 @@ def rebuild_task_index(tasks_dir: Path) -> str:
         body = "\n".join(rows) if rows else "_(пусто)_"
         return f"## {name}\n\n{body}\n"
 
+    sections = "\n".join(section(name) for name in ACTIVE_STATUSES)
+    status_list = " · ".join(f"`{s}`" for s in ACTIVE_STATUSES)
     return (
         "# Задачи — живой индекс\n\n"
         "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
-        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
+        f"Статусы в индексе: {status_list}.\n\n"
         "Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.\n\n"
-        f"{section('open')}\n"
-        f"{section('in-progress')}\n"
-        f"{section('blocked')}\n"
+        f"{sections}\n"
         "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом с этим индексом; "
         "при смене статуса файл **не перемещается**.\n"
     )

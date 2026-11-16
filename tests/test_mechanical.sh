@@ -83,7 +83,7 @@ count_begin="$(grep -c 'AGENTIZED:BEGIN' AGENTS.md || true)"
 assert "single AGENTIZED marker block" test "$count_begin" -eq 1
 
 echo "-- task format + live index --"
-"${CLI[@]}" new --title "Mechanical task" --yes >/tmp/new-out.txt
+"${CLI[@]}" new --title "Mechanical task" --value "mechanical fixture value" --yes >/tmp/new-out.txt
 tid="$(grep -E '^id: T-' /tmp/new-out.txt | awk '{print $2}')"
 assert "task id allocated" test -n "$tid"
 assert "task file exists" test -f "context/tasks/${tid}.md"
@@ -101,7 +101,7 @@ assert "no extra precommitted tasks in fixture" test "$extras" -eq 0
 echo "-- warn-only leases --"
 "${CLI[@]}" lease acquire "$tid" runtime --owner A >/tmp/lease-a.txt
 # second overlapping lease should warn but still succeed
-"${CLI[@]}" new --title "Overlap peer" --yes >/tmp/new2.txt
+"${CLI[@]}" new --title "Overlap peer" --value "overlap peer value" --yes >/tmp/new2.txt
 tid2="$(grep -E '^id: T-' /tmp/new2.txt | awk '{print $2}')"
 "${CLI[@]}" claim "$tid2" --owner B >/dev/null
 out_lease="$("${CLI[@]}" lease acquire "$tid2" runtime/agentized_cli.py --owner B 2>&1 || true)"

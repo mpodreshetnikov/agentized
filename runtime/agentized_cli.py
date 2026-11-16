@@ -23,9 +23,17 @@ from agentized.leases import (
 )
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
+from agentized.status_gates import (
+    ALL_STATUSES,
+    extract_status,
+    normalize_status,
+    previous_task_texts_from_git,
+    resolve_validate_base_ref,
+    validate_task_text,
+    validate_tasks_dir,
+)
 from agentized.tasks import (
     ACTIVE_STATUSES,
-    ALL_STATUSES,
     allocate_task_id,
     append_progress,
     list_tasks,
@@ -294,6 +302,11 @@ def cmd_new(args: argparse.Namespace) -> int:
     tasks_dir = ctx / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
 
+    value = (getattr(args, "value", None) or "").strip()
+    if not value:
+        print('нужна ценность: --value "…" (строка Ценность: …)', file=sys.stderr)
+        return 1
+
     if not args.yes:
         reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
         if reply not in {"y", "yes", "д", "да"}:
@@ -309,7 +322,12 @@ def cmd_new(args: argparse.Namespace) -> int:
         tags=args.tags or "",
         parent=parent,
         goal=args.goal or "Что должно быть сделано.",
+        value=value,
     )
+    gate = validate_task_text(text, old_status=None, require_value=True, check_transition=False)
+    if not gate.ok:
+        print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
+        return 1
     path = tasks_dir / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
     (tasks_dir / "INDEX.md").write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
@@ -325,10 +343,17 @@ def cmd_claim(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"нет задачи {args.task_id}", file=sys.stderr)
         return 1
-    text = path.read_text(encoding="utf-8")
-    text = set_field(text, "claim", args.owner)
+    old_text = path.read_text(encoding="utf-8")
+    old_status = extract_status(old_text)
+    text = set_field(old_text, "claim", args.owner)
     text = set_field(text, "статус", "in-progress")
     text = append_progress(text, f"claim by {args.owner}")
+    gate = validate_task_text(
+        text, old_status=old_status, require_value=True, check_transition=True
+    )
+    if not gate.ok:
+        print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
+        return 1
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(
         rebuild_task_index(ctx / "tasks"), encoding="utf-8"
@@ -357,16 +382,63 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"нет задачи {args.task_id}", file=sys.stderr)
         return 1
-    if args.status not in ALL_STATUSES:
+    new_status = normalize_status(args.status)
+    if new_status not in {normalize_status(s) for s in ALL_STATUSES}:
         print(f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}", file=sys.stderr)
         return 1
-    text = set_field(path.read_text(encoding="utf-8"), "статус", args.status)
+    old_text = path.read_text(encoding="utf-8")
+    old_status = extract_status(old_text)
+    text = set_field(old_text, "статус", new_status)
+    # Optional gate fields from CLI flags
+    for field, attr in (
+        ("blocked_reason", "blocked_reason"),
+        ("blocked_deadline", "blocked_deadline"),
+        ("review_note", "review_note"),
+        ("acceptance_note", "acceptance_note"),
+        ("pr", "pr"),
+    ):
+        val = getattr(args, attr, None)
+        if val:
+            text = set_field(text, field, val)
+    gate = validate_task_text(
+        text, old_status=old_status, require_value=True, check_transition=True
+    )
+    if not gate.ok:
+        print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
+        return 1
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(
         rebuild_task_index(ctx / "tasks"), encoding="utf-8"
     )
-    print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
+    print(f"{args.task_id}: статус → {new_status} (файл не перемещался)")
     return 0
+
+
+def cmd_tasks_validate(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    ctx = _ctx(root, args)
+    require_value = not bool(getattr(args, "allow_missing_value", False))
+    base = getattr(args, "base", None) or None
+    try:
+        ref = resolve_validate_base_ref(root, explicit=base)
+        previous = previous_task_texts_from_git(
+            ctx / "tasks", repo_root=root, ref=ref
+        )
+    except RuntimeError as exc:
+        print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
+        return 1
+    result = validate_tasks_dir(
+        ctx / "tasks",
+        require_value=require_value,
+        previous_by_name=previous,
+    )
+    if result.ok:
+        print(f"tasks-validate OK (base={ref})")
+        return 0
+    print("tasks-validate FAIL", file=sys.stderr)
+    for err in result.errors:
+        print(f"  ERROR: {err}", file=sys.stderr)
+    return 1
 
 
 def cmd_index(args: argparse.Namespace) -> int:
@@ -417,6 +489,17 @@ def cmd_check(args: argparse.Namespace) -> int:
     for t in tasks:
         if t.status in ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
+
+    # Hard status gates (AGE-22) — snapshot fields + transition vs PR base
+    try:
+        previous = previous_task_texts_from_git(ctx / "tasks", repo_root=root)
+        gates = validate_tasks_dir(
+            ctx / "tasks", require_value=True, previous_by_name=previous
+        )
+        if not gates.ok:
+            errors.extend(gates.errors)
+    except RuntimeError as exc:
+        errors.append(str(exc))
 
     # harness wiring
     for label, path in (
@@ -699,6 +782,11 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--parent", default="")
     n.add_argument("--tags", default="")
     n.add_argument("--goal", default="")
+    n.add_argument(
+        "--value",
+        required=True,
+        help='бизнес-ценность одной фразой (станет строкой «Ценность: …»)',
+    )
     n.add_argument("--context", default=None)
     n.add_argument(
         "--yes",
@@ -719,18 +807,40 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--context", default=None)
     pr.set_defaults(func=cmd_progress)
 
-    st = sub.add_parser("status", help="Сменить статус (файл не перемещается)")
+    st = sub.add_parser("status", help="Сменить статус (файл не перемещается; hard gates)")
     st.add_argument("task_id")
     st.add_argument("--status", required=True, choices=list(ALL_STATUSES))
+    st.add_argument("--blocked-reason", dest="blocked_reason", default=None)
+    st.add_argument("--blocked-deadline", dest="blocked_deadline", default=None)
+    st.add_argument("--review-note", dest="review_note", default=None)
+    st.add_argument("--acceptance-note", dest="acceptance_note", default=None)
+    st.add_argument("--pr", dest="pr", default=None)
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
+
+    tv = sub.add_parser(
+        "tasks-validate",
+        help="Hard status gates: переходы/поля/Ценность по всем context/tasks",
+    )
+    tv.add_argument("--context", default=None)
+    tv.add_argument(
+        "--base",
+        default=None,
+        help="git ref for prior blobs (default: MUTATION_BASE / merge-base origin/main)",
+    )
+    tv.add_argument(
+        "--allow-missing-value",
+        action="store_true",
+        help="не требовать строку Ценность (только для миграции; CI не использует)",
+    )
+    tv.set_defaults(func=cmd_tasks_validate)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
     ix.add_argument("--context", default=None)
     ix.add_argument("--print", action="store_true")
     ix.set_defaults(func=cmd_index)
 
-    ch = sub.add_parser("check", help="Проверить connect layout и целостность")
+    ch = sub.add_parser("check", help="Проверить connect layout, целостность и status gates")
     ch.add_argument("--context", default=None)
     ch.add_argument("--json", action="store_true")
     ch.set_defaults(func=cmd_check)

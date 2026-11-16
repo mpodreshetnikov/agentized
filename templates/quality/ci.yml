@@ -35,7 +35,7 @@ jobs:
             echo "no ./tests/test_mechanical.sh — skip"
           fi
 
-      - name: Coverage + mutation hard gates
+      - name: Status gates + coverage + mutation hard gates
         env:
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
         run: |
@@ -49,6 +49,7 @@ jobs:
             echo "agentized CLI not found" >&2
             exit 1
           fi
+          "${CLI[@]}" tasks-validate
           "${CLI[@]}" process size
           "${CLI[@]}" quality check
 

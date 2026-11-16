@@ -3,7 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / ".git").exists() and (parent / "packages").is_dir():
+            return parent
+    return here.parents[2]
+
+
+ROOT = _repo_root()
 SKILL = ROOT / "packages" / "shared" / "skills" / "acceptance-artifacts" / "SKILL.md"
 COMM = ROOT / "packages" / "shared" / "skills" / "communication-autonomy" / "SKILL.md"
 CONNECT = ROOT / "runtime" / "agentized" / "connect.py"

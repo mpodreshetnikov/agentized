@@ -2,7 +2,7 @@
 
 Генерируемый список **активной** работы. Не полный архив истории.
 
-Статусы в индексе: `open` · `in-progress` · `blocked`.
+Статусы в индексе: `open` · `queue` · `in-progress` · `self-review` · `for-review` · `blocked`.
 
 Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.
 
@@ -10,9 +10,22 @@
 
 _(пусто)_
 
+## queue
+
+_(пусто)_
+
 ## in-progress
 
+- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: cursor-cloud
 - [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) · claim: cloud-agent-4e38
+
+## self-review
+
+_(пусто)_
+
+## for-review
+
+_(пусто)_
 
 ## blocked
 
