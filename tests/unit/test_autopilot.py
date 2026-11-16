@@ -14,6 +14,7 @@ from agentized.autopilot import (
     DEFAULT_PICK_FROM,
     DEFAULT_WIP_LIMIT,
     DEFAULT_WINDOW_DAYS,
+    MAX_WINDOW_DAYS,
     board_config_path,
     compute_metrics,
     default_board_config,
@@ -38,6 +39,9 @@ from agentized.autopilot import (
     _max_or_none,
     _normalize_board,
     _require_positive_int,
+    _require_safe_rel,
+    _require_window_days,
+    _under_context,
     _validate_metrics_rel,
 )
 from agentized.tasks import list_tasks, render_task_file
@@ -117,6 +121,14 @@ def test_defaults_helpers_normalize():
         with pytest.raises(ValueError) as ex:
             _validate_metrics_rel(bad)
         assert ex.value.args == ("metrics.output must be a safe relative path",)
+    with pytest.raises(ValueError) as enone:
+        _require_safe_rel(None, field="context")
+    assert enone.value.args == ("context must be a safe relative path",)
+    assert _require_window_days(7) == 7
+    assert _require_window_days(MAX_WINDOW_DAYS) == MAX_WINDOW_DAYS
+    with pytest.raises(ValueError) as emax:
+        _require_window_days(MAX_WINDOW_DAYS + 1)
+    assert emax.value.args == (f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",)
     with pytest.raises(ValueError) as eo:
         _normalize_board(default_board_config(), ["x"])  # type: ignore[arg-type]
     assert eo.value.args == ("board.json must be a JSON object",)
@@ -126,6 +138,12 @@ def test_defaults_helpers_normalize():
     with pytest.raises(ValueError) as ewin:
         _normalize_board(default_board_config(), {"metrics": {"throughput_window_days": -3}})
     assert ewin.value.args == ("throughput_window_days must be >= 1",)
+    with pytest.raises(ValueError) as ehuge:
+        _normalize_board(
+            default_board_config(),
+            {"metrics": {"throughput_window_days": MAX_WINDOW_DAYS + 1}},
+        )
+    assert ehuge.value.args == (f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",)
     with pytest.raises(ValueError) as eout:
         _normalize_board(default_board_config(), {"metrics": {"output": "/abs/out.json"}})
     assert eout.value.args == ("metrics.output must be a safe relative path",)
@@ -165,7 +183,9 @@ def test_board_io_fail_closed(tmp_path: Path):
     info = ensure_board_config(tmp_path, "context")
     assert info == {"path": "context/board.json", "created": True}
     assert ensure_board_config(tmp_path, "context")["created"] is False
-    assert board_config_path(tmp_path, "context") == tmp_path / "context" / "board.json"
+    assert board_config_path(tmp_path, "context") == (
+        tmp_path / "context" / "board.json"
+    ).resolve()
     (tmp_path / "context" / "board.json").write_text("{bad", encoding="utf-8")
     save_board(tmp_path, default_board_config(), "okctx")
     assert ensure_board_config(tmp_path, "okctx")["created"] is False
@@ -217,17 +237,49 @@ def test_board_io_fail_closed(tmp_path: Path):
     assert load_board(tmp_path, "context")["wip_limit"] == 5
     assert ensure_board_config(tmp_path, "otherctx")["created"] is False
     cfg = load_board(tmp_path, "context")
-    assert metrics_path(tmp_path, cfg, "context") == tmp_path / "context" / "board" / "metrics.json"
+    assert metrics_path(tmp_path, cfg, "context") == (
+        tmp_path / "context" / "board" / "metrics.json"
+    ).resolve()
     assert metrics_path(tmp_path, {"metrics": {"output": None}}, "context").name == "metrics.json"
     assert metrics_path(tmp_path, {"metrics": "bad"}, "context") == (
         tmp_path / "context" / "board" / "metrics.json"
-    )
+    ).resolve()
     for bad_out in ("", "/", "/XXX/custom/out.json", "../escape.json"):
         with pytest.raises(ValueError):
             metrics_path(tmp_path, {"metrics": {"output": bad_out}}, "context")
     assert metrics_path(tmp_path, {"metrics": {"output": "custom/out.json"}}, "context") == (
         tmp_path / "context" / "custom" / "out.json"
-    )
+    ).resolve()
+    for bad_ctx in ("", "/abs", "context/../../outside", "../escape"):
+        with pytest.raises(ValueError) as ec:
+            board_config_path(tmp_path, bad_ctx)
+        assert ec.value.args == ("context must be a safe relative path",)
+        with pytest.raises(ValueError):
+            save_board(tmp_path, default_board_config(), bad_ctx)
+        with pytest.raises(ValueError):
+            write_metrics(tmp_path, context_rel=bad_ctx, now=NOW)
+    # symlink context dir outside repo root
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside_root = tmp_path / "outside-root"
+    outside_root.mkdir()
+    (repo / "context").symlink_to(outside_root)
+    with pytest.raises(ValueError) as eroot:
+        board_config_path(repo, "context")
+    assert eroot.value.args == ("context path escapes repository root",)
+    # symlink parent under context must not write outside
+    leak_root = tmp_path / "leak"
+    leak_root.mkdir()
+    (leak_root / "context").mkdir()
+    outside = leak_root / "outside"
+    outside.mkdir()
+    (leak_root / "context" / "board").symlink_to(outside)
+    with pytest.raises(ValueError) as esym:
+        _under_context(leak_root, "context", "board", "metrics.json")
+    assert esym.value.args == ("path escapes context directory",)
+    with pytest.raises(ValueError):
+        write_metrics(leak_root, context_rel="context", now=NOW)
+    assert list(outside.iterdir()) == []
 
 
 def test_progress_parsers():
@@ -254,6 +306,10 @@ def test_progress_parsers():
         datetime(2026, 11, 16, 10, 0, tzinfo=timezone.utc),
         datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc),
     ) == 2.0
+    assert hours_between(
+        datetime(2026, 11, 16, 14, 0, tzinfo=timezone.utc),
+        datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc),
+    ) == 0.0
     assert task_id_day_utc("T-261116-abcd") == datetime(2026, 11, 16, tzinfo=timezone.utc)
     assert task_id_day_utc("nope") is None
     assert task_id_day_utc("T-999999-abcd") is None
@@ -650,3 +706,130 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(board_mod, "pick_next_task", _pick_without_reason)
     assert compute_metrics(tasks, cfg, now=NOW)["autopilot"]["reason"] == ""
+
+    # future stamps must not inflate throughput / ages
+    fut = tmp_path / "future-tasks"
+    fut.mkdir()
+    _write_task(
+        fut,
+        "T-261114-fut",
+        "FutureDone",
+        status="done",
+        progress=[
+            "2026-11-14 08:00 UTC: claim by a",
+            "2026-11-20 08:00 UTC: статус → done",
+        ],
+    )
+    _write_task(
+        fut,
+        "T-261118-q",
+        "FutureQueue",
+        status="open",
+        progress=["2026-11-18 12:00 UTC: opened"],
+    )
+    _write_task(
+        fut,
+        "T-261118-b",
+        "FutureBlock",
+        status="blocked",
+        progress=["2026-11-18 06:00 UTC: статус → blocked"],
+    )
+    fut_m = compute_metrics(
+        fut,
+        {
+            "wip_limit": 3,
+            "autopilot": {
+                "enabled": True,
+                "pick_from": ["open"],
+                "count_as_wip": ["in-progress"],
+            },
+            "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
+        },
+        now=NOW,
+    )
+    assert fut_m["throughput"]["done_count"] == 0
+    assert fut_m["cycle_time"]["samples"] == 0
+    assert fut_m["queue_age"]["samples"] == 0
+    assert fut_m["blocked_age"]["samples"] == 0
+
+    with pytest.raises(ValueError) as ehuge_m:
+        compute_metrics(
+            fut,
+            {
+                "wip_limit": 2,
+                "metrics": {
+                    "throughput_window_days": MAX_WINDOW_DAYS + 1,
+                    "output": "board/metrics.json",
+                },
+            },
+            now=NOW,
+        )
+    assert ehuge_m.value.args == (
+        f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",
+    )
+
+    bad_path = tmp_path / "T-261114-bin.md"
+    bad_path.write_bytes(b"\xff\xfe not utf-8")
+    with pytest.raises(ValueError) as eutf:
+        board_mod._task_events(SimpleNamespace(path=bad_path))
+    assert eutf.value.args == ("T-261114-bin.md: not valid UTF-8",)
+    assert board_mod._task_events(SimpleNamespace(path=tmp_path / "missing.md")) == []
+    good_path = tmp_path / "T-261114-ok.md"
+    good_path.write_text("- 2026-11-14 09:00 UTC: opened\n", encoding="utf-8")
+    seen: dict = {}
+    real_read = Path.read_text
+
+    def _capture_read(self, *args, **kwargs):
+        seen.clear()
+        seen.update(kwargs)
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _capture_read)
+    assert board_mod._task_events(SimpleNamespace(path=good_path))[0][1] == "opened"
+    assert seen == {"encoding": "utf-8"}
+
+    # boundary: stamp == now still included (<=, not <)
+    edge = tmp_path / "edge-now-tasks"
+    edge.mkdir()
+    _write_task(
+        edge,
+        "T-261116-eqq",
+        "EqQueue",
+        status="open",
+        progress=["2026-11-16 12:00 UTC: opened"],
+    )
+    _write_task(
+        edge,
+        "T-261116-eqb",
+        "EqBlock",
+        status="blocked",
+        progress=["2026-11-16 12:00 UTC: статус → blocked"],
+    )
+    _write_task(
+        edge,
+        "T-261116-eqd",
+        "EqDone",
+        status="done",
+        progress=[
+            "2026-11-16 10:00 UTC: claim by a",
+            "2026-11-16 12:00 UTC: статус → done",
+        ],
+    )
+    edge_m = compute_metrics(
+        edge,
+        {
+            "wip_limit": 3,
+            "autopilot": {
+                "enabled": True,
+                "pick_from": ["open"],
+                "count_as_wip": ["in-progress"],
+            },
+            "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
+        },
+        now=NOW,
+    )
+    assert edge_m["queue_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
+    assert edge_m["blocked_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
+    assert edge_m["cycle_time"]["samples"] == 1
+    assert edge_m["cycle_time"]["avg_hours"] == 2.0
+    assert edge_m["throughput"]["done_count"] == 1

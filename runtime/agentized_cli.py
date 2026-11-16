@@ -424,7 +424,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
     try:
         metrics = write_metrics(root, context_rel=ctx_rel)
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, OverflowError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print("пересобраны:")
@@ -493,7 +493,7 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
             else:
                 print(f"next: none ({pick.get('reason')})")
             return 0
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, OverflowError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(

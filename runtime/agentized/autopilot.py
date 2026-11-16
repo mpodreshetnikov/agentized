@@ -18,6 +18,7 @@ BOARD_FILENAME = "board.json"
 DEFAULT_METRICS_REL = "board/metrics.json"
 DEFAULT_WIP_LIMIT = 3
 DEFAULT_WINDOW_DAYS = 7
+MAX_WINDOW_DAYS = 3650
 
 # Lead status set (#25 owns schema; autopilot defaults use queue/open + WIP).
 BOARD_STATUSES = (
@@ -61,10 +62,6 @@ def default_board_config() -> dict[str, Any]:
     }
 
 
-def board_config_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
-    return root / context_rel / BOARD_FILENAME
-
-
 def _require_positive_int(value: Any, *, field: str) -> int:
     try:
         number = int(value)
@@ -75,20 +72,58 @@ def _require_positive_int(value: Any, *, field: str) -> int:
     return number
 
 
+def _require_window_days(value: Any) -> int:
+    number = _require_positive_int(value, field="throughput_window_days")
+    if number > MAX_WINDOW_DAYS:
+        raise ValueError(f"throughput_window_days must be <= {MAX_WINDOW_DAYS}")
+    return number
+
+
 def _as_str_list(value: Any, fallback: list[str]) -> list[str]:
     if not isinstance(value, list) or not value:
         return list(fallback)
     return [str(item) for item in value]
 
 
+def _require_safe_rel(raw: Any, *, field: str) -> str:
+    text = str(raw).strip() if raw is not None else ""
+    path = Path(text)
+    if text == "" or path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"{field} must be a safe relative path")
+    return path.as_posix()
+
+
 def _validate_metrics_rel(raw: Any) -> str:
     if raw is None:
         return DEFAULT_METRICS_REL
-    text = str(raw).strip()
-    path = Path(text)
-    if text == "" or path.is_absolute() or ".." in path.parts:
-        raise ValueError("metrics.output must be a safe relative path")
-    return path.as_posix()
+    return _require_safe_rel(raw, field="metrics.output")
+
+
+def _context_dir(root: Path, context_rel: str) -> Path:
+    """Resolved context directory; must stay under ``root`` (no ``..`` / symlink escape)."""
+    root_res = root.resolve()
+    rel = _require_safe_rel(context_rel, field="context")
+    ctx = (root_res / rel).resolve()
+    try:
+        ctx.relative_to(root_res)
+    except ValueError as exc:
+        raise ValueError("context path escapes repository root") from exc
+    return ctx
+
+
+def _under_context(root: Path, context_rel: str, *parts: str) -> Path:
+    """Resolved path under context; reject lexical and symlink escapes before write."""
+    ctx = _context_dir(root, context_rel)
+    target = ctx.joinpath(*parts).resolve()
+    try:
+        target.relative_to(ctx)
+    except ValueError as exc:
+        raise ValueError("path escapes context directory") from exc
+    return target
+
+
+def board_config_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
+    return _under_context(root, context_rel, BOARD_FILENAME)
 
 
 def metrics_path(
@@ -98,7 +133,7 @@ def metrics_path(
     if not isinstance(section, dict):
         section = {}
     rel = _validate_metrics_rel(section.get("output"))
-    return root / context_rel / rel
+    return _under_context(root, context_rel, *Path(rel).parts)
 
 
 def _normalize_board(base: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
@@ -120,9 +155,8 @@ def _normalize_board(base: dict[str, Any], data: dict[str, Any]) -> dict[str, An
     metrics_raw = out.get("metrics")
     metrics_in = metrics_raw if isinstance(metrics_raw, dict) else {}
     out["metrics"] = {
-        "throughput_window_days": _require_positive_int(
-            metrics_in.get("throughput_window_days", DEFAULT_WINDOW_DAYS),
-            field="throughput_window_days",
+        "throughput_window_days": _require_window_days(
+            metrics_in.get("throughput_window_days", DEFAULT_WINDOW_DAYS)
         ),
         "output": _validate_metrics_rel(metrics_in.get("output")),
     }
@@ -157,7 +191,7 @@ def ensure_board_config(
         save_board(root, default_board_config(), context_rel)
     else:
         load_board(root, context_rel)  # validate existing
-    return {"path": str(path.relative_to(root)), "created": created}
+    return {"path": str(path.relative_to(root.resolve())), "created": created}
 
 
 def parse_progress_events(text: str) -> list[tuple[datetime, str]]:
@@ -204,7 +238,7 @@ def task_blocked_since(events: list[tuple[datetime, str]]) -> datetime | None:
 
 
 def hours_between(start: datetime, end: datetime) -> float:
-    return (end - start).total_seconds() / 3600.0
+    return max(0.0, (end - start).total_seconds() / 3600.0)
 
 
 def _avg(values: list[float]) -> float | None:
@@ -228,7 +262,11 @@ def _max_or_none(values: list[float]) -> float | None:
 def _task_events(task: Any) -> list[tuple[datetime, str]]:
     if not task.path.exists():
         return []
-    return parse_progress_events(task.path.read_text())
+    try:
+        text = task.path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{task.path.name}: not valid UTF-8") from exc
+    return parse_progress_events(text)
 
 
 def wip_tasks(tasks: list, cfg: dict[str, Any]) -> list:
@@ -298,9 +336,8 @@ def compute_metrics(
     tasks = list_tasks(tasks_dir)
     metrics_cfg = cfg.get("metrics")
     metrics_dict = metrics_cfg if isinstance(metrics_cfg, dict) else {}
-    window_days = _require_positive_int(
-        metrics_dict.get("throughput_window_days", DEFAULT_WINDOW_DAYS),
-        field="throughput_window_days",
+    window_days = _require_window_days(
+        metrics_dict.get("throughput_window_days", DEFAULT_WINDOW_DAYS)
     )
     window_start = now - timedelta(days=window_days)
 
@@ -319,21 +356,28 @@ def compute_metrics(
         events = _task_events(task)
         created = task_created_at(task.task_id, events)
 
-        if task.status in QUEUE_STATUSES and created is not None:
+        if (
+            task.status in QUEUE_STATUSES
+            and created is not None
+            and created <= now
+        ):
             queue_hours.append(hours_between(created, now))
         if task.status == "blocked":
             since = task_blocked_since(events)
-            if since is not None:
+            if since is not None and since <= now:
                 blocked_hours.append(hours_between(since, now))
         if task.status == "done":
             completed = task_completed_at(events)
             if (
                 created is not None
                 and completed is not None
-                and completed >= created
+                and created <= completed <= now
             ):
                 cycle_hours.append(hours_between(created, completed))
-            if completed is not None and completed >= window_start:
+            if (
+                completed is not None
+                and window_start <= completed <= now
+            ):
                 done_in_window += 1
 
     wip = wip_tasks(tasks, cfg)
@@ -398,7 +442,7 @@ def write_metrics(
     payload = compute_metrics(tasks_dir, cfg, now=when)
     path = metrics_path(root, cfg, context_rel)
     write_json_object(path, payload)
-    return {"path": str(path.relative_to(root)), "metrics": payload}
+    return {"path": str(path.relative_to(root.resolve())), "metrics": payload}
 
 
 def load_metrics_file(
