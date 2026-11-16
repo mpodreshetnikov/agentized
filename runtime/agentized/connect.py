@@ -970,7 +970,7 @@ def connect(
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
     if dry_run:
-        from .connect_plan import plan_connect_writes
+        from .connect_dry_run import plan_connect_writes
 
         return plan_connect_writes(
             root,

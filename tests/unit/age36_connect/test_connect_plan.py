@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 
 from agentized.connect import QUALITY_MARKER, connect
+from agentized.connect_dry_run import desired_codex_marketplace, plan_connect_writes
 from agentized.connect_plan import (
-    desired_codex_marketplace,
-    plan_connect_writes,
+    plan_ensure_json,
     plan_hooks_path_action,
     plan_json_document_action,
     plan_marker_action,
@@ -349,9 +349,13 @@ def test_tree_digests_missing_and_bad_action(tmp_path: Path, monkeypatch):
     assert plan_hooks_path_action(tmp_path) == "skip"
 
     # Force invalid action to hit validation.
-    import agentized.connect_plan as cp
+    import agentized.connect_dry_run as cdr
 
-    monkeypatch.setattr(cp, "plan_harness_hooks", lambda *a, **k: [{"path": "x", "action": "nope", "harness": "cursor"}])
+    monkeypatch.setattr(
+        cdr,
+        "plan_harness_hooks",
+        lambda *a, **k: [{"path": "x", "action": "nope", "harness": "cursor"}],
+    )
     try:
         plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
         raised = 0
@@ -367,3 +371,29 @@ def test_marker_body_without_trailing_newline(tmp_path: Path):
     path = tmp_path / "AGENTS.md"
     path.write_text("\n\n" + body + "\n", encoding="utf-8")
     assert plan_marker_action(path, body, create=True) == "skip"
+
+
+def test_plan_ensure_json_exact(tmp_path: Path):
+    path = tmp_path / "x.json"
+    assert plan_ensure_json(path) == "create"
+    path.write_text("{}\n", encoding="utf-8")
+    assert plan_ensure_json(path) == "skip"
+
+
+def test_desired_marketplace_exact_bytes():
+    expected = (
+        "{\n"
+        '  "name": "agentized-local",\n'
+        '  "plugins": [\n'
+        "    {\n"
+        '      "name": "agentized",\n'
+        '      "source": {\n'
+        '        "source": "local",\n'
+        '        "path": "./packages/agentized-codex"\n'
+        "      },\n"
+        '      "category": "Productivity"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+    )
+    assert json.dumps(desired_codex_marketplace(), indent=2) + "\n" == expected

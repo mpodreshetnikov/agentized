@@ -159,17 +159,71 @@ def test_write_json_and_hooks_owned(tmp_path: Path):
     assert path.read_text(encoding="utf-8") == '{\n  "a": 1\n}\n'
     assert write_json(path, {"a": 1}) is False
     assert write_json(path, {"a": 2}) is True
+    assert path.read_text(encoding="utf-8") == '{\n  "a": 2\n}\n'
 
     assert load_hooks_owned(tmp_path, "context") == {}
     save_hooks_owned(tmp_path, {"cursor": [".cursor/hooks/x.py"]}, "context")
-    assert load_hooks_owned(tmp_path, "context") == {"cursor": [".cursor/hooks/x.py"]}
     owned = tmp_path / "context" / ".agentized" / "hooks_owned.json"
+    assert owned.read_text(encoding="utf-8") == (
+        '{\n  "cursor": [\n    ".cursor/hooks/x.py"\n  ]\n}\n'
+    )
+    assert load_hooks_owned(tmp_path, "context") == {"cursor": [".cursor/hooks/x.py"]}
     owned.write_text("{broken", encoding="utf-8")
     assert load_hooks_owned(tmp_path, "context") == {}
     owned.write_text("[1]\n", encoding="utf-8")
     assert load_hooks_owned(tmp_path, "context") == {}
     owned.write_text(json.dumps({"cursor": "bad", "claude": ["ok"]}, indent=2) + "\n", encoding="utf-8")
     assert load_hooks_owned(tmp_path, "context") == {"claude": ["ok"]}
+
+
+def test_refuse_plan_exact_shape(tmp_path: Path):
+    from agentized.hooks_install import refuse_plan
+
+    path = tmp_path / ".cursor" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{", encoding="utf-8")
+    with pytest.raises(HooksJsonError) as exc:
+        read_json_object(path)
+    plan = refuse_plan(path, "cursor", exc.value)
+    assert plan == {
+        "path": str(path),
+        "harness": "cursor",
+        "action": "refuse",
+        "changed": False,
+        "wrote": False,
+        "error": str(exc.value),
+        "reason": exc.value.reason,
+    }
+    assert plan["reason"].startswith("broken JSON")
+    assert f"invalid harness JSON at {path}" in plan["error"]
+
+
+def test_uninstall_skip_exact_reason(tmp_path: Path):
+    target = tmp_path / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{}\n", encoding="utf-8")
+    results = uninstall_harness_hooks(tmp_path, ["claude"], context_rel="context")
+    assert results == [
+        {
+            "path": str(target),
+            "harness": "claude",
+            "action": "skip",
+            "changed": False,
+            "wrote": False,
+            "reason": "hooks_merge_unavailable",
+        }
+    ]
+
+
+def test_plan_harness_paths_exact(tmp_path: Path):
+    plans = plan_harness_hooks(tmp_path, ["cursor", "codex"], context_rel="context")
+    assert [p["path"] for p in plans] == [
+        str(tmp_path / ".cursor" / "hooks.json"),
+        str(tmp_path / ".codex" / "hooks.json"),
+    ]
+    assert [p["action"] for p in plans] == ["create", "create"]
+    assert [p["harness"] for p in plans] == ["cursor", "codex"]
+    assert [p["changed"] for p in plans] == [True, True]
 
 
 def test_plan_update_when_hooks_exist(tmp_path: Path):
