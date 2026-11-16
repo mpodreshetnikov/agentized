@@ -509,7 +509,10 @@ def test_survivor_killers(tmp_path: Path, monkeypatch):
         return real_rel(self, other)
 
     monkeypatch.setattr(Path, "relative_to", boom)
-    assert detect_languages(tmp_path, exclude_globs=_excludes()).get("python") == ["b.py"]
+    # First relative_to fails; continue (not break) still finds the other file.
+    # Do not assert name order — rglob order differs across hosts.
+    found_py = detect_languages(tmp_path, exclude_globs=_excludes()).get("python") or []
+    assert len(found_py) == 1 and found_py[0] in {"a.py", "b.py"}
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
     arch_off = {"enabled": False, "tools": {"python": "import-linter"}, "config": ".importlinter"}
