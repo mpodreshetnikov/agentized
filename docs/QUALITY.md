@@ -50,10 +50,7 @@ New projects get hard defaults with no manual steps: smells=`hard`, architecture
 
 ### E2E / DB layer notes (AGE-31)
 
-- Reconnect (`ensure_quality_config`) flips `e2e`/`db_tests` `enabled: false→auto`, `mode: warn→hard`, and inserts `e2e` + `db_tests` into `gates.pre_push` / `gates.ci` **before** `mutation`.
-- **`tests_changed` limitation:** the gate treats *any* path matching `test_globs` in the diff as a test update — it does **not** map a specific source file to a specific e2e/DB test. Agents must still choose the right specs; the gate only enforces that some test file moved with the source change.
-- Git base-ref errors fail closed (`git_diff_failed`) when the layer is present.
-- Placeholders (`.gitkeep`, empty files) do not count as a real suite.
+Reconnect injects `e2e`/`db_tests` into `gates.pre_push`/`ci` (warn→hard, enabled false→auto). **`tests_changed` limitation:** any `test_globs` path in the diff counts (not per-source mapping). Git base-ref errors fail closed; placeholders/empty files are not a suite.
 
 ## Strong reviewer (AGE-11)
 

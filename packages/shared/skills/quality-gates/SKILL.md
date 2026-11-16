@@ -13,33 +13,11 @@ description: High-signal testing strategy and Agentized coverage/mutation/e2e/DB
 4. **Do not mirror production formulas in tests.** Compute expected values from first principles or fixtures, not by copying the implementation.
 5. **Shared fixtures when logic is duplicated.** If two places implement the same rule, both must assert against the same shared fixture/table (see `shared_fixtures` in `context/quality.json`).
 
-## E2E tests (when UI / Playwright etc. is present)
+## E2E / DB layer gates (when present)
 
-Auto-detect: Playwright / Cypress / Nightwatch / WebdriverIO configs or deps (incl. nested `apps/*`), or `e2e/` / `tests/e2e/` / `cypress/e2e/`. When present, the **e2e** gate is **hard**: the suite must exist and **run** (`test_command` or autodetect `npx playwright test`); changing UI/app sources also requires some `test_globs` path in the same diff (**limitation:** any matching test file counts — not a per-source mapping). `enabled=false` only with human `disable_decision` `{reason, approved_by, expires≤14d}`.
+Auto-detect Playwright/Cypress (configs/deps/`e2e/`) or DB (migrations/ORM/pgTAP/`db/tests`). When present, gate is **hard**: suite must **exist and run** (`test_command` or autodetect `npx playwright test` / `supabase test db` / `pg_prove`); source changes need some `test_globs` path in the same diff (**limitation:** any matching test file counts — not per-source). `enabled=false` only with human `disable_decision` `{reason, approved_by, expires≤14d}`. Absent layer → skip pass. Fixture: `templates/quality/fixtures/orbit-like-mini/`.
 
-How to write them:
-
-1. **Key scenarios only** — critical user journeys, not exhaustive UI coverage.
-2. **Assert outcomes users can see** (role/text/URL/state), never pixels, snapshot markup, or formal contracts (`e2e.forbid`).
-3. **On failure keep video + screenshots** as CI artifacts (`on_failure_artifacts`).
-4. **New specs run 3×** locally/CI to surface flakes (`new_spec_retries`, default 3).
-5. **Same PR as the UI change** — gate fails if `src/app/...` (etc.) changes with no `e2e/**` (or configured `test_globs`) updates.
-6. Templates: `templates/quality/e2e-playwright.config.ts.example`, `e2e-ci-snippet.yml.example`, fixture `templates/quality/fixtures/orbit-like-mini/`.
-
-## DB tests (when migrations / SQL / pgTAP is present)
-
-Auto-detect: nested migrations (`apps/*/…`, `services/*/db/migrations`), Prisma/Supabase/Alembic/Flyway, ORM deps (`prisma`, `drizzle-orm`, `typeorm`, `sequelize`, `knex`, `sqlalchemy`, `django`, `alembic`), `schema.sql`, `pgtap/` / `db/tests/`. When present, the **db_tests** gate is **hard**: suite must **run** (`test_command` or autodetect `supabase test db` / `pg_prove`); migration changes need some DB test path in the diff (same any-file limitation as e2e).
-
-How to write them:
-
-1. **Test the migration’s observable contract** — tables/columns/constraints/indexes/row invariants after apply (pgTAP `has_table` / `col_type_is`, or equivalent SQL assertions).
-2. **One focused test file per migration theme** (or clearly named suite); update tests in the **same PR** as the migration.
-3. **No app-layer mocks** — run against a real throwaway DB / transaction (`BEGIN…ROLLBACK`) when using pgTAP.
-4. **Do not re-encode ORM helpers** in the test; assert catalog/data facts.
-5. Optional `db_tests.test_command` (e.g. `pg_prove db/tests/*.sql`) runs when sources changed.
-6. Template: `templates/quality/db-tests-pgtap.example.sql`; fixture under `templates/quality/fixtures/orbit-like-mini/db/`.
-
-Absent e2e or DB layers → gates **skip pass** (`enabled: auto`). Agentized dogfood has neither.
+Write e2e for key user journeys (visible outcomes; no pixels/snapshots). Write DB tests for migration contracts (real DB/pgTAP; same PR as migration).
 
 ## Strategy (anti-smell)
 
