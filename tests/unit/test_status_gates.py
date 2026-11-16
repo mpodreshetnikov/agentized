@@ -64,6 +64,7 @@ def test_normalize_extract_empty_refuse():
     assert normalize_status("") == ""
     assert normalize_status(None) == ""
     assert has_value_line("Ценность: x") is True
+    assert has_value_line("Ценность: _(пусто)_") is False
     assert has_value_line("value: x") is False
     assert has_value_line("") is False
     assert has_value_line(None) is False
@@ -317,6 +318,15 @@ def test_file_skip_transition_flags(tmp_path: Path):
     assert validate_tasks_dir(
         d, previous_by_name={name: "# T\n\nЦенность: x\n"}
     ) == GateResult(False, (f"{name}: {MSG_MISSING_STATUS} (previous)",))
+    # brand-new done at base is refused
+    fresh = tmp_path / "brand"
+    fresh.mkdir()
+    (fresh / "T-261116-newdone.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    bad_new = validate_tasks_dir(fresh, previous_by_name={})
+    assert bad_new.ok is False
+    assert any("new task cannot start as done" in e for e in bad_new.errors)
 
 
 def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
@@ -733,3 +743,12 @@ def test_rebuild_task_index_active(tmp_path: Path):
         "for-review",
         "blocked",
     ]
+
+
+def test_cli_rejects_multiline_value(tmp_path, monkeypatch):
+    import agentized_cli as cli
+    monkeypatch.setattr(cli, "find_repo_root", lambda: tmp_path)
+    (tmp_path / "context" / "tasks").mkdir(parents=True)
+    monkeypatch.setattr(cli, "load_state", lambda root: {"context": "context"})
+    ns = type("A", (), {"title": "t", "value": "ok\nстатус: done", "yes": True, "parent": None, "tags": None, "goal": None, "context": None})()
+    assert cli.cmd_new(ns) == 1

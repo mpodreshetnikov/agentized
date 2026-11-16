@@ -49,6 +49,14 @@ def _ctx(root: Path, args) -> Path:
     return root / rel
 
 
+def _single_line(label: str, value: str) -> bool:
+    """False when value embeds CR/LF (blocks status-field injection via flags)."""
+    if "\n" in value or "\r" in value:
+        print(f"{label}: одна строка без переноса", file=sys.stderr)
+        return False
+    return True
+
+
 def cmd_connect(args: argparse.Namespace) -> int:
     root = find_repo_root()
     harnesses = args.harness
@@ -306,6 +314,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     if not value:
         print('нужна ценность: --value "…" (строка Ценность: …)', file=sys.stderr)
         return 1
+    if not _single_line("--value", value):
+        return 1
 
     if not args.yes:
         reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
@@ -324,6 +334,9 @@ def cmd_new(args: argparse.Namespace) -> int:
         goal=args.goal or "Что должно быть сделано.",
     )
     text = text.replace("\n## Цель", f"\nЦенность: {value}\n\n## Цель", 1)
+    if extract_status(text) != "open":
+        print("status-gates FAIL: new task must stay open", file=sys.stderr)
+        return 1
     gate = validate_task_text(text, old_status=None, require_value=True, check_transition=False)
     if not gate.ok:
         print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
@@ -399,6 +412,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     ):
         val = getattr(args, attr, None)
         if val:
+            if not _single_line(f"--{attr.replace('_', '-')}", str(val)):
+                return 1
             text = set_field(text, field, val)
     gate = validate_task_text(
         text, old_status=old_status, require_value=True, check_transition=True

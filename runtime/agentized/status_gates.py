@@ -150,7 +150,11 @@ def extract_status(text: str | None) -> str:
 def has_value_line(text: str | None) -> bool:
     if text is None:
         return False
-    return VALUE_LINE_RE.search(text) is not None
+    m = VALUE_LINE_RE.search(text)
+    if not m:
+        return False
+    val = m.group(0).split(":", 1)[-1].strip()
+    return bool(val) and not val.startswith("_")
 
 
 def _nonempty_field(fields: dict[str, str], *keys: str) -> str:
@@ -388,7 +392,8 @@ def rebuild_task_index_active(tasks_dir: Path) -> str:
     tasks = list_tasks(tasks_dir)
     buckets: dict[str, list[str]] = {s: [] for s in INDEX_ACTIVE_STATUSES}
     for t in tasks:
-        if t.status not in buckets:
+        st = normalize_status(t.status)
+        if st not in buckets:
             continue
         parent = (
             f" (родитель: {t.parent})"
@@ -400,7 +405,7 @@ def rebuild_task_index_active(tasks_dir: Path) -> str:
             if t.claim and not t.claim.startswith("_")
             else ""
         )
-        buckets[t.status].append(
+        buckets[st].append(
             f"- [{t.task_id}]({t.path.name}) — {t.title}{parent}{claim}"
         )
 
@@ -442,11 +447,20 @@ def validate_tasks_dir(
             continue
         text = path.read_bytes().decode(TEXT_ENCODING)
         old_status = None
-        if previous_by_name is not None and path.name in previous_by_name:
-            old_status = extract_status(previous_by_name[path.name])
-            if not old_status:
-                errors.append(f"{path.name}: {MSG_MISSING_STATUS} (previous)")
-                continue
+        if previous_by_name is not None:
+            if path.name in previous_by_name:
+                old_status = extract_status(previous_by_name[path.name])
+                if not old_status:
+                    errors.append(f"{path.name}: {MSG_MISSING_STATUS} (previous)")
+                    continue
+            else:
+                st = extract_status(text)
+                # Block forging done/review on a brand-new path (claim→in-progress OK).
+                if st in {"done", "canceled", "self-review", "for-review"}:
+                    errors.append(
+                        f"{path.name}: new task cannot start as {st}"
+                    )
+                    continue
         result = validate_task_text(
             text,
             old_status=old_status,
