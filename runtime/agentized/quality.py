@@ -97,6 +97,7 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     mut_in = data.get("mutation") or {}
     out["mutation"].update({k: mut_in[k] for k in mut_in})
     for key in (
+        "languages",
         "test_smells",
         "architecture",
         "property_based",

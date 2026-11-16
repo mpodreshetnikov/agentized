@@ -812,11 +812,28 @@ def ensure_quality_config(
 ) -> dict:
     from .quality import load_quality, save_quality, set_coverage_threshold, quality_path
 
+    # Connect may install Agentized packages/ + templates/ into the target.
+    # Exclude those managed trees from language detect (same as dogfood
+    # quality.json). Not part of DEFAULT_EXCLUDE_GLOBS (Lead reject batch2).
+    managed_lang_excludes = ("packages/**", "templates/**")
+
     path = quality_path(root, context_rel)
     created = not path.exists()
     upgraded_modes: list[str] = []
     if created:
-        save_quality(root, load_quality(root, context_rel), context_rel)
+        data = load_quality(root, context_rel)
+        lang = data.setdefault("languages", {})
+        if not isinstance(lang, dict):
+            lang = {}
+            data["languages"] = lang
+        excludes = [str(x) for x in (lang.get("exclude_globs") or [])]
+        for pat in managed_lang_excludes:
+            if pat not in excludes:
+                excludes.append(pat)
+        lang["exclude_globs"] = excludes
+        if not lang.get("supported"):
+            lang["supported"] = ["python", "javascript", "typescript"]
+        save_quality(root, data, context_rel)
     else:
         # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
@@ -829,6 +846,16 @@ def ensure_quality_config(
             if str(section.get("mode") or "").lower() == "warn":
                 section["mode"] = "hard"
                 upgraded_modes.append(section_name)
+                dirty = True
+        lang = data.get("languages")
+        if isinstance(lang, dict):
+            excludes = [str(x) for x in (lang.get("exclude_globs") or [])]
+            for pat in managed_lang_excludes:
+                if pat not in excludes:
+                    excludes.append(pat)
+                    dirty = True
+            if excludes != list(lang.get("exclude_globs") or []):
+                lang["exclude_globs"] = excludes
                 dirty = True
         if dirty:
             save_quality(root, data, context_rel)
@@ -954,6 +981,15 @@ def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> d
     }
 
 
+class ConnectRefused(Exception):
+    """Fail-closed connect refusal (language coverage, etc.)."""
+
+    def __init__(self, message: str, *, details: dict | None = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+
+
 def connect(
     root: Path,
     *,
@@ -962,6 +998,23 @@ def connect(
     coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
+
+    # AGE-24: language coverage BEFORE any writes (skeleton/pins/hooks).
+    # Without quality.json yet, refuse unsupported languages only; full
+    # SUPPORTED_GATES enforcement runs once config exists (and on quality check).
+    from .languages import check_language_coverage
+    from .quality import load_quality, quality_path
+
+    qpath = quality_path(root, context_rel)
+    lang_check = check_language_coverage(
+        root,
+        context=context_rel,
+        cfg=load_quality(root, context_rel),
+        require_gates=qpath.is_file(),
+    )
+    if not lang_check.get("ok", True):
+        raise ConnectRefused(lang_check["message"], details=lang_check)
+
     skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(

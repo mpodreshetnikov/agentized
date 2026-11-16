@@ -27,7 +27,12 @@
     "break_on_no_tests": true,
     "include_globs": [
       "runtime/agentized/*.py"
-    ]
+    ],
+    "tools": {
+      "python": "mutmut",
+      "javascript": "stryker",
+      "typescript": "stryker"
+    }
   },
   "test_smells": {
     "enabled": true,
@@ -54,7 +59,14 @@
         "from": "agentized.mutation",
         "to": "agentized.connect"
       }
-    ]
+    ],
+    "tools": {
+      "python": "import-linter",
+      "javascript": "dependency-cruiser",
+      "typescript": "dependency-cruiser"
+    },
+    "js_config": ".dependency-cruiser.cjs",
+    "js_source": "src"
   },
   "property_based": {
     "enabled": true,
@@ -134,6 +146,65 @@
       "AGENTS.md",
       "docs/QUALITY.md",
       "docs/process-control.md"
+    ]
+  },
+  "languages": {
+    "supported": [
+      "python",
+      "javascript",
+      "typescript"
+    ],
+    "exclude_globs": [
+      "node_modules/**",
+      "vendor/**",
+      "third_party/**",
+      "packages/**",
+      "dist/**",
+      "build/**",
+      "out/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/out/**",
+      ".venv/**",
+      "venv/**",
+      "**/.venv/**",
+      "**/venv/**",
+      "**/__pycache__/**",
+      "**/.tox/**",
+      "**/site-packages/**",
+      "mutants/**",
+      "coverage/**",
+      "reports/**",
+      "**/*.min.js",
+      "**/generated/**",
+      "**/.git/**",
+      "target/**",
+      "**/target/**",
+      "Pods/**",
+      "**/Pods/**",
+      "**/*.example",
+      "**/*.example.*",
+      "**/*.example.cjs",
+      "**/*.example.mjs",
+      "templates/**",
+      ".cursor/**",
+      ".claude/**",
+      ".codex/**",
+      ".agents/**",
+      "context/hooks/**",
+      ".pytest_cache/**",
+      "**/.pytest_cache/**",
+      ".mypy_cache/**",
+      "**/.mypy_cache/**",
+      ".ruff_cache/**",
+      "**/.ruff_cache/**",
+      "tests/**/*.sh",
+      "scripts/**/*.sh",
+      ".githooks/**",
+      "**/.githooks/**",
+      "tests/*.sh",
+      ".import_linter_cache/**",
+      "**/.import_linter_cache/**"
     ]
   }
 }

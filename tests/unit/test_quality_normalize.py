@@ -79,6 +79,22 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
     assert data["gates"]["ci"] == ["coverage", "mutation"]
     assert data["reviewer"]["budget_max"] == 9
     assert data["reviewer"]["helper_model"] == "x"
+    assert "languages" in data
+    assert "python" in data["languages"]["supported"]
+    assert data["mutation"]["tools"]["python"] == "mutmut"
+    # Kill mutants that rename the "languages" merge key — custom section must win.
+    save_quality(
+        tmp_path,
+        {
+            "languages": {
+                "supported": ["python"],
+                "exclude_globs": ["CUSTOM_ONLY/**"],
+            }
+        },
+    )
+    lang = load_quality(tmp_path)["languages"]
+    assert lang["supported"] == ["python"]
+    assert lang["exclude_globs"] == ["CUSTOM_ONLY/**"]
     # empty modules list must not wipe defaults
     save_quality(tmp_path, {"modules": [], "coverage": {"branches": 66}})
     data2 = load_quality(tmp_path)
