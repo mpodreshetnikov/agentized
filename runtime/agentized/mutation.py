@@ -21,7 +21,6 @@ from .quality import load_quality
 DURABLE_SETUP = """[mutmut]
 # Top-level `agentized` symlink → runtime/agentized so trampoline keys match imports.
 source_paths = agentized
-pytest_add_cli_args_test_selection = tests/unit
 mutate_only_covered_lines = false
 use_git_change_detection = false
 # Equivalent lexemes (Python treats these the same) — do not count as survivors.
@@ -34,6 +33,26 @@ also_copy =
   pyproject.toml
   setup.cfg
 """
+
+
+def _test_selection_for(only_mutate: list[str], root: Path) -> list[str]:
+    """Map mutated modules to unit tests (newline-separated multi-file selection).
+
+    ``agentized/foo.py`` → ``tests/unit/test_foo.py`` and ``tests/unit/test_foo_*.py``.
+    Falls back to ``tests/unit`` when no matching test file exists.
+    """
+    unit = root / "tests" / "unit"
+    selected: list[str] = []
+    for item in only_mutate:
+        stem = Path(item).stem
+        exact = unit / f"test_{stem}.py"
+        if exact.is_file():
+            selected.append(f"tests/unit/test_{stem}.py")
+        if unit.is_dir():
+            for path in sorted(unit.glob(f"test_{stem}_*.py")):
+                selected.append(f"tests/unit/{path.name}")
+    # Preserve order, drop duplicates.
+    return list(dict.fromkeys(selected)) or ["tests/unit"]
 
 
 def _ensure_agentized_link(root: Path) -> bool:
@@ -83,6 +102,10 @@ def _write_summary(root: Path, payload: dict) -> Path:
 
 def _write_setup(root: Path, only_mutate: list[str]) -> None:
     lines = [DURABLE_SETUP.rstrip(), ""]
+    tests = _test_selection_for(only_mutate, root)
+    lines.append("pytest_add_cli_args_test_selection =")
+    lines.extend(f"  {t}" for t in tests)
+    lines.append("")
     if only_mutate:
         lines.append("only_mutate =")
         lines.extend(f"  {item}" for item in only_mutate)

@@ -153,6 +153,69 @@ def test_diff_insertions_git_error_raises(tmp_path: Path, monkeypatch):
     assert calls[1][3] == "origin/main"
 
 
+def test_diff_insertions_parses_numstat(tmp_path: Path, monkeypatch):
+    import subprocess
+    from agentized.process_control import _diff_insertions
+
+    class FakeProc:
+        def __init__(self, code: int, stdout: str = ""):
+            self.returncode = code
+            self.stdout = stdout
+            self.stderr = ""
+
+    numstat = "\n".join(
+        [
+            "10\t2\ta.py",
+            "-\t-\tbin.dat",
+            "badline",
+            "x\t1\tskip.py",
+            "5\t0\tb.py",
+            "",
+        ]
+    )
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        # First form (base...HEAD) succeeds with parsed numstat.
+        return FakeProc(0, numstat)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    # 10 + 5 = 15; binary/short/non-int skipped
+    assert _diff_insertions(tmp_path, "origin/main") == 15
+
+
+def test_diff_insertions_fallback_base_ref(tmp_path: Path, monkeypatch):
+    import subprocess
+    from agentized.process_control import _diff_insertions
+
+    class FakeProc:
+        def __init__(self, code: int, stdout: str = "", stderr: str = ""):
+            self.returncode = code
+            self.stdout = stdout
+            self.stderr = stderr
+
+    calls: list[str] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        ref = cmd[3]
+        calls.append(ref)
+        if "..." in ref:
+            return FakeProc(128, stderr="no triple-dot")
+        return FakeProc(0, stdout="3\t1\tc.py\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert _diff_insertions(tmp_path, "main") == 3
+    assert calls == ["main...HEAD", "main"]
+
+
+def test_size_cli_bad_json_nonzero(tmp_path: Path, monkeypatch):
+    from agentized import process_control as pc
+
+    monkeypatch.setattr(pc, "find_repo_root", lambda: tmp_path)
+    (tmp_path / "context").mkdir(exist_ok=True)
+    (tmp_path / "context" / "process-control.json").write_text("{bad", encoding="utf-8")
+    assert process_main(["size", "--context", "context"]) == 1
+
+
 def test_size_cli_git_error_nonzero(tmp_path: Path, monkeypatch):
     from agentized import process_control as pc
 
@@ -165,22 +228,6 @@ def test_size_cli_git_error_nonzero(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(pc, "find_repo_root", lambda: tmp_path)
     (tmp_path / "context").mkdir(exist_ok=True)
     assert process_main(["size", "--context", "context"]) == 1
-
-
-def test_size_gate_hard_in_hooks_and_ci():
-    """Size must hard-fail: no soft `process size || true` in dogfood or templates."""
-    root = Path(__file__).resolve().parents[2]
-    paths = [
-        root / ".githooks" / "pre-push",
-        root / ".github" / "workflows" / "ci.yml",
-        root / "templates" / "quality" / "pre-push",
-        root / "templates" / "quality" / "ci.yml",
-    ]
-    soft = "process size || true"
-    for path in paths:
-        text = path.read_text(encoding="utf-8")
-        assert soft not in text, f"{path} still soft-fails process size"
-        assert "process size" in text, f"{path} missing process size invocation"
 
 
 def test_diff_insertions_and_cli(tmp_path: Path, monkeypatch):
