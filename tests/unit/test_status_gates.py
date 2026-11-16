@@ -608,18 +608,28 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         rel="context/tasks/T-261116-g1.md", ref="HEAD", detail="exit 7"
     ) or "exit 7" in str(e4.value)
 
+    root_s = str(tmp_path.resolve())
+    mb_calls: list[list[str]] = []
+
     def fake_run(argv, **kwargs):
         assert kwargs.get("check") is False
+        assert argv[2] == root_s  # repo_root, never None
+        if "merge-base" in argv:
+            mb_calls.append(list(argv))
+            return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
         if "show" in argv:
             return SimpleNamespace(returncode=0, stdout="blob\n", stderr="")
-        return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setenv("MUTATION_BASE", "HEAD")
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
+    monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
+    # no env / no explicit ref → merge-base needs real root (not None)
     assert previous_task_texts_from_git(tasks) == {
         "T-261116-g1.md": "blob\n",
         "T-261116-os.md": "blob\n",
     }
+    assert mb_calls and mb_calls[0][2] == root_s
     other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
     other.mkdir(exist_ok=True)
     (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
@@ -678,6 +688,7 @@ def test_rebuild_task_index_active(tmp_path: Path):
         )
 
     write("T-261116-idx.md", "queue", title="Demo", parent="AGE-22", claim="alice")
+    write("T-261116-qz.md", "queue", title="Second", parent="_(пусто)_", claim="_(пусто)_")
     write("T-261116-ph.md", "open", title="Ph", parent="_x", claim="_y")
     write("T-261116-done.md", "done", title="Done", parent="_(пусто)_", claim="_(пусто)_")
     write("T-261116-ip.md", "in-progress", title="Work", parent="_(пусто)_", claim="bob")
@@ -690,7 +701,8 @@ def test_rebuild_task_index_active(tmp_path: Path):
         "`tasks/`.\n\n"
         "## open\n\n- [T-261116-ph](T-261116-ph.md) — Ph\n\n"
         "## queue\n\n"
-        "- [T-261116-idx](T-261116-idx.md) — Demo (родитель: AGE-22) · claim: alice\n\n"
+        "- [T-261116-idx](T-261116-idx.md) — Demo (родитель: AGE-22) · claim: alice\n"
+        "- [T-261116-qz](T-261116-qz.md) — Second\n\n"
         "## in-progress\n\n- [T-261116-ip](T-261116-ip.md) — Work · claim: bob\n\n"
         "## self-review\n\n_(пусто)_\n\n## for-review\n\n_(пусто)_\n\n"
         "## blocked\n\n_(пусто)_\n\n"
