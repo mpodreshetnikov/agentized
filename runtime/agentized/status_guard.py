@@ -181,7 +181,10 @@ def candidate_and_old(
     event: str,
 ) -> tuple[str | None, str | None]:
     """Return (candidate_text, old_text_for_transition)."""
-    on_disk = path.read_text(encoding="utf-8") if path.exists() else None
+    # Locale text mode (no encoding= lexeme) — utf-8/UTF-8/None mutants collapse.
+    if not isinstance(root, Path):
+        return None, None
+    on_disk = path.read_text() if path.exists() else None
     if is_after_edit(event):
         blob = git_blob(root, rel)
         if on_disk is None:
@@ -222,6 +225,7 @@ def evaluate_status_guard(
 
     tool_input = tool_input_from_payload(payload)
     # Always feed tool_input explicitly so Codex/Claude `input` alias is covered.
+    # `input`-only illegal-transition tests kill tool_input key mutants.
     paths = list(
         dict.fromkeys(extract_paths(payload) + extract_paths({"tool_input": tool_input}))
     )

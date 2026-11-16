@@ -430,6 +430,23 @@ def test_evaluate_input_alias_paths(tmp_path: Path):
         gates=_fake_gates(),
     )
     assert out2 == ALLOW_PRE
+    # Illegal transition via `input` only — kills tool_input re-inject key mutants
+    # (without re-inject, extract_paths misses `input` → silent allow).
+    bad = "# T\n\nстатус: done\n\nЦенность: test\n"
+    out3 = sg.evaluate_status_guard(
+        {
+            "hookEventName": "PreToolUse",
+            "input": {"file_path": "context/tasks/T-261116-in.md", "content": bad},
+        },
+        root=tmp_path,
+        context_rel="context",
+        extract_paths=extract_paths,
+        gates=_fake_gates(),
+    )
+    assert out3 == _deny(
+        "PreToolUse",
+        "[status-guard] REFUSED: T-261116-in.md: illegal transition open → done",
+    )
 
 
 def test_candidate_after_edit_uses_git(tmp_path: Path):
