@@ -209,9 +209,13 @@ def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
 
 
 def test_is_test_path_keeps_production_test_smells_module():
-    assert mut._is_test_path("runtime/agentized/test_smells.py") is False
-    assert mut._is_test_path("tests/unit/test_foo.py") is True
-    assert mut._is_test_path("src/foo.test.ts") is True
-    assert mut._is_test_path("src/__tests__/x.ts") is True
-    assert mut._is_test_path("src/util.ts") is False
+    # Exact path→bool vector (list Eq) — not bare `is True`/`is False` oracles.
+    paths = [
+        "runtime/agentized/test_smells.py",
+        "tests/unit/test_foo.py",
+        "src/foo.test.ts",
+        "src/__tests__/x.ts",
+        "src/util.ts",
+    ]
+    assert [mut._is_test_path(p) for p in paths] == [False, True, True, True, False]
 
