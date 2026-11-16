@@ -9,6 +9,7 @@ from .spec_approval_defaults import (
     CFG_ENABLED,
     CFG_SPEC_APPROVAL,
     CFG_SPEC_HEADING,
+    EMPTY,
     KEY_APPROVERS,
     KEY_MESSAGE,
     KEY_MODE,
@@ -57,11 +58,11 @@ def evaluate_task_spec(
     policy: dict[str, Any],
 ) -> dict[str, Any]:
     """Pure check for one task file body."""
-    complex_tag = str(policy.get(CFG_COMPLEX_TAG) or "")
+    complex_tag = str(policy.get(CFG_COMPLEX_TAG) or EMPTY)
     if not task_needs_spec(tags, complex_tag):
-        return {KEY_OK: True, KEY_MODE: MODE_SKIP, KEY_TASK_ID: task_id, KEY_MESSAGE: ""}
-    spec_h = str(policy.get(CFG_SPEC_HEADING) or "")
-    appr_h = str(policy.get(CFG_APPROVAL_HEADING) or "")
+        return {KEY_OK: True, KEY_MODE: MODE_SKIP, KEY_TASK_ID: task_id, KEY_MESSAGE: EMPTY}
+    spec_h = str(policy.get(CFG_SPEC_HEADING) or EMPTY)
+    appr_h = str(policy.get(CFG_APPROVAL_HEADING) or EMPTY)
     spec = section_body(text, spec_h)
     if spec is None or len(spec) == 0 or spec.startswith(PLACEHOLDER_PREFIX):
         return {
@@ -79,7 +80,7 @@ def evaluate_task_spec(
             KEY_MESSAGE: missing_approval_message(task_id, appr_h),
         }
     approvers = parse_approvers(approval)
-    claim_s = (claim or "").strip().lower()
+    claim_s = (claim or EMPTY).strip().lower()
     other = [a for a in approvers if a.lower() != claim_s]
     if len(other) == 0:
         return {

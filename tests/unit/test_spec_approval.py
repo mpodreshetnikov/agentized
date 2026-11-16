@@ -24,6 +24,9 @@ from agentized.spec_approval_defaults import (
     MODE_REFUSE,
     MODE_SKIP,
     default_spec_approval,
+    missing_approval_message,
+    missing_spec_message,
+    self_approval_message,
 )
 
 
@@ -99,11 +102,12 @@ def test_evaluate_task_spec_matrix():
         text="# T-2\n\n## Goal\n\nx\n",
         policy=policy,
     )
-    assert no_spec[KEY_OK] is False
-    assert no_spec[KEY_MODE] == MODE_REFUSE
-    assert no_spec[KEY_TASK_ID] == "T-2"
-    assert "missing non-empty ## Spec" in no_spec[KEY_MESSAGE]
-    assert set(no_spec) == {KEY_OK, KEY_MODE, KEY_TASK_ID, KEY_MESSAGE}
+    assert no_spec == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-2",
+        KEY_MESSAGE: missing_spec_message("T-2", DEFAULT_SPEC_HEADING),
+    }
 
     placeholder = evaluate_task_spec(
         task_id="T-3",
@@ -112,8 +116,12 @@ def test_evaluate_task_spec_matrix():
         text="# T-3\n\n## Spec\n\n_(todo)_\n",
         policy=policy,
     )
-    assert placeholder[KEY_MODE] == MODE_REFUSE
-    assert "missing non-empty ## Spec" in placeholder[KEY_MESSAGE]
+    assert placeholder == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-3",
+        KEY_MESSAGE: missing_spec_message("T-3", DEFAULT_SPEC_HEADING),
+    }
 
     empty_spec = evaluate_task_spec(
         task_id="T-4",
@@ -122,6 +130,7 @@ def test_evaluate_task_spec_matrix():
         text="# T-4\n\n## Spec\n\n\n## Approval\n\napproved-by: bob\n",
         policy=policy,
     )
+    assert empty_spec[KEY_OK] is False
     assert empty_spec[KEY_MODE] == MODE_REFUSE
 
     no_approval = evaluate_task_spec(
@@ -131,8 +140,12 @@ def test_evaluate_task_spec_matrix():
         text="# T-5\n\n## Spec\n\nDo X.\n",
         policy=policy,
     )
-    assert no_approval[KEY_MODE] == MODE_REFUSE
-    assert "needs ## Approval" in no_approval[KEY_MESSAGE]
+    assert no_approval == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-5",
+        KEY_MESSAGE: missing_approval_message("T-5", DEFAULT_APPROVAL_HEADING),
+    }
 
     self_appr = evaluate_task_spec(
         task_id="T-6",
@@ -141,8 +154,12 @@ def test_evaluate_task_spec_matrix():
         text="# T-6\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: alice\n",
         policy=policy,
     )
-    assert self_appr[KEY_MODE] == MODE_REFUSE
-    assert "someone other than claim owner 'Alice'" in self_appr[KEY_MESSAGE]
+    assert self_appr == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-6",
+        KEY_MESSAGE: self_approval_message("T-6", "Alice"),
+    }
 
     empty_approved = evaluate_task_spec(
         task_id="T-7",
@@ -151,7 +168,35 @@ def test_evaluate_task_spec_matrix():
         text="# T-7\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by:   \n",
         policy=policy,
     )
+    assert empty_approved[KEY_OK] is False
     assert empty_approved[KEY_MODE] == MODE_REFUSE
+
+    # missing policy keys use EMPTY fallbacks
+    sparse = evaluate_task_spec(
+        task_id="T-10",
+        claim="",
+        tags="complex",
+        text="# T-10\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: bob\n",
+        policy={CFG_COMPLEX_TAG: "complex"},
+    )
+    assert sparse[KEY_MODE] == MODE_OK
+    assert sparse[KEY_APPROVERS] == ["bob"]
+
+    # empty claim must stay empty (kills `claim or "XXXX"`); XXXX is a valid other approver
+    empty_claim = evaluate_task_spec(
+        task_id="T-11",
+        claim="",
+        tags="complex",
+        text="# T-11\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: XXXX\n",
+        policy=policy,
+    )
+    assert empty_claim == {
+        KEY_OK: True,
+        KEY_MODE: MODE_OK,
+        KEY_TASK_ID: "T-11",
+        KEY_MESSAGE: "spec-approval: T-11 OK (approved-by XXXX)",
+        KEY_APPROVERS: ["XXXX"],
+    }
 
     ok = evaluate_task_spec(
         task_id="T-8",

@@ -28,6 +28,8 @@ DEFAULT_COMPLEX_TAG = "complex"
 DEFAULT_SPEC_HEADING = "## Spec"
 DEFAULT_APPROVAL_HEADING = "## Approval"
 PLACEHOLDER_PREFIX = "_("
+EMPTY = ""
+STATUS_IN_PROGRESS = "in-progress"
 
 
 def default_spec_approval() -> dict[str, Any]:
