@@ -125,14 +125,16 @@ def _plain(val: str | None) -> str:
 
 
 def extract_value_line(text: str | None) -> str:
-    src = "" if text is None else text
-    m = VALUE_EXTRACT_RE.search(src)
+    if text is None:
+        return ""
+    m = VALUE_EXTRACT_RE.search(text)
     return m.group(1).strip() if m else ""
 
 
 def extract_fields(text: str | None) -> dict[str, str]:
-    src = "" if text is None else text
-    return {k: v.strip() for k, v in FIELD_RE.findall(src)}
+    if text is None:
+        return {}
+    return {k: v.strip() for k, v in FIELD_RE.findall(text)}
 
 
 def _card_data(meta: TaskMeta, text: str) -> dict[str, str]:
