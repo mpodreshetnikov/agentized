@@ -76,12 +76,12 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     def fake_diff(root, base_ref):  # noqa: ARG001
         return 60
 
-    monkeypatch.setattr("agentized.process_control._diff_insertions", fake_diff)
+    monkeypatch.setattr("agentized.process_control.diff_insertions", fake_diff)
     result = size_check(tmp_path)
     assert result["level"] == "warn"
     assert result["ok"] is True
 
-    monkeypatch.setattr("agentized.process_control._diff_insertions", lambda *_: 120)
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False
@@ -110,11 +110,34 @@ def test_empty_globs_need_claim():
     } == {"anything.py": True, "README.md": True, "x": True}
 
 
-def test_load_bad_json(tmp_path: Path):
+def test_load_bad_json_raises(tmp_path: Path):
+    import pytest
+
     (tmp_path / "context").mkdir()
     (tmp_path / "context" / "process-control.json").write_text("{nope", encoding="utf-8")
-    cfg = load_process_config(tmp_path)
-    assert cfg["reviewable_lines"] == 1500
+    with pytest.raises(ValueError, match="invalid JSON"):
+        load_process_config(tmp_path)
+
+
+def test_size_cli_bad_json_nonzero(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: tmp_path)
+    (tmp_path / "context").mkdir(exist_ok=True)
+    (tmp_path / "context" / "process-control.json").write_text("{bad", encoding="utf-8")
+    assert process_main(["size", "--context", "context"]) == 1
+
+
+def test_size_cli_git_error_nonzero(tmp_path: Path, monkeypatch):
+    from agentized import process_size as ps
+
+    class FakeProc:
+        returncode = 128
+        stdout = ""
+        stderr = "fatal: bad"
+
+    monkeypatch.setattr(ps.subprocess, "run", lambda *a, **k: FakeProc())  # noqa: ARG005
+    monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: tmp_path)
+    (tmp_path / "context").mkdir(exist_ok=True)
+    assert process_main(["size", "--context", "context"]) == 1
 
 
 def test_diff_insertions_and_cli(tmp_path: Path, monkeypatch):

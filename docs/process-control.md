@@ -20,7 +20,7 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 
 ## Reviewable PR size
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`). Warn at **75%** of the limit; over the limit fails `agentized process size` (pre-push prints size, does not hard-fail the push on size alone).
+Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`). Warn at **75%** of the limit; over the limit fails `agentized process size` (hard gate in pre-push and CI). Git errors while measuring size fail closed (non-zero). Broken `process-control.json` raises — no silent defaults.
 
 ```bash
 ./bin/agentized process size

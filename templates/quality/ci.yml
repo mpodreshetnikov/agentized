@@ -49,7 +49,7 @@ jobs:
             echo "agentized CLI not found" >&2
             exit 1
           fi
-          "${CLI[@]}" process size || true
+          "${CLI[@]}" process size
           "${CLI[@]}" quality check
 
       - name: Upload coverage + mutation + gate summaries
