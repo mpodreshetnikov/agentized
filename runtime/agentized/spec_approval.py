@@ -92,18 +92,27 @@ def evaluate_task_spec(
             KEY_MESSAGE: missing_approval_message(task_id, appr_h),
         }
     approvers = parse_approvers(approval)
-    claim_s = (EMPTY if claim is None else claim).strip().lower()
+    claim_s = (claim or EMPTY).strip().lower()
     other = [a for a in approvers if a.lower() != claim_s]
-    allow = [str(p).strip() for p in (human_participants or []) if str(p).strip()]
+    allow: list[str] = []
+    for p in human_participants or []:
+        s = str(p).strip()
+        if s:
+            allow.append(s)
 
     if approval_by_non_owner:
-        label = other[0] if other else "non-owner-commit"
+        if other:
+            label = other[0]
+            approvers_out = list(other)
+        else:
+            label = "non-owner-commit"
+            approvers_out = [label]
         return {
             KEY_OK: True,
             KEY_MODE: MODE_OK,
             KEY_TASK_ID: task_id,
             KEY_MESSAGE: ok_message(task_id, label),
-            KEY_APPROVERS: other or [label],
+            KEY_APPROVERS: approvers_out,
         }
 
     if len(other) == 0:
@@ -114,24 +123,18 @@ def evaluate_task_spec(
             KEY_MESSAGE: self_approval_message(task_id, claim),
         }
 
-    if allow:
-        matched = [a for a in other if participant_email_matches(a, allow)]
-        if matched:
-            return {
-                KEY_OK: True,
-                KEY_MODE: MODE_OK,
-                KEY_TASK_ID: task_id,
-                KEY_MESSAGE: ok_message(task_id, matched[0]),
-                KEY_APPROVERS: matched,
-            }
+    matched: list[str] = []
+    for a in other:
+        if participant_email_matches(a, allow):
+            matched.append(a)
+    if matched:
         return {
-            KEY_OK: False,
-            KEY_MODE: MODE_REFUSE,
+            KEY_OK: True,
+            KEY_MODE: MODE_OK,
             KEY_TASK_ID: task_id,
-            KEY_MESSAGE: approver_not_allowlisted_message(task_id),
+            KEY_MESSAGE: ok_message(task_id, matched[0]),
+            KEY_APPROVERS: matched,
         }
-
-    # No allowlist and no non-owner commit proof → refuse (fail-closed).
     return {
         KEY_OK: False,
         KEY_MODE: MODE_REFUSE,

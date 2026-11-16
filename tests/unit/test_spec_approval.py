@@ -23,9 +23,11 @@ from agentized.spec_approval_defaults import (
     MODE_OK,
     MODE_REFUSE,
     MODE_SKIP,
+    approver_not_allowlisted_message,
     default_spec_approval,
     missing_approval_message,
     missing_spec_message,
+    ok_message,
     self_approval_message,
 )
 
@@ -205,8 +207,61 @@ def test_evaluate_task_spec_matrix():
         human_participants=[],
         approval_by_non_owner=True,
     )
-    assert via_git[KEY_OK] is True
-    assert via_git[KEY_MODE] == MODE_OK
+    assert via_git == {
+        KEY_OK: True,
+        KEY_MODE: MODE_OK,
+        KEY_TASK_ID: "T-10",
+        KEY_MESSAGE: ok_message("T-10", "non-owner-commit"),
+        KEY_APPROVERS: ["non-owner-commit"],
+    }
+
+    # claim=None: treat claim as empty; other approvers still work via allowlist
+    none_claim = evaluate_task_spec(
+        task_id="T-11",
+        claim=None,  # type: ignore[arg-type]
+        tags="complex",
+        text="# T-11\n\n## Spec\n\nPlan.\n\n## Approval\n\napproved-by: bob@x.test\n",
+        policy=policy,
+        human_participants=["bob@x.test", "", "  "],
+    )
+    assert none_claim == {
+        KEY_OK: True,
+        KEY_MODE: MODE_OK,
+        KEY_TASK_ID: "T-11",
+        KEY_MESSAGE: ok_message("T-11", "bob@x.test"),
+        KEY_APPROVERS: ["bob@x.test"],
+    }
+
+    # not-allowlisted message must include task_id
+    not_listed = evaluate_task_spec(
+        task_id="T-12",
+        claim="alice",
+        tags="complex",
+        text="# T-12\n\n## Spec\n\nPlan.\n\n## Approval\n\napproved-by: eve@x.test\n",
+        policy=policy,
+        human_participants=["bob@x.test"],
+    )
+    assert not_listed[KEY_OK] is False
+    assert not_listed[KEY_MESSAGE] == approver_not_allowlisted_message("T-12")
+    assert "T-12" in not_listed[KEY_MESSAGE]
+
+    # non-owner with a distinct approver label uses that approver
+    via_other = evaluate_task_spec(
+        task_id="T-13",
+        claim="alice",
+        tags="complex",
+        text="# T-13\n\n## Spec\n\nPlan.\n\n## Approval\n\napproved-by: carol@x.test\n",
+        policy=policy,
+        human_participants=[],
+        approval_by_non_owner=True,
+    )
+    assert via_other == {
+        KEY_OK: True,
+        KEY_MODE: MODE_OK,
+        KEY_TASK_ID: "T-13",
+        KEY_MESSAGE: ok_message("T-13", "carol@x.test"),
+        KEY_APPROVERS: ["carol@x.test"],
+    }
 
     custom_policy = spec_approval_from_config(
         {
