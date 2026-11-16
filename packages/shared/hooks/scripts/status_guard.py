@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Hard status-gate guard for context/tasks edits (AGE-38).
-
-Single source under packages/shared/hooks/scripts/; connect pins copies.
-Decision logic lives in agentized.status_guard (fail-closed).
-"""
+"""AGE-38 status-gate hook; decide logic in agentized.status_guard (fail-closed)."""
 from __future__ import annotations
 
 import json

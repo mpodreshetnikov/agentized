@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Claim-before-edits process guard. May deny Write/Edit in agent sessions."""
-
+"""Claim-before-edits + AGE-38 status_guard (fail-closed) before claim check."""
 from __future__ import annotations
 
 import json
@@ -30,7 +29,11 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    event = payload.get("hook_event_name") or payload.get("hookEventName") or "PreToolUse"
+    event = (
+        payload.get("hook_event_name")
+        or payload.get("hookEventName")
+        or "PreToolUse"
+    )
     allow = {
         "permission": "allow",
         "continue": True,
@@ -42,16 +45,43 @@ def main() -> int:
 
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
-        from agentized.process_control import claim_check
-    except Exception as exc:  # noqa: BLE001 — never crash the harness
-        allow["agent_message"] = f"[process-guard] unavailable: {exc}"
-        print(json.dumps(allow, ensure_ascii=False))
+        from agentized.status_guard import decide_from_stdin
+    except Exception as exc:  # noqa: BLE001 — status path fail-closed
+        print(
+            json.dumps(
+                {
+                    "permission": "deny",
+                    "continue": False,
+                    "agent_message": f"[status-guard] REFUSED: import failure: {exc}",
+                    "hookSpecificOutput": {
+                        "hookEventName": event,
+                        "permissionDecision": "deny",
+                    },
+                },
+                ensure_ascii=False,
+            )
+        )
         return 0
 
     root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
     if runtime.is_dir() and str(runtime) not in sys.path:
         sys.path.insert(0, str(runtime))
+
+    ctx = context_rel(root)
+    status_out = decide_from_stdin(
+        raw, root=root, context_rel=ctx, extract_paths=extract_paths
+    )
+    if status_out.get("permission") == "deny":
+        print(json.dumps(status_out, ensure_ascii=False))
+        return 0
+
+    try:
+        from agentized.process_control import claim_check
+    except Exception as exc:  # noqa: BLE001 — never crash the harness
+        allow["agent_message"] = f"[process-guard] unavailable: {exc}"
+        print(json.dumps(allow, ensure_ascii=False))
+        return 0
 
     paths = extract_paths(payload)
     if "tool_input" not in payload and isinstance(payload.get("input"), dict):
@@ -60,7 +90,6 @@ def main() -> int:
         print(json.dumps(allow))
         return 0
 
-    ctx = context_rel(root)
     result = claim_check(root, paths, context_rel=ctx)
     msg = result.get("message") or ""
     if result.get("ok", True):

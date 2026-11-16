@@ -525,9 +525,8 @@ def test_connect_pins_status_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert (tmp_path / ".cursor" / "hooks" / "status_guard.py").is_file()
     assert (tmp_path / ".claude" / "hooks" / "status_guard.py").is_file()
     assert (tmp_path / ".codex" / "hooks" / "status_guard.py").is_file()
-    assert "status_guard.py" in (tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8")
-    assert "status_guard.py" in (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
-    assert "status_guard.py" in (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
+    pg = (tmp_path / ".cursor" / "hooks" / "process_guard.py").read_text(encoding="utf-8")
+    assert "decide_from_stdin" in pg and "status_guard" in pg
 
 
 def test_load_status_gates_import_error(monkeypatch: pytest.MonkeyPatch):
@@ -904,8 +903,7 @@ def test_evaluate_outside_root_after_edit_records_rel(
             extract_paths=extract_paths,
             gates=_fake_gates(),
         )
-        assert out["permission"] == "allow"
-        assert recorded == [task.as_posix()]
+        assert out["permission"] == "allow" and recorded == [task.as_posix()]
     finally:
         task.unlink(missing_ok=True)
         other.rmdir()
