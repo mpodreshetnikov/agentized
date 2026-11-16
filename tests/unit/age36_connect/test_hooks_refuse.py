@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from agentized.connect import connect, uninstall_hooks
+from agentized.connect_plan import refuse_exit_code
 from agentized.hooks_install import (
     HooksJsonError,
     load_hooks_owned,
@@ -17,7 +18,6 @@ from agentized.hooks_install import (
     uninstall_harness_hooks,
     write_json,
 )
-from agentized_cli import cmd_connect, cmd_uninstall
 
 
 def _skeleton(root: Path) -> None:
@@ -124,52 +124,23 @@ def test_uninstall_skip_valid_without_hooks_merge(tmp_path: Path):
     assert target.read_bytes() == before
 
 
-def test_cli_dry_run_refuse_exit_nonzero(tmp_path: Path, monkeypatch):
+def test_refuse_exit_code_from_dry_run_and_uninstall(tmp_path: Path):
     _skeleton(tmp_path)
-    monkeypatch.chdir(tmp_path)
     target = tmp_path / ".cursor" / "hooks.json"
     target.parent.mkdir(parents=True)
     target.write_text("{broken", encoding="utf-8")
-
-    class Args:
-        context = "context"
-        harness = ["cursor"]
-        coverage = None
-        dry_run = True
-        json = False
-
-    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
-    assert cmd_connect(Args()) == 1
-
-
-def test_cli_uninstall_refuse_exit_nonzero(tmp_path: Path, monkeypatch):
-    _skeleton(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    target = tmp_path / ".cursor" / "hooks.json"
-    target.parent.mkdir(parents=True)
-    target.write_text("{broken", encoding="utf-8")
-
-    class Args:
-        harness = ["cursor"]
-        json = False
-
-    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
-    assert cmd_uninstall(Args()) == 1
-
-
-def test_cli_dry_run_ok_exit_zero(tmp_path: Path, monkeypatch):
-    _skeleton(tmp_path)
-    monkeypatch.chdir(tmp_path)
-
-    class Args:
-        context = "context"
-        harness = ["cursor"]
-        coverage = 90
-        dry_run = True
-        json = False
-
-    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
-    assert cmd_connect(Args()) == 0
+    dry = connect(tmp_path, context_rel="context", harnesses=["cursor"], dry_run=True)
+    assert refuse_exit_code(dry) == 1
+    un = uninstall_hooks(tmp_path, harnesses=["cursor"])
+    assert refuse_exit_code(un) == 1
+    ok = connect(tmp_path, context_rel="context", harnesses=["cursor"], dry_run=True)
+    # Still refused while broken file present.
+    assert refuse_exit_code(ok) == 1
+    target.write_text(json.dumps({"version": 1}, indent=2) + "\n", encoding="utf-8")
+    clean = connect(tmp_path, context_rel="context", harnesses=["cursor"], dry_run=True)
+    assert refuse_exit_code(clean) == 0
+    assert refuse_exit_code({"refused": False}) == 0
+    assert refuse_exit_code({}) == 0
 
 
 def test_plan_create_when_missing(tmp_path: Path):

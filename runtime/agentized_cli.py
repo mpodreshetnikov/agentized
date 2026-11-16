@@ -74,13 +74,15 @@ def cmd_connect(args: argparse.Namespace) -> int:
             )
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
-        if result.get("refused"):
+        from agentized.connect_plan import refuse_exit_code
+
+        code = refuse_exit_code(result)
+        if code:
             print(
                 "connect dry-run REFUSED (action=refuse present; no writes)",
                 file=sys.stderr,
             )
-            return 1
-        return 0
+        return code
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
@@ -123,12 +125,15 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    if result.get("refused"):
+    from agentized.connect_plan import refuse_exit_code
+
+    code = refuse_exit_code(result)
+    if code:
         print(
             "uninstall REFUSED (action=refuse; broken harness JSON left unchanged)",
             file=sys.stderr,
         )
-        return 1
+        return code
     print("uninstall OK (Agentized hooks only; foreign preserved)")
     print(f"  harnesses: {', '.join(harnesses)}")
     return 0

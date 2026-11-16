@@ -332,3 +332,38 @@ def test_plugin_refresh_skipped_without_package(tmp_path: Path):
     dry = plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
     plugin_rows = [w for w in dry["planned_writes"] if w.get("kind") == "plugin-refresh"]
     assert plugin_rows == []
+
+
+def test_tree_digests_missing_and_bad_action(tmp_path: Path, monkeypatch):
+    assert tree_digests(tmp_path / "no-such-tree") == {}
+    # Absolute hooksPath that resolves to .githooks → skip.
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    abs_hooks = tmp_path / ".githooks"
+    abs_hooks.mkdir()
+    subprocess.run(
+        ["git", "config", "--local", "core.hooksPath", str(abs_hooks)],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert plan_hooks_path_action(tmp_path) == "skip"
+
+    # Force invalid action to hit validation.
+    import agentized.connect_plan as cp
+
+    monkeypatch.setattr(cp, "plan_harness_hooks", lambda *a, **k: [{"path": "x", "action": "nope", "harness": "cursor"}])
+    try:
+        plan_connect_writes(tmp_path, context_rel="context", harnesses=["cursor"])
+        raised = 0
+    except ValueError as exc:
+        raised = 1
+        assert "create|update|merge|skip|refuse" in str(exc)
+    assert raised == 1
+
+
+def test_marker_body_without_trailing_newline(tmp_path: Path):
+    # Body without trailing newline exercises endswith("\n") false branch.
+    body = f"{CONNECT_MARKER_BEGIN}\nX\n{CONNECT_MARKER_END}"
+    path = tmp_path / "AGENTS.md"
+    path.write_text("\n\n" + body + "\n", encoding="utf-8")
+    assert plan_marker_action(path, body, create=True) == "skip"

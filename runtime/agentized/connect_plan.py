@@ -171,6 +171,11 @@ def plans_include_refuse(planned: list[dict[str, Any]]) -> bool:
     return any(item.get("action") == "refuse" for item in planned)
 
 
+def refuse_exit_code(result: dict[str, Any]) -> int:
+    """Non-zero when dry-run/uninstall result carries action=refuse."""
+    return 1 if result.get("refused") else 0
+
+
 def plan_connect_writes(
     root: Path,
     *,
