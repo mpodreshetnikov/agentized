@@ -57,12 +57,12 @@ def evaluate_task_spec(
     text: str,
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    """Pure check for one task file body."""
-    complex_tag = str(policy.get(CFG_COMPLEX_TAG, EMPTY))
+    """Pure check for one task file body. `policy` must be normalized via from_config."""
+    complex_tag = str(policy[CFG_COMPLEX_TAG])
     if not task_needs_spec(tags, complex_tag):
         return {KEY_OK: True, KEY_MODE: MODE_SKIP, KEY_TASK_ID: task_id, KEY_MESSAGE: EMPTY}
-    spec_h = str(policy.get(CFG_SPEC_HEADING, EMPTY))
-    appr_h = str(policy.get(CFG_APPROVAL_HEADING, EMPTY))
+    spec_h = str(policy[CFG_SPEC_HEADING])
+    appr_h = str(policy[CFG_APPROVAL_HEADING])
     spec = section_body(text, spec_h)
     if spec is None or len(spec) == 0 or spec.startswith(PLACEHOLDER_PREFIX):
         return {
