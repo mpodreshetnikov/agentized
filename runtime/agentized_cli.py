@@ -13,7 +13,7 @@ if str(ROOT_RUNTIME) not in sys.path:
     sys.path.insert(0, str(ROOT_RUNTIME))
 
 from agentized import __version__
-from agentized.connect import connect
+from agentized.connect import connect, uninstall_hooks
 from agentized.leases import (
     find_overlaps,
     list_leases,
@@ -51,7 +51,38 @@ def cmd_connect(args: argparse.Namespace) -> int:
         context_rel=args.context,
         harnesses=harnesses,
         coverage_pct=args.coverage,
+        dry_run=bool(getattr(args, "dry_run", False)),
     )
+    if result.get("dry_run"):
+        print("connect dry-run (no writes; plans all connect targets)")
+        print(f"  context: {args.context}/")
+        print(f"  harnesses: {', '.join(harnesses)}")
+        if result.get("coverage_pct") is not None:
+            print(f"  coverage: {result.get('coverage_pct')}")
+        print(f"  scope: {result.get('scope') or 'all-connect-writes'}")
+        for item in result.get("planned_writes") or []:
+            extra = ""
+            if item.get("harness"):
+                extra = f" harness={item.get('harness')}"
+            if "changed" in item:
+                extra += f" changed={item.get('changed')}"
+            print(f"  plan: {item.get('action')} {item.get('path')}{extra}")
+        for plan in result.get("hook_plans") or []:
+            print(
+                f"  hooks/{plan.get('harness')}: {plan.get('action')} "
+                f"{plan.get('path')} changed={plan.get('changed')}"
+            )
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        from agentized.connect_plan import refuse_exit_code
+
+        code = refuse_exit_code(result)
+        if code:
+            print(
+                "connect dry-run REFUSED (action=refuse present; no writes)",
+                file=sys.stderr,
+            )
+        return code
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
@@ -78,6 +109,33 @@ def cmd_connect(args: argparse.Namespace) -> int:
         print(f"  quality templates: pre-push={qt.get('pre_push')} ci={qt.get('ci_workflow')}")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    harnesses = args.harness
+    if harnesses == ["all"]:
+        harnesses = ["cursor", "claude", "codex"]
+    result = uninstall_hooks(root, harnesses=harnesses)
+    for item in result.get("results") or []:
+        print(
+            f"  {item.get('harness')}: {item.get('action')} "
+            f"{item.get('path')} changed={item.get('changed')}"
+        )
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    from agentized.connect_plan import refuse_exit_code
+
+    code = refuse_exit_code(result)
+    if code:
+        print(
+            "uninstall REFUSED (action=refuse; broken harness JSON left unchanged)",
+            file=sys.stderr,
+        )
+        return code
+    print("uninstall OK (Agentized hooks only; foreign preserved)")
+    print(f"  harnesses: {', '.join(harnesses)}")
     return 0
 
 
@@ -621,8 +679,27 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PCT",
         help="задать порог coverage lines+branches в context/quality.json (по умолчанию 80)",
     )
+    c.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print planned connect writes (incl. quality/marketplace/hooks); no writes",
+    )
     c.add_argument("--json", action="store_true")
     c.set_defaults(func=cmd_connect)
+
+    un = sub.add_parser(
+        "uninstall",
+        help="Remove Agentized harness hooks only (preserve foreign entries)",
+    )
+    un.add_argument(
+        "--harness",
+        nargs="+",
+        default=["all"],
+        choices=["all", "cursor", "claude", "codex"],
+        help="какие harness очистить (по умолчанию all)",
+    )
+    un.add_argument("--json", action="store_true")
+    un.set_defaults(func=cmd_uninstall)
 
     ec = sub.add_parser("env-check", help="Fail-closed agent/cloud hook wiring check")
     ec.add_argument("--context", default=None)

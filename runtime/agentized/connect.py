@@ -966,8 +966,18 @@ def connect(
     context_rel: str = DEFAULT_CONTEXT,
     harnesses: list[str] | None = None,
     coverage_pct: float | int | None = None,
+    dry_run: bool = False,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
+    if dry_run:
+        from .connect_dry_run import plan_connect_writes
+
+        return plan_connect_writes(
+            root,
+            context_rel=context_rel,
+            harnesses=harnesses,
+            coverage_pct=coverage_pct,
+        )
     skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
@@ -1056,3 +1066,22 @@ def connect(
     results["skipped_user"] = skipped_unique
     results["idempotent"] = not changed_agents and not changed_claude
     return results
+
+
+def uninstall_hooks(
+    root: Path,
+    *,
+    harnesses: list[str] | None = None,
+    context_rel: str = DEFAULT_CONTEXT,
+) -> dict:
+    """Remove only Agentized hook entries when hooks_merge is available; refuse on broken JSON."""
+    from .hooks_install import uninstall_harness_hooks
+    from .connect_plan import plans_include_refuse
+
+    harnesses = harnesses or ["cursor", "claude", "codex"]
+    results = uninstall_harness_hooks(root, harnesses, context_rel=context_rel)
+    return {
+        "harnesses": harnesses,
+        "results": results,
+        "refused": plans_include_refuse(results),
+    }

@@ -15,9 +15,13 @@
 # or: python3 runtime/agentized_cli.py connect
 # or (external repo with Agentized on PATH): agentized connect
 ./bin/agentized connect --coverage 85   # optional threshold pin
+./bin/agentized connect --dry-run       # plan all writes; refuse → exit ≠ 0
+./bin/agentized uninstall               # Agentized hooks only; refuse → exit ≠ 0
 ```
 
 Идемпотентна. Повторный запуск дополняет/обновляет те же маркеры, не плодит дубликаты.
+
+`connect --dry-run` inventories create|update|merge|skip|refuse without writing (quality warn→hard / `--coverage`, marketplace.json, local plugin refresh, pin-tree content compare). Any `action=refuse` (broken harness JSON) → non-zero exit. `uninstall` likewise refuses broken harness JSON with non-zero exit and leaves bytes unchanged.
 
 ### Обязательные эффекты
 
