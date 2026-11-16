@@ -14,6 +14,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from .board_html_io import read_task_text, write_html
 from .tasks import TaskMeta, parse_task
 
 # Canonical statuses for board columns (display). Same set as Dashboard V1.
@@ -66,6 +67,7 @@ FIELD_RE = re.compile(
 DEFAULT_TITLE = "Agentized task board"
 FALLBACK_COLUMN = "open"
 EMPTY_COLUMN_HTML = '<p class="empty">(empty)</p>'
+JOIN_NL = "\n"
 _CSS = (
     ":root{--bg:#0f1419;--col:#1a2332;--card:#243044;--fg:#e7ecf3;"
     "--muted:#9aa7b8;--acc:#5b9fd4}"
@@ -99,12 +101,12 @@ BOARD_INTRO = (
 
 def escape(text: str | None) -> str:
     """HTML-escape task content for safe embedding."""
-    return html.escape(text or "", quote=True)
+    return html.escape("" if text is None else text)
 
 
 def normalize_status(raw: str | None) -> str:
     """Map aliases; empty → idea for display columns only."""
-    s = (raw or "").strip().lower()
+    s = ("" if raw is None else raw).strip().lower()
     if not s:
         return "idea"
     return STATUS_ALIASES.get(s, s)
@@ -116,19 +118,21 @@ def column_for_status(status: str) -> str:
 
 
 def _plain(val: str | None) -> str:
-    v = (val or "").strip()
+    v = ("" if val is None else val).strip()
     if not v or v.startswith("_"):
         return ""
     return v
 
 
 def extract_value_line(text: str | None) -> str:
-    m = VALUE_EXTRACT_RE.search(text or "")
+    src = "" if text is None else text
+    m = VALUE_EXTRACT_RE.search(src)
     return m.group(1).strip() if m else ""
 
 
 def extract_fields(text: str | None) -> dict[str, str]:
-    return {k: v.strip() for k, v in FIELD_RE.findall(text or "")}
+    src = "" if text is None else text
+    return {k: v.strip() for k, v in FIELD_RE.findall(src)}
 
 
 def _card_data(meta: TaskMeta, text: str) -> dict[str, str]:
@@ -153,7 +157,7 @@ def collect_board_cards(tasks_dir: Path) -> list[dict[str, str]]:
         meta = parse_task(path)
         if meta is None:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = read_task_text(path)
         cards.append(_card_data(meta, text))
     return cards
 
@@ -196,7 +200,7 @@ def _render_card(card: dict[str, str], children: list[str]) -> str:
         kids = ", ".join(escape(c) for c in children)
         parts.append(f'<p class="card-subtasks">Subtasks: {kids}</p>')
     parts.append("</article>")
-    return "\n".join(parts)
+    return JOIN_NL.join(parts)
 
 
 def _render_column(
@@ -208,7 +212,7 @@ def _render_column(
     if not items:
         body = EMPTY_COLUMN_HTML
     else:
-        body = "\n".join(
+        body = JOIN_NL.join(
             _render_card(card, children_map.get(card["id"]) or []) for card in items
         )
     return (
@@ -239,9 +243,10 @@ def render_board_html(
         items = sorted(by_col[col_id], key=lambda c: c["id"])
         columns_html.append(_render_column(col_id, col_label, items, children_map))
 
-    stamp = ""
     if generated_at:
         stamp = f'\n<p class="stamp">Generated: {escape(generated_at)}</p>'
+    else:
+        stamp = ""
 
     return (
         "<!DOCTYPE html>\n"
@@ -258,7 +263,7 @@ def render_board_html(
         f"{stamp}\n"
         "</header>\n"
         '<main class="board">\n'
-        + "\n".join(columns_html)
+        + JOIN_NL.join(columns_html)
         + "\n</main>\n"
         "</body>\n"
         "</html>\n"
@@ -283,6 +288,5 @@ def write_board(
     title: str = DEFAULT_TITLE,
 ) -> Path:
     html_text = generate_board(tasks_dir, generated_at=generated_at, title=title)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html_text, encoding="utf-8", newline="\n")
+    write_html(out_path, html_text)
     return out_path

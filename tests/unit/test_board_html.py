@@ -11,6 +11,7 @@ from agentized.board_html import (
     DEFAULT_TITLE,
     EMPTY_COLUMN_HTML,
     FALLBACK_COLUMN,
+    JOIN_NL,
     STATUS_ALIASES,
     _CSS,
     _card_data,
@@ -29,6 +30,22 @@ from agentized.board_html import (
     write_board,
 )
 from agentized.tasks import TaskMeta
+
+# Exact skeleton fragments — kills HTML case / XX-wrap / join mutants.
+_REQUIRED_FRAGMENTS = (
+    "<!DOCTYPE html>\n",
+    '<html lang="en">\n',
+    "<head>\n",
+    '<meta charset="utf-8">\n',
+    "</head>\n",
+    "<body>\n",
+    "<header>\n",
+    "</header>\n",
+    '<main class="board">\n',
+    "\n</main>\n",
+    "</body>\n",
+    "</html>\n",
+)
 
 
 def _write_task(
@@ -86,6 +103,7 @@ def test_canonical_status_set_and_columns():
     assert FALLBACK_COLUMN == "open"
     assert DEFAULT_TITLE == "Agentized task board"
     assert EMPTY_COLUMN_HTML == '<p class="empty">(empty)</p>'
+    assert JOIN_NL == "\n"
     assert "static, no network" in BOARD_INTRO
     assert _CSS.startswith(":root{--bg:#0f1419;")
     assert ".card-blocked{color:#e8a0a0}" in _CSS
@@ -107,6 +125,7 @@ def test_normalize_and_column_helpers():
 def test_escape_and_plain():
     assert escape("<script>") == "&lt;script&gt;"
     assert escape('say "hi"') == "say &quot;hi&quot;"
+    assert escape("'x'") == "&#x27;x&#x27;"
     assert escape("") == ""
     assert escape(None) == ""
     assert _plain("") == ""
@@ -167,13 +186,22 @@ def test_columns_and_cards(tmp_path: Path):
     assert by_id["T-261116-ccc"]["column"] == "in-progress"
 
     html = generate_board(tasks)
-    assert html.startswith("<!DOCTYPE html>\n")
+    for frag in _REQUIRED_FRAGMENTS:
+        assert frag in html
+    assert "XX" not in html
+    assert "None" not in html
+    assert "<HEAD>" not in html
+    assert "<BODY>" not in html
+    assert "<HEADER>" not in html
+    assert "<MAIN" not in html
     assert f"<style>{_CSS}</style>" in html
     assert f"<p>{BOARD_INTRO}</p>" in html
     col_markers = [f'data-column="{col_id}"' for col_id, _ in BOARD_COLUMNS]
     assert [html.find(m) for m in col_markers] == sorted(html.find(m) for m in col_markers)
     assert all(html.find(m) != -1 for m in col_markers)
     assert html.count("Alpha &lt;xss&gt;") == 1
+    assert html.count('<p class="card-id">T-261116-aaa</p>') == 1
+    assert html.count('<p class="card-value">see board</p>') == 1
     assert html.find("<script>") == -1
     assert html.count("Claim: alice") == 1
     assert html.count("Parent: T-261116-aaa") == 1
@@ -181,6 +209,7 @@ def test_columns_and_cards(tmp_path: Path):
     assert html.count("wait on API") == 1
     assert html.count("2026-12-01") == 1
     assert html.count('data-column="open"') == 1
+    assert html.count("Open / Queue") == 1
     assert html.count("(1)") >= 3
 
 
@@ -248,6 +277,8 @@ def test_determinism_without_stamp(tmp_path: Path):
     assert a.count(f"<title>{DEFAULT_TITLE}</title>") == 1
     assert a.count(f"<h1>{DEFAULT_TITLE}</h1>") == 1
     assert a.count("Generated:") == 0
+    assert "XXXX" not in a
+    assert "None" not in a
     stamped = generate_board(tasks, generated_at="2026-11-16T00:00:00Z")
     assert stamped.count("Generated: 2026-11-16T00:00:00Z") == 1
     assert a != stamped
@@ -414,16 +445,75 @@ def test_render_card_and_column_helpers():
         "column": "blocked",
     }
     rendered = _render_card(card, ["T-261116-c1", "T-261116-c2"])
-    assert rendered.startswith('<article class="card">')
-    assert rendered.endswith("</article>")
-    assert "Blocked: why" in rendered
-    assert "Deadline: 2026-01-01" in rendered
-    assert "Subtasks: T-261116-c1, T-261116-c2" in rendered
-    assert "Claim: c" in rendered
-    assert "Parent: T-261116-p" in rendered
+    expected_card = JOIN_NL.join(
+        [
+            '<article class="card">',
+            '<h3 class="card-title">X</h3>',
+            '<p class="card-id">T-261116-x1</p>',
+            '<p class="card-value">val</p>',
+            '<p class="card-status">Status: blocked</p>',
+            '<p class="card-claim">Claim: c</p>',
+            '<p class="card-blocked">Blocked: why</p>',
+            '<p class="card-deadline">Deadline: 2026-01-01</p>',
+            '<p class="card-parent">Parent: T-261116-p</p>',
+            '<p class="card-subtasks">Subtasks: T-261116-c1, T-261116-c2</p>',
+            "</article>",
+        ]
+    )
+    assert rendered == expected_card
+    assert "XX" not in rendered
     col = _render_column("blocked", "Blocked", [card], {"T-261116-x1": []})
     assert 'data-column="blocked"' in col
-    assert '<span class="count">(1)</span>' in col
+    assert "<h2>Blocked <span class=\"count\">(1)</span></h2>" in col
+    assert "XX" not in col
     empty_col = _render_column("done", "Done", [], {})
     assert EMPTY_COLUMN_HTML in empty_col
     assert '<span class="count">(0)</span>' in empty_col
+    # two cards → JOIN_NL between articles (not XX\\nXX)
+    card_a = {
+        "id": "T-261116-a1",
+        "title": "A",
+        "status": "open",
+        "value": "",
+        "claim": "",
+        "parent": "",
+        "blocked_reason": "",
+        "blocked_deadline": "",
+        "column": "open",
+    }
+    card_b = dict(card_a)
+    card_b["id"] = "T-261116-b1"
+    card_b["title"] = "B"
+    two = _render_column("open", "Open / Queue", [card_a, card_b], {})
+    piece_a = _render_card(card_a, [])
+    piece_b = _render_card(card_b, [])
+    assert two.count(piece_a) == 1
+    assert two.count(piece_b) == 1
+    assert JOIN_NL.join([piece_a, piece_b]) in two
+    assert "XX" not in two
+
+
+def test_empty_board_exact_skeleton():
+    html = render_board_html([])
+    for frag in _REQUIRED_FRAGMENTS:
+        assert frag in html
+    assert html.count(EMPTY_COLUMN_HTML) == len(BOARD_COLUMNS)
+    assert "XX" not in html
+    assert "None" not in html
+    assert "XXXX" not in html
+    assert "<HEAD>" not in html
+    assert "</HEAD>" not in html
+    assert "<BODY>" not in html
+    assert "</BODY>" not in html
+    assert "<HEADER>" not in html
+    assert "</HEADER>" not in html
+    assert "<MAIN CLASS=" not in html
+    assert "</MAIN>" not in html
+    assert "</HTML>" not in html
+    assert "Open / Queue" in html
+    assert "In Progress" in html
+    assert "Self-Review" in html
+    assert "For Review" in html
+    assert "Blocked" in html
+    assert "Done" in html
+    assert "Canceled" in html
