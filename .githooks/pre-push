@@ -28,6 +28,9 @@ fi
 echo "[agentized pre-push] process size"
 "${CLI[@]}" process size
 
+echo "[agentized pre-push] process spec-approval"
+"${CLI[@]}" process spec-approval
+
 echo "[agentized pre-push] quality check (coverage + mutation)"
 "${CLI[@]}" quality check
 

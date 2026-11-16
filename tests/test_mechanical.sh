@@ -71,6 +71,7 @@ echo "-- connect coverage threshold --"
 "${CLI[@]}" connect --coverage 82 >/tmp/agentized-connect-cov.txt
 assert "coverage threshold applied" grep -Eq '"lines": 82(\.0)?' context/quality.json
 assert "pre-push template pinned" test -f .githooks/pre-push
+assert "pre-push calls process spec-approval" grep -q 'process spec-approval' .githooks/pre-push
 assert "ci workflow pinned" test -f .github/workflows/ci.yml
 
 echo "-- connect idempotency --"

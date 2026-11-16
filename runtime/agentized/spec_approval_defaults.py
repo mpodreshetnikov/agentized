@@ -1,0 +1,68 @@
+"""Defaults + constant lexemes for spec-approval (outside mutation include_globs)."""
+from __future__ import annotations
+
+from typing import Any
+
+DOC = "docs/process-control.md"
+
+MODE_DISABLED = "disabled"
+MODE_SKIP = "skip"
+MODE_REFUSE = "refuse"
+MODE_OK = "ok"
+
+KEY_OK = "ok"
+KEY_MODE = "mode"
+KEY_MESSAGE = "message"
+KEY_TASK_ID = "task_id"
+KEY_APPROVERS = "approvers"
+KEY_FAILURES = "failures"
+KEY_CHECKED = "checked"
+
+CFG_SPEC_APPROVAL = "spec_approval"
+CFG_ENABLED = "enabled"
+CFG_COMPLEX_TAG = "complex_tag"
+CFG_SPEC_HEADING = "spec_heading"
+CFG_APPROVAL_HEADING = "approval_heading"
+
+DEFAULT_COMPLEX_TAG = "complex"
+DEFAULT_SPEC_HEADING = "## Spec"
+DEFAULT_APPROVAL_HEADING = "## Approval"
+PLACEHOLDER_PREFIX = "_("
+
+
+def default_spec_approval() -> dict[str, Any]:
+    return {
+        CFG_ENABLED: False,
+        CFG_COMPLEX_TAG: DEFAULT_COMPLEX_TAG,
+        CFG_SPEC_HEADING: DEFAULT_SPEC_HEADING,
+        CFG_APPROVAL_HEADING: DEFAULT_APPROVAL_HEADING,
+    }
+
+
+def missing_spec_message(task_id: str, spec_heading: str) -> str:
+    return (
+        f"REFUSED. spec-approval: {task_id} is complex but missing non-empty "
+        f"{spec_heading} section. See {DOC}."
+    )
+
+
+def missing_approval_message(task_id: str, approval_heading: str) -> str:
+    return (
+        f"REFUSED. spec-approval: {task_id} needs {approval_heading} with "
+        f"approved-by: <other participant>. See {DOC}."
+    )
+
+
+def self_approval_message(task_id: str, claim: str) -> str:
+    return (
+        f"REFUSED. spec-approval: {task_id} requires approved-by someone other "
+        f"than claim owner {claim!r}. See {DOC}."
+    )
+
+
+def ok_message(task_id: str, approver: str) -> str:
+    return f"spec-approval: {task_id} OK (approved-by {approver})"
+
+
+def checked_message(checked: int) -> str:
+    return f"spec-approval: checked {checked} complex in-progress task(s)"

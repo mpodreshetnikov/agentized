@@ -27,6 +27,22 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 ./bin/agentized process size --base origin/main --json
 ```
 
+## Spec approval gate (AGE-28)
+
+Config block: `spec_approval` in [`context/process-control.json`](../context/process-control.json). **Off by default.**
+
+| Knob | Default | Meaning |
+|------|---------|---------|
+| `enabled` | `false` | When true, pre-push `process spec-approval` checks in-progress tasks |
+| `complex_tag` | `complex` | Tag that marks a task as requiring Spec + Approval |
+| `spec_heading` | `## Spec` | Required non-empty section (placeholder `_(…)` does not count) |
+| `approval_heading` | `## Approval` | Must contain `approved-by: <other>` different from claim owner |
+
+```bash
+./bin/agentized process spec-approval
+./bin/agentized process spec-approval --json
+```
+
 ## Spec / decision hygiene
 
 Keep decisions in `context/decisions/` when they change process rules. Prefer one claimable child task per reviewable PR; split when approaching the size limit.
