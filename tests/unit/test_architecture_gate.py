@@ -234,3 +234,114 @@ def test_architecture_main(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(arch, "run_architecture_gate", lambda root, context="context": 0)
     assert arch.main(["--context", "context"]) == 0
     assert arch.main([]) == 0
+
+
+def test_architecture_js_missing_config_fails_hard(tmp_path: Path, monkeypatch):
+    """AGE-34: JS/TS present → dependency-cruiser must run; missing config fails."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.ts").write_text("export const x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        arch,
+        "load_quality",
+        lambda *a, **k: {
+            "languages": {"exclude_globs": []},
+            "architecture": {
+                "enabled": True,
+                "mode": "hard",
+                "tools": {"typescript": "dependency-cruiser"},
+                "js_config": ".dependency-cruiser.cjs",
+                "js_source": "src",
+            },
+        },
+    )
+    assert arch.run_architecture_gate(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/architecture/architecture-summary.json").read_text(encoding="utf-8")
+    )
+    assert any(f["kind"] == "dependency_cruiser" for f in summary["findings"])
+
+
+def test_architecture_js_cruiser_pass(tmp_path: Path, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.js").write_text("export const x = 1\n", encoding="utf-8")
+    (tmp_path / ".dependency-cruiser.cjs").write_text("module.exports = {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        arch,
+        "load_quality",
+        lambda *a, **k: {
+            "languages": {"exclude_globs": []},
+            "architecture": {
+                "enabled": True,
+                "mode": "hard",
+                "tools": {"javascript": "dependency-cruiser"},
+                "js_config": ".dependency-cruiser.cjs",
+                "js_source": "src",
+            },
+        },
+    )
+    monkeypatch.setattr(arch, "_run_dependency_cruiser", lambda root, section: (0, "ok"))
+    assert arch.run_architecture_gate(tmp_path) == 0
+
+
+def test_architecture_eslint_boundaries_and_missing_tool(tmp_path: Path, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.ts").write_text("export {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        arch,
+        "load_quality",
+        lambda *a, **k: {
+            "languages": {"exclude_globs": []},
+            "architecture": {
+                "enabled": True,
+                "mode": "hard",
+                "tools": {"typescript": "eslint-boundaries"},
+            },
+        },
+    )
+    monkeypatch.setattr(arch, "_run_eslint_boundaries", lambda root, section: (0, "clean"))
+    assert arch.run_architecture_gate(tmp_path) == 0
+
+    monkeypatch.setattr(
+        arch,
+        "load_quality",
+        lambda *a, **k: {
+            "languages": {"exclude_globs": []},
+            "architecture": {
+                "enabled": True,
+                "mode": "hard",
+                "tools": {},
+                "tool": "import-linter",
+            },
+        },
+    )
+    assert arch.run_architecture_gate(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/architecture/architecture-summary.json").read_text(encoding="utf-8")
+    )
+    assert any(f["kind"] == "no_architecture_runner" for f in summary["findings"])
+
+
+def test_run_dependency_cruiser_and_eslint_helpers(tmp_path: Path, monkeypatch):
+    cfg = tmp_path / ".dependency-cruiser.cjs"
+    cfg.write_text("module.exports={}\n", encoding="utf-8")
+
+    class R:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr(arch.shutil, "which", lambda n: "/usr/bin/npx")
+    monkeypatch.setattr(arch.subprocess, "run", lambda *a, **k: R())
+    rc, out = arch._run_dependency_cruiser(tmp_path, {"js_config": ".dependency-cruiser.cjs", "js_source": "src"})
+    assert rc == 0 and "ok" in out
+    rc2, out2 = arch._run_eslint_boundaries(tmp_path, {})
+    assert rc2 == 0
+    monkeypatch.setattr(arch.shutil, "which", lambda n: None)
+    rc3, note = arch._run_dependency_cruiser(tmp_path, {"js_config": ".dependency-cruiser.cjs"})
+    assert rc3 == 1 and "npx" in note
+    rc4, note4 = arch._run_eslint_boundaries(tmp_path, {})
+    assert rc4 == 1 and "npx" in note4
+

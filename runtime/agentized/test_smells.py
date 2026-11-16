@@ -28,31 +28,62 @@ _MOCK_ASSERT_ATTRS = {
 }
 
 
+def _expand_brace_glob(pattern: str) -> list[str]:
+    """Expand a single `{a,b}` brace group (enough for *.{test,spec}.{js,ts})."""
+    if "{" not in pattern or "}" not in pattern:
+        return [pattern]
+    start = pattern.index("{")
+    end = pattern.index("}", start)
+    body = pattern[start + 1 : end]
+    if "," not in body:
+        return [pattern]
+    prefix, suffix = pattern[:start], pattern[end + 1 :]
+    out: list[str] = []
+    for part in body.split(","):
+        for expanded in _expand_brace_glob(prefix + part + suffix):
+            out.append(expanded)
+    return out
+
+
 def _glob_match(rel: str, pattern: str) -> bool:
-    """Match repo-relative paths; treat `**` as 'any directories'."""
-    if fnmatch.fnmatch(rel, pattern):
-        return True
-    if "**" not in pattern:
-        return False
-    # tests/unit/**/*.py → under tests/unit/ and ends with .py
-    if pattern.endswith("/**/*.py"):
-        prefix = pattern[: -len("/**/*.py")]
-        return rel.startswith(prefix + "/") and rel.endswith(".py")
-    if pattern.startswith("**/"):
-        rest = pattern[3:]
-        return fnmatch.fnmatch(rel, rest) or any(
-            fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
-        )
-    simplified = pattern.replace("/**/", "/").replace("**/", "").replace("**", "*")
-    return fnmatch.fnmatch(rel, simplified)
+    """Match repo-relative paths; treat `**` as 'any directories'; expand `{a,b}`."""
+    for pat in _expand_brace_glob(pattern):
+        if fnmatch.fnmatch(rel, pat):
+            return True
+        if "**" not in pat:
+            continue
+        # tests/unit/**/*.py → under tests/unit/ and ends with .py
+        if pat.endswith("/**/*.py"):
+            prefix = pat[: -len("/**/*.py")]
+            if rel.startswith(prefix + "/") and rel.endswith(".py"):
+                return True
+            continue
+        if pat.startswith("**/"):
+            rest = pat[3:]
+            if fnmatch.fnmatch(rel, rest) or any(
+                fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
+            ):
+                return True
+            continue
+        simplified = pat.replace("/**/", "/").replace("**/", "").replace("**", "*")
+        if fnmatch.fnmatch(rel, simplified):
+            return True
+    return False
+
+
+_TEST_FILE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 
 
 def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
     out: list[Path] = []
-    for path in root.rglob("*.py"):
+    for path in root.rglob("*"):
         if not path.is_file():
             continue
+        if path.suffix.lower() not in _TEST_FILE_SUFFIXES:
+            continue
         rel = path.relative_to(root).as_posix()
+        if any(part in {"node_modules", ".git", "mutants", "coverage", "dist", "build"} for part in rel.split("/")):
+            continue
         if any(_glob_match(rel, g) for g in globs):
             out.append(path)
     return sorted(out)
@@ -148,8 +179,46 @@ def _call_name(node: ast.AST) -> str:
     return ""
 
 
+_JS_WEAK_PATTERNS = (
+    (".toBeTruthy(", "weak_primary_oracle"),
+    (".toBeFalsy(", "weak_primary_oracle"),
+    (".toBeDefined(", "weak_primary_oracle"),
+    (".toBeUndefined(", "weak_primary_oracle"),
+    ("assert.ok(", "weak_primary_oracle"),
+    ("assert.equal(true", "weak_primary_oracle"),
+)
+
+
+def _scan_js_ts_file(path: Path, root: Path) -> list[dict]:
+    """Lightweight test-smell lint for JS/TS tests (Orbit weak-oracle patterns)."""
+    rel = path.relative_to(root).as_posix()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [{"file": rel, "line": 1, "kind": "read_error", "detail": str(exc)}]
+    findings: list[dict] = []
+    for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("//") or stripped.startswith("*"):
+            continue
+        for needle, kind in _JS_WEAK_PATTERNS:
+            if needle in line:
+                findings.append(
+                    {
+                        "file": rel,
+                        "line": i,
+                        "kind": kind,
+                        "detail": f"JS/TS weak oracle ({needle.strip('(')} ) — prefer exact value asserts",
+                    }
+                )
+                break
+    return findings
+
+
 def _scan_file(path: Path, root: Path) -> list[dict]:
     rel = path.relative_to(root).as_posix()
+    if path.suffix.lower() in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+        return _scan_js_ts_file(path, root)
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
     except SyntaxError as exc:

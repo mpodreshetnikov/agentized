@@ -21,7 +21,7 @@ def test_mutation_skip_no_changed(tmp_path: Path, monkeypatch):
             "modules": [{"source": ["runtime/agentized"]}],
         },
     )
-    monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: [])
+    monkeypatch.setattr(mut, "_changed_source_files", lambda *a, **k: [])
     monkeypatch.chdir(tmp_path)
     assert mut.run_mutation(tmp_path) == 0
     assert (tmp_path / "reports/mutation/mutation-summary.json").exists()
@@ -177,3 +177,62 @@ def test_test_selection_multi_file(tmp_path: Path):
 def test_test_selection_fallback_all_unit(tmp_path: Path):
     (tmp_path / "tests" / "unit").mkdir(parents=True)
     assert mut._test_selection_for(["agentized/missing_mod.py"], tmp_path) == ["tests/unit"]
+
+
+def test_mutation_fails_when_changed_files_have_no_runner(tmp_path: Path, monkeypatch):
+    """AGE-34: fail closed (not skip) when changed sources lack a mutation tool."""
+    (tmp_path / "context").mkdir()
+    monkeypatch.setattr(
+        mut,
+        "load_quality",
+        lambda *a, **k: {
+            "mutation": {
+                "enabled": True,
+                "tool": "mutmut",
+                "tools": {"python": "mutmut"},
+                "min_score_covered": 100,
+                "include_globs": [],
+            },
+            "modules": [{"source": ["src"]}],
+        },
+    )
+    monkeypatch.setattr(
+        mut, "_changed_source_files", lambda *a, **k: ["src/service.go"]
+    )
+    monkeypatch.chdir(tmp_path)
+    assert mut.run_mutation(tmp_path) == 1
+    summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert summary["passed"] is False
+    assert "no_mutation_runner" in summary["reasons"]
+
+
+def test_mutation_dispatches_stryker_for_ts(tmp_path: Path, monkeypatch):
+    (tmp_path / "context").mkdir()
+    monkeypatch.setattr(
+        mut,
+        "load_quality",
+        lambda *a, **k: {
+            "mutation": {
+                "enabled": True,
+                "tools": {"typescript": "stryker", "python": "mutmut"},
+                "min_score_covered": 100,
+                "include_globs": [],
+            },
+            "modules": [{"source": ["src"]}],
+        },
+    )
+    monkeypatch.setattr(
+        mut, "_changed_source_files", lambda *a, **k: ["src/util.ts"]
+    )
+    called = {}
+
+    def fake_stryker(root=None, **kwargs):
+        called.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(mut, "_run_stryker_gate", fake_stryker)
+    monkeypatch.chdir(tmp_path)
+    assert mut.run_mutation(tmp_path) == 0
+    assert called["changed"] == ["src/util.ts"]
+    assert "typescript" in called["languages"]
+

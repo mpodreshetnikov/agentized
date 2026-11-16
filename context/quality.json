@@ -27,14 +27,21 @@
     "break_on_no_tests": true,
     "include_globs": [
       "runtime/agentized/*.py"
-    ]
+    ],
+    "tools": {
+      "python": "mutmut",
+      "javascript": "stryker",
+      "typescript": "stryker"
+    }
   },
   "test_smells": {
     "enabled": true,
     "mode": "hard",
     "include_globs": [
       "tests/unit/**/*.py",
-      "tests/quality/**/*.py"
+      "tests/quality/**/*.py",
+      "**/*.{test,spec}.{js,jsx,ts,tsx}",
+      "**/__tests__/**/*.{js,jsx,ts,tsx}"
     ]
   },
   "architecture": {
@@ -54,7 +61,14 @@
         "from": "agentized.mutation",
         "to": "agentized.connect"
       }
-    ]
+    ],
+    "tools": {
+      "python": "import-linter",
+      "javascript": "dependency-cruiser",
+      "typescript": "dependency-cruiser"
+    },
+    "js_config": ".dependency-cruiser.cjs",
+    "js_source": "src"
   },
   "property_based": {
     "enabled": true,

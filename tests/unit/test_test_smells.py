@@ -222,3 +222,33 @@ def test_smells_main(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(smells, "run_test_smells", lambda root, context="context": 0)
     assert smells.main(["--context", "context"]) == 0
     assert smells.main([]) == 0
+
+
+def test_smells_js_ts_weak_oracle(tmp_path: Path, monkeypatch):
+    tests = tmp_path / "src"
+    tests.mkdir()
+    (tests / "foo.test.ts").write_text(
+        "test('x', () => { expect(value).toBeTruthy(); });\n",
+        encoding="utf-8",
+    )
+    (tests / "ok.spec.ts").write_text(
+        "test('x', () => { expect(value).toBe(2); });\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        smells,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "hard",
+                "include_globs": ["**/*.{test,spec}.{js,jsx,ts,tsx}"],
+            }
+        },
+    )
+    assert smells.run_test_smells(tmp_path) == 1
+    summary = json.loads(
+        (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
+    )
+    assert any(f["kind"] == "weak_primary_oracle" for f in summary["findings"])
+
