@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) (родитель: claim: cloud-agent-4e38)
+- [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) · claim: cloud-agent-4e38
 
 ## blocked
 
