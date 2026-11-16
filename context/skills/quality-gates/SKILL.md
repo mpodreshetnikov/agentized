@@ -15,7 +15,7 @@ description: High-signal testing strategy and Agentized coverage/mutation/e2e/DB
 
 ## E2E tests (when UI / Playwright etc. is present)
 
-Auto-detect: Playwright / Cypress / Nightwatch / WebdriverIO configs or deps, or `e2e/` / `tests/e2e/` / `cypress/e2e/`. When present, the **e2e** gate is **hard**: changing UI/app source globs requires matching e2e test updates in the same change set (and optional `e2e.test_command`).
+Auto-detect: Playwright / Cypress / Nightwatch / WebdriverIO configs or deps (incl. nested `apps/*`), or `e2e/` / `tests/e2e/` / `cypress/e2e/`. When present, the **e2e** gate is **hard**: the suite must exist and **run** (`test_command` or autodetect `npx playwright test`); changing UI/app sources also requires some `test_globs` path in the same diff (**limitation:** any matching test file counts — not a per-source mapping). `enabled=false` only with human `disable_decision` `{reason, approved_by, expires≤14d}`.
 
 How to write them:
 
@@ -28,7 +28,7 @@ How to write them:
 
 ## DB tests (when migrations / SQL / pgTAP is present)
 
-Auto-detect: `migrations/`, `db/migrations/`, Prisma/Supabase/Alembic/Flyway dirs, `schema.sql`, `pgtap/`, `db/tests/`, or pgTAP SQL (`SELECT plan(`). When present, the **db_tests** gate is **hard**: changing migration/schema sources requires matching DB test updates.
+Auto-detect: nested migrations (`apps/*/…`, `services/*/db/migrations`), Prisma/Supabase/Alembic/Flyway, ORM deps (`prisma`, `drizzle-orm`, `typeorm`, `sequelize`, `knex`, `sqlalchemy`, `django`, `alembic`), `schema.sql`, `pgtap/` / `db/tests/`. When present, the **db_tests** gate is **hard**: suite must **run** (`test_command` or autodetect `supabase test db` / `pg_prove`); migration changes need some DB test path in the diff (same any-file limitation as e2e).
 
 How to write them:
 

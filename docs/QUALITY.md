@@ -21,8 +21,8 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |
-| `e2e` | `enabled: auto` — hard when Playwright/Cypress/etc. detected; require e2e tests for changed UI sources; artifacts + 3× new specs |
-| `db_tests` | `enabled: auto` — hard when migrations/SQL/pgTAP detected; require DB tests for changed schema/migrations |
+| `e2e` | `enabled: auto` — hard when Playwright/Cypress/etc. detected; suite must exist and **run** (autodetect `npx playwright test` or set `test_command`); changed UI sources need matching test updates; `enabled=false` only via `disable_decision` (reason + `approved_by` + `expires` ≤14d) |
+| `db_tests` | `enabled: auto` — hard when migrations/SQL/ORM/pgTAP detected; suite must exist and **run** (autodetect `supabase test db` / `pg_prove` or set `test_command`); same `disable_decision` rules |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
 | `batch_release` | Reviewed PRs may share one CI; keep up-to-date branch protection |
 | `gates.pre_push` / `gates.ci` | Ordered gate names (includes `e2e`, `db_tests`) |
@@ -44,9 +44,16 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, pgTAP DB tests, orbit-like-mini fixture, import-linter, dependency-cruiser, batch-release, eslint smells).
 
-On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` / `e2e.mode` / `db_tests.mode` from **`warn` → `hard`** when still set to warn (AGE-19/AGE-31 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`**, and via `upgrade_layer_gate_config` also flips e2e/db_tests `mode: warn→hard`, `enabled: false→auto`, and injects `e2e`/`db_tests` into `gates.pre_push`/`gates.ci` before `mutation`. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
 New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, e2e/db_tests=`auto`+`hard` when present, `mutationScoreCovered=100`, coverage=80.
+
+### E2E / DB layer notes (AGE-31)
+
+- Reconnect (`ensure_quality_config`) flips `e2e`/`db_tests` `enabled: false→auto`, `mode: warn→hard`, and inserts `e2e` + `db_tests` into `gates.pre_push` / `gates.ci` **before** `mutation`.
+- **`tests_changed` limitation:** the gate treats *any* path matching `test_globs` in the diff as a test update — it does **not** map a specific source file to a specific e2e/DB test. Agents must still choose the right specs; the gate only enforces that some test file moved with the source change.
+- Git base-ref errors fail closed (`git_diff_failed`) when the layer is present.
+- Placeholders (`.gitkeep`, empty files) do not count as a real suite.
 
 ## Strong reviewer (AGE-11)
 
