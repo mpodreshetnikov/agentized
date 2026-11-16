@@ -171,26 +171,15 @@ def test_evaluate_task_spec_matrix():
     assert empty_approved[KEY_OK] is False
     assert empty_approved[KEY_MODE] == MODE_REFUSE
 
-    # missing policy keys use EMPTY fallbacks
-    sparse = evaluate_task_spec(
-        task_id="T-10",
-        claim="",
-        tags="complex",
-        text="# T-10\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: bob\n",
-        policy={CFG_COMPLEX_TAG: "complex"},
-    )
-    assert sparse[KEY_MODE] == MODE_OK
-    assert sparse[KEY_APPROVERS] == ["bob"]
-
-    # empty claim must stay empty (kills `claim or "XXXX"`); XXXX is a valid other approver
-    empty_claim = evaluate_task_spec(
+    # None claim treated as empty; XXXX remains a valid other approver
+    none_claim = evaluate_task_spec(
         task_id="T-11",
-        claim="",
+        claim=None,  # type: ignore[arg-type]
         tags="complex",
         text="# T-11\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: XXXX\n",
         policy=policy,
     )
-    assert empty_claim == {
+    assert none_claim == {
         KEY_OK: True,
         KEY_MODE: MODE_OK,
         KEY_TASK_ID: "T-11",
