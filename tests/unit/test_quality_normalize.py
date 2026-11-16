@@ -28,7 +28,13 @@ def test_default_config_contract():
     assert cfg["mutation"]["break_on_survived"] is True
     assert cfg["test_smells"]["mode"] == "hard"
     assert cfg["architecture"]["mode"] == "hard"
+    assert cfg["e2e"]["enabled"] == "auto"
+    assert cfg["e2e"]["mode"] == "hard"
+    assert cfg["db_tests"]["enabled"] == "auto"
+    assert cfg["db_tests"]["mode"] == "hard"
     assert "mutation" in cfg["gates"]["ci"]
+    assert "e2e" in cfg["gates"]["ci"]
+    assert "db_tests" in cfg["gates"]["ci"]
 
 
 def test_load_missing_returns_defaults(tmp_path: Path):
@@ -57,6 +63,7 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
             "architecture": {"tool": "builtin"},
             "property_based": {"enabled": True, "pilot_modules": ["a"]},
             "e2e": {"enabled": True, "new_spec_retries": 5},
+            "db_tests": {"enabled": "auto", "mode": "hard", "require_tests_for_changed": False},
             "shared_fixtures": {"required_when_duplicated_logic": False},
             "batch_release": {"keep_up_to_date_protection": False},
             "gates": {"ci": ["coverage", "mutation"]},
@@ -74,6 +81,8 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
     assert data["architecture"]["tool"] == "builtin"
     assert data["property_based"]["pilot_modules"] == ["a"]
     assert data["e2e"]["new_spec_retries"] == 5
+    assert data["db_tests"]["enabled"] == "auto"
+    assert data["db_tests"]["require_tests_for_changed"] is False
     assert data["shared_fixtures"]["required_when_duplicated_logic"] is False
     assert data["batch_release"]["keep_up_to_date_protection"] is False
     assert data["gates"]["ci"] == ["coverage", "mutation"]

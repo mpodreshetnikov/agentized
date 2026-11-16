@@ -1,0 +1,7 @@
+{
+  "name": "orbit-like-mini-fixture",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

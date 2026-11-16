@@ -101,6 +101,7 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         "architecture",
         "property_based",
         "e2e",
+        "db_tests",
         "shared_fixtures",
         "batch_release",
     ):

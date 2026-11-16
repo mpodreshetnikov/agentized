@@ -237,6 +237,7 @@ def cmd_quality(args: argparse.Namespace) -> int:
     if args.quality_cmd == "check":
         from agentized.architecture_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
+        from agentized.layer_gates import run_db_tests_gate, run_e2e_gate
         from agentized.mutation_ast import run_mutation
         from agentized.quality import load_quality
         from agentized.test_smells import run_test_smells
@@ -249,6 +250,8 @@ def cmd_quality(args: argparse.Namespace) -> int:
             "coverage",
             "test_smells",
             "architecture",
+            "e2e",
+            "db_tests",
             "mutation",
         ]
         # coverage_check already runs module tests; map both names to it.
@@ -273,6 +276,16 @@ def cmd_quality(args: argparse.Namespace) -> int:
                 arch_rc = run_architecture_gate(root, context=ctx_rel)
                 if arch_rc != 0:
                     return arch_rc
+                continue
+            if name == "e2e":
+                e2e_rc = run_e2e_gate(root, context=ctx_rel)
+                if e2e_rc != 0:
+                    return e2e_rc
+                continue
+            if name == "db_tests":
+                db_rc = run_db_tests_gate(root, context=ctx_rel)
+                if db_rc != 0:
+                    return db_rc
                 continue
             if name == "mutation":
                 mut_rc = run_mutation(root, context=ctx_rel)

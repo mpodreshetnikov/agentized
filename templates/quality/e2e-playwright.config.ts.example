@@ -1,6 +1,8 @@
 /**
  * E2E template (Playwright) for connected projects that have a UI.
- * Agentized itself has no UI — keep e2e.enabled=false there.
+ * Agentized dogfood uses e2e.enabled="auto" (no UI → gate skips).
+ * When Playwright/Cypress markers exist, the e2e hard gate requires
+ * matching e2e test updates for changed UI sources.
  *
  * Rules (Maxim / Orbit):
  * - Key scenarios only (not exhaustive UI coverage).
