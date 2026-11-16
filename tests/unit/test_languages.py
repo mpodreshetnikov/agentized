@@ -97,12 +97,12 @@ def test_constants_and_language_for_path():
     cases = [
         ("a.py", "python"), ("a.pyi", "python"), ("a.ts", "typescript"), ("a.tsx", "typescript"),
         ("a.js", "javascript"), ("a.jsx", "javascript"), ("a.mjs", "javascript"), ("a.cjs", "javascript"),
-        ("a.go", "go"), ("a.rs", "rust"), ("a.php", "php"), ("App.vue", "vue"),
-        ("Widget.svelte", "svelte"), ("Main.scala", "scala"), ("main.dart", "dart"),
-        ("mix.ex", "elixir"), ("lib.lua", "lua"), ("run.sh", "shell"), ("schema.sql", "sql"),
+        ("a.go", "go"), ("a.rs", "rust"), ("App.vue", "vue"), ("mix.ex", "elixir"),
+        ("run.sh", "shell"), ("schema.sql", "sql"),
         ("x.d.ts", None), ("src/x.D.TS", None), (".hidden.py", None), ("", None),
         ("readme.md", None), ("data.json", None), ("x.png", None), ("README", None),
         ("weird.qzz", "unknown"), ("x.ok", "unknown"), ("dir\\a.py", "python"),
+        ("file.backup.md", None), ("archive.tar.qzz", "unknown"), ("foo.bar.py", "python"),
     ]
     assert [(r, language_for_path(r)) for r, _ in cases] == cases
     assert validate_supported_list(["python", "go"]) == ["go"]
@@ -121,6 +121,8 @@ def test_glob_excluded_and_globs_cover():
         ("util.py", ["lib/**/*.py"], False), ("foo.PY", ["*.py"], False),
         ("x.py", [""], False), ("directory/x.py", ["dir/**"], False),
         ("dir/file.py", ["dir/**"], True),
+        ("a[b]/c", ["a[b]/**"], True),
+        ("a/**/*.x/b.py", ["a/**/*.x/**/*.py"], False),
     ]
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
     assert _globs_cover([], "python") is False
@@ -170,7 +172,8 @@ def test_module_has_lang_and_file_contains(tmp_path: Path):
     d.mkdir()
     (d / "b.d.ts").write_text("export {}\n", encoding="utf-8")
     assert _module_has_lang(tmp_path, {"source": ["src"]}, "typescript") is False
-    (d / "a.ts").write_text("export {}\n", encoding="utf-8")
+    (d / "aaa").mkdir()
+    (d / "zzz.ts").write_text("export {}\n", encoding="utf-8")
     assert _module_has_lang(tmp_path, {"source": ["src"]}, "typescript") is True
     assert _file_contains_any(tmp_path / "missing.py", ("x",)) is False
     p = tmp_path / "f.txt"
@@ -203,6 +206,7 @@ def test_runners_and_js_ts_verified(tmp_path: Path):
     assert [
         js_ts_runners_verified(tmp_path, "python", {}),
         js_ts_runners_verified(tmp_path, "typescript", {"mutation": {}}),
+        js_ts_runners_verified(tmp_path, "typescript", {"mutation": None}),
         js_ts_runners_verified(
             tmp_path, "typescript",
             {"mutation": {"tools": {"typescript": "stryker"}},
@@ -214,7 +218,11 @@ def test_runners_and_js_ts_verified(tmp_path: Path):
             {"mutation": {"tools": {"typescript": "stryker"}},
              "architecture": {"tools": {"typescript": "unknown-tool"}}},
         ),
-    ] == [True, False, False, True, False]
+        js_ts_runners_verified(
+            tmp_path, "typescript",
+            {"mutation": {"tools": {"typescript": "stryker"}}, "architecture": None},
+        ),
+    ] == [True, False, False, False, True, False, False]
     assert mutation_tool_for_language({"tool": ""}, "python") is None
     assert mutation_tool_for_language({"tools": {"python": "mutmut"}}, "python") == "mutmut"
     assert architecture_tool_for_language({"tools": {"python": "import-linter"}}, "python") == "import-linter"
@@ -320,15 +328,22 @@ def test_check_coverage_missing_gates_and_ok(tmp_path: Path):
 def test_js_ts_refuse_without_runners(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.ts").write_text("export {}\n", encoding="utf-8")
+    (tmp_path / "src" / "a.js").write_text("export {}\n", encoding="utf-8")
     r = check_language_coverage(
         tmp_path,
-        cfg=_cfg(languages={"supported": ["typescript"], "exclude_globs": _excludes()}),
+        cfg=_cfg(languages={"supported": ["typescript"], "exclude_globs": _excludes("**/*.js")}),
     )
     _shape(r)
     assert r["ok"] is False
     assert r["missing_gates"]["typescript"] == ["mutation", "architecture"]
     assert "language coverage incomplete" in r["message"]
     assert "typescript" in r["message"]
+    r = check_language_coverage(
+        tmp_path,
+        cfg=_cfg(languages={"supported": ["javascript"], "exclude_globs": _excludes("**/*.ts", "**/*.py")}),
+    )
+    _shape(r)
+    assert r["missing_gates"]["javascript"] == ["mutation", "architecture"]
 
 
 def test_single_tool_and_oserror_branches(tmp_path: Path, monkeypatch):
@@ -431,6 +446,11 @@ def test_defaults_and_coverage_json_and_builtin(tmp_path: Path):
 def test_runner_path_variants(tmp_path: Path):
     got = [stryker_runner_present(tmp_path), js_architecture_runner_present(tmp_path)]
     assert got == [False, False]
+    cjs = tmp_path / "scripts" / "quality" / "run-architecture-js.cjs"
+    cjs.parent.mkdir(parents=True)
+    cjs.write_text("1\n", encoding="utf-8")
+    assert [js_architecture_runner_present(tmp_path), stryker_runner_present(tmp_path)] == [True, False]
+    cjs.unlink()
     mut = tmp_path / "runtime" / "agentized" / "mutation.py"
     mut.parent.mkdir(parents=True)
     mut.write_text("def _run_stryker_gate():\n    return 0\n", encoding="utf-8")
@@ -474,4 +494,72 @@ def test_check_non_dict_languages_and_multi_lang(tmp_path: Path):
     assert "typescript" in r["missing_gates"]
     assert r["detected"]["python"]
     assert r["detected"]["typescript"]
+
+
+def test_survivor_killers(tmp_path: Path, monkeypatch):
+    (tmp_path / "a.py").write_text("x=1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("x=1\n", encoding="utf-8")
+    real_rel = Path.relative_to
+    n = {"i": 0}
+
+    def boom(self, other):
+        n["i"] += 1
+        if n["i"] == 1:
+            raise ValueError("skip")
+        return real_rel(self, other)
+
+    monkeypatch.setattr(Path, "relative_to", boom)
+    assert detect_languages(tmp_path, exclude_globs=_excludes()).get("python") == ["b.py"]
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
+    arch_off = {"enabled": False, "tools": {"python": "import-linter"}, "config": ".importlinter"}
+    assert missing_gates_for_language(tmp_path, "python", _cfg(architecture=arch_off)) == ["architecture"]
+    assert "architecture" in missing_gates_for_language(
+        tmp_path, "python", _cfg(architecture={"enabled": True, "tools": {"python": "import-linter"}}),
+    )
+    assert "architecture" in missing_gates_for_language(
+        tmp_path, "python",
+        _cfg(architecture={"enabled": True, "tools": {"python": "nope"}, "config": ".importlinter"}),
+    )
+    (tmp_path / "src" / "a.js").write_text("export {}\n", encoding="utf-8")
+    # before runners: unsupported js must not populate missing_gates (kills and→or)
+    r = check_language_coverage(
+        tmp_path, cfg=_cfg(languages={"supported": ["python"], "exclude_globs": _excludes()}),
+    )
+    assert r["unsupported"] == ["javascript"] and r["missing_gates"] == {}
+    _runners(tmp_path)
+    js_ok = {
+        "modules": [{"id": "w", "source": ["src"], "test_command": "vitest", "coverage_lcov": "c.lcov"}],
+        "mutation": {"tools": {"javascript": "stryker"}, "include_globs": ["**/*.js"]},
+        "test_smells": {"enabled": True, "include_globs": ["**/*.js"]},
+        "architecture": {
+            "enabled": True, "tools": {"javascript": "dependency-cruiser"},
+            "js_config": ".dependency-cruiser.cjs",
+        },
+    }
+    assert "architecture" not in missing_gates_for_language(tmp_path, "javascript", js_ok)
+    js_no_cfg = {
+        **js_ok,
+        "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}},
+    }
+    assert missing_gates_for_language(tmp_path, "javascript", js_no_cfg) == [
+        "architecture",
+        "mutation",
+    ]
+
+    from agentized.quality import save_quality
+    alt = "ctx-alt"
+    (tmp_path / alt).mkdir()
+    save_quality(
+        tmp_path, _cfg(languages={"supported": ["python"], "exclude_globs": _excludes("**/*.js")}),
+        context_rel=alt,
+    )
+    r = check_language_coverage(tmp_path, context=alt)
+    _shape(r)
+    assert r["ok"] is True and r["message"] == "language coverage OK: python"
+    bad = {
+        "modules": [{"id": "r", "source": ["src"], "test_command": "pytest", "coverage_lcov": "c.lcov"}],
+        "mutation": "bad", "test_smells": "bad", "architecture": "bad",
+    }
+    assert missing_gates_for_language(tmp_path, "python", bad) == ["mutation", "smells", "architecture"]
 

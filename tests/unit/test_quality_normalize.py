@@ -53,7 +53,7 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
             "coverage": {"lines": 91},
             "modules": [{"id": "only", "source": ["src"]}],
             "mutation": {"min_score_covered": 100, "enabled": False},
-            "test_smells": {"mode": "hard"},
+            "test_smells": {"mode": "hard", "oracle_token": "KEEP_SMELLS"},
             "architecture": {"tool": "builtin"},
             "property_based": {"enabled": True, "pilot_modules": ["a"]},
             "e2e": {"enabled": True, "new_spec_retries": 5},
@@ -71,6 +71,7 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
     assert data["mutation"]["enabled"] is False
     assert data["mutation"]["min_score_covered"] == 100
     assert data["test_smells"]["mode"] == "hard"
+    assert data["test_smells"]["oracle_token"] == "KEEP_SMELLS"
     assert data["architecture"]["tool"] == "builtin"
     assert data["property_based"]["pilot_modules"] == ["a"]
     assert data["e2e"]["new_spec_retries"] == 5
@@ -168,6 +169,9 @@ def test_custom_context_rel_and_exact_json_layout(tmp_path: Path):
 def test_module_thresholds_fallbacks():
     cfg = {"coverage": {"lines": 80, "branches": 70}}
     assert module_thresholds(cfg, {"thresholds": {}}) == (80.0, 70.0)
+    # Non-default lines kills get("lines")→get(None)/LINES equivalent-at-80 mutants
+    cfg81 = {"coverage": {"lines": 81, "branches": 70}}
+    assert module_thresholds(cfg81, {"thresholds": {}}) == (81.0, 70.0)
     assert module_thresholds(cfg, {"thresholds": {"lines": 60}}) == (60.0, 70.0)
     assert module_thresholds({}, {"thresholds": {}}) == (
         float(DEFAULT_COVERAGE_PCT),

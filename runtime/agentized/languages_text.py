@@ -7,6 +7,21 @@ from __future__ import annotations
 
 from typing import Any
 
+EXCLUDE_GLOBS_REQUIRED = (
+    "exclude_globs is required (empty/missing refused by check_language_coverage)"
+)
+KEY_SUPPORTED = "supported"
+KEY_EXCLUDE_GLOBS = "exclude_globs"
+ARCH_DEP_CRUISER = "dependency-cruiser"
+ARCH_BUILTIN = "builtin"
+MUT_ENABLED = "enabled"
+MUT_INCLUDE = "include_globs"
+COV_LCOV = "coverage_lcov"
+COV_JSON = "coverage_json"
+JS_CONFIG = "js_config"
+ARCH_CONFIG = "config"
+TEST_COMMAND = "test_command"
+
 
 def result(
     *,

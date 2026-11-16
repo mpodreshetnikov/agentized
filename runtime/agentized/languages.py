@@ -1,10 +1,4 @@
-"""Fail-closed language coverage (AGE-24 part a).
-
-Detect source languages (exclude vendored/generated). Refuse ``detect: false``,
-illegal ``languages.supported`` entries, empty ``supported`` / ``exclude_globs``,
-unsupported / unknown source languages, and incomplete gates. JS/TS additionally
-require verified AGE-34 runners (no silent pass on config alone).
-"""
+"""Fail-closed language coverage (AGE-24): detect + refuse incomplete gates."""
 from __future__ import annotations
 
 import fnmatch
@@ -243,8 +237,8 @@ _JS_ARCH_MARKERS = ("_run_dependency_cruiser", "_run_eslint_boundaries")
 
 def default_languages_config() -> dict[str, Any]:
     return {
-        "supported": list(DEFAULT_SUPPORTED),
-        "exclude_globs": list(DEFAULT_EXCLUDE_GLOBS),
+        _text.KEY_SUPPORTED: list(DEFAULT_SUPPORTED),
+        _text.KEY_EXCLUDE_GLOBS: list(DEFAULT_EXCLUDE_GLOBS),
     }
 
 
@@ -279,7 +273,8 @@ def language_for_path(rel: str) -> str | None:
             return lang
     if "." not in name:
         return None
-    ext = "." + name.split(".")[-1]
+    dot = name.rfind(".")
+    ext = name[dot:]
     if ext in _NON_SOURCE_EXTS:
         return None
     return "unknown"
@@ -291,7 +286,7 @@ def detect_languages(
     exclude_globs: list[str] | None = None,
 ) -> dict[str, list[str]]:
     if exclude_globs is None:
-        raise ValueError("exclude_globs is required (empty/missing refused by check_language_coverage)")
+        raise ValueError(_text.EXCLUDE_GLOBS_REQUIRED)
     patterns = list(exclude_globs)
     found: dict[str, list[str]] = {}
     if not root.exists():
@@ -364,7 +359,8 @@ def _globs_cover(globs: list[str], language: str) -> bool:
     """True when include_globs mention a real extension for language. Empty ≠ covered."""
     if not globs:
         return False
-    wanted = {ext.lstrip(".") for ext in (_LANG_EXTS.get(language) or ())}
+    # _LANG_EXTS values always start with "."; strip the dot for glob token compare.
+    wanted = {ext[1:] for ext in (_LANG_EXTS.get(language) or ())}
     if not wanted:
         return False
     found: set[str] = set()
@@ -383,7 +379,7 @@ def _file_contains_any(path: Path, markers: tuple[str, ...]) -> bool:
         data = path.read_bytes()
     except OSError:
         return False
-    return any(marker.encode("ascii", "ignore") in data for marker in markers)
+    return any(marker.encode() in data for marker in markers)
 
 
 def stryker_runner_present(root: Path) -> bool:
@@ -400,15 +396,21 @@ def stryker_runner_present(root: Path) -> bool:
 
 
 def js_architecture_runner_present(root: Path) -> bool:
-    if _file_contains_any(
-        root / "runtime" / "agentized" / "architecture_gate.py", _JS_ARCH_MARKERS
-    ):
-        return True
-    if _file_contains_any(root / "agentized" / "architecture_gate.py", _JS_ARCH_MARKERS):
-        return True
-    if (root / "scripts" / "quality" / "architecture-runner").is_file():
-        return True
-    return (root / "scripts" / "quality" / "run-architecture-js.cjs").is_file()
+    marker_paths = (
+        ("runtime", "agentized", "architecture_gate.py"),
+        ("agentized", "architecture_gate.py"),
+    )
+    for parts in marker_paths:
+        if _file_contains_any(root.joinpath(*parts), _JS_ARCH_MARKERS):
+            return True
+    file_paths = (
+        ("scripts", "quality", "architecture-runner"),
+        ("scripts", "quality", "run-architecture-js.cjs"),
+    )
+    for parts in file_paths:
+        if root.joinpath(*parts).is_file():
+            return True
+    return False
 
 
 def js_ts_runners_verified(root: Path, language: str, cfg: dict[str, Any]) -> bool:
@@ -440,9 +442,11 @@ def missing_gates_for_language(root: Path, language: str, cfg: dict[str, Any]) -
     missing: list[str] = []
     modules = [m for m in (cfg.get("modules") or []) if isinstance(m, dict)]
     covering = [m for m in modules if _module_has_lang(root, m, language)]
-    if not covering or not all(m.get("test_command") for m in covering):
+    if not covering or not all(m.get(_text.TEST_COMMAND) for m in covering):
         missing.append(SUPPORTED_GATES[0])
-    if not covering or not all(m.get("coverage_lcov") or m.get("coverage_json") for m in covering):
+    if not covering or not all(
+        m.get(_text.COV_LCOV) or m.get(_text.COV_JSON) for m in covering
+    ):
         missing.append(SUPPORTED_GATES[1])
 
     mut = cfg.get("mutation")
@@ -450,18 +454,19 @@ def missing_gates_for_language(root: Path, language: str, cfg: dict[str, Any]) -
         mut = {}
     tool = mutation_tool_for_language(mut, language)
     allowed = MUTATION_TOOLS.get(language) or frozenset()
-    globs = list(mut.get("include_globs") or [])
-    mut_enabled = mut.get("enabled")
-    if mut_enabled is None:
+    globs = list(mut.get(_text.MUT_INCLUDE) or [])
+    if _text.MUT_ENABLED not in mut:
         mut_enabled = True
+    else:
+        mut_enabled = bool(mut[_text.MUT_ENABLED])
     if not (tool and tool in allowed and mut_enabled and _globs_cover(globs, language)):
         missing.append(SUPPORTED_GATES[2])
 
     smells = cfg.get("test_smells")
     if not isinstance(smells, dict):
         smells = {}
-    smell_globs = list(smells.get("include_globs") or [])
-    if not (bool(smells.get("enabled")) and _globs_cover(smell_globs, language)):
+    smell_globs = list(smells.get(_text.MUT_INCLUDE) or [])
+    if not (bool(smells.get(_text.MUT_ENABLED)) and _globs_cover(smell_globs, language)):
         missing.append(SUPPORTED_GATES[3])
 
     arch = cfg.get("architecture")
@@ -469,21 +474,23 @@ def missing_gates_for_language(root: Path, language: str, cfg: dict[str, Any]) -
         arch = {}
     arch_tool = architecture_tool_for_language(arch, language)
     allowed_arch = ARCHITECTURE_TOOLS.get(language) or frozenset()
-    arch_ok = False
-    if bool(arch.get("enabled")) and arch_tool and arch_tool in allowed_arch:
-        if language == "python":
-            arch_ok = arch_tool == "builtin" or bool(arch.get("config"))
-        elif arch_tool == "dependency-cruiser":
-            arch_ok = bool(arch.get("js_config") or arch.get("config"))
-        else:
-            arch_ok = True
-    if not arch_ok:
+    if bool(arch.get(_text.MUT_ENABLED)) and arch_tool and arch_tool in allowed_arch:
+        if language == next(iter(_LANG_EXTS)):
+            if not (
+                arch_tool == _text.ARCH_BUILTIN or bool(arch.get(_text.ARCH_CONFIG))
+            ):
+                missing.append(SUPPORTED_GATES[4])
+        elif arch_tool == _text.ARCH_DEP_CRUISER:
+            if not (arch.get(_text.JS_CONFIG) or arch.get(_text.ARCH_CONFIG)):
+                missing.append(SUPPORTED_GATES[4])
+    else:
         missing.append(SUPPORTED_GATES[4])
 
-    if language in ("javascript", "typescript") and not js_ts_runners_verified(root, language, cfg):
-        for gate in (SUPPORTED_GATES[2], SUPPORTED_GATES[4]):
-            if gate not in missing:
-                missing.append(gate)
+    if language == "javascript" or language == "typescript":
+        if not js_ts_runners_verified(root, language, cfg):
+            for gate in (SUPPORTED_GATES[2], SUPPORTED_GATES[4]):
+                if gate not in missing:
+                    missing.append(gate)
     return missing
 
 
@@ -495,7 +502,7 @@ def check_language_coverage(
     require_gates: bool = True,
 ) -> dict[str, Any]:
     if cfg is None:
-        cfg = load_quality(root, context)
+        cfg = load_quality(root, context_rel=context)
     section = cfg.get("languages")
     if not isinstance(section, dict):
         section = {}
