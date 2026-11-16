@@ -1,0 +1,210 @@
+"""AGE-36: dry-run / uninstall refuse → non-zero; broken JSON left unchanged."""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from agentized.connect import connect, uninstall_hooks
+from agentized.hooks_install import (
+    HooksJsonError,
+    load_hooks_owned,
+    plan_harness_hooks,
+    read_json_object,
+    save_hooks_owned,
+    uninstall_harness_hooks,
+    write_json,
+)
+from agentized_cli import cmd_connect, cmd_uninstall
+
+
+def _skeleton(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    ctx = root / "context"
+    for p in (
+        ctx / "tasks",
+        ctx / "leases",
+        ctx / "hooks" / "scripts",
+        ctx / "skills",
+        root / "packages" / "shared" / "skills" / "navigate",
+        root / "packages" / "shared" / "hooks" / "scripts",
+        root / "templates" / "quality",
+    ):
+        p.mkdir(parents=True, exist_ok=True)
+    (ctx / "NAV.md").write_text("# NAV\n", encoding="utf-8")
+    (root / "packages" / "shared" / "skills" / "navigate" / "SKILL.md").write_text(
+        "---\nname: navigate\n---\n", encoding="utf-8"
+    )
+    (root / "packages" / "shared" / "hooks" / "scripts" / "session_start.py").write_text(
+        "print('ok')\n", encoding="utf-8"
+    )
+    (root / "templates" / "quality" / "pre-push").write_text(
+        "#!/bin/sh\n# AGENTIZED:QUALITY\necho hi\n", encoding="utf-8"
+    )
+    (root / "templates" / "quality" / "ci.yml").write_text(
+        "# AGENTIZED:QUALITY\nname: CI\n", encoding="utf-8"
+    )
+
+
+def test_read_json_object_refuse_cases(tmp_path: Path):
+    missing = tmp_path / "nope.json"
+    assert read_json_object(missing) == {}
+
+    broken = tmp_path / "broken.json"
+    broken.write_text("{nope", encoding="utf-8")
+    with pytest.raises(HooksJsonError) as exc:
+        read_json_object(broken)
+    assert "broken JSON" in exc.value.reason
+
+    arr = tmp_path / "arr.json"
+    arr.write_text("[1]\n", encoding="utf-8")
+    with pytest.raises(HooksJsonError) as exc2:
+        read_json_object(arr)
+    assert "object" in exc2.value.reason
+
+    ok = tmp_path / "ok.json"
+    ok.write_text('{"a": 1}\n', encoding="utf-8")
+    assert read_json_object(ok) == {"a": 1}
+
+
+def test_plan_and_uninstall_refuse_broken_cursor(tmp_path: Path):
+    _skeleton(tmp_path)
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{broken", encoding="utf-8")
+    before = target.read_bytes()
+
+    plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert len(plans) == 1
+    assert plans[0]["action"] == "refuse"
+    assert plans[0]["changed"] is False
+    assert target.read_bytes() == before
+
+    results = uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert results[0]["action"] == "refuse"
+    assert results[0]["wrote"] is False
+    assert target.read_bytes() == before
+
+
+def test_connect_dry_run_refuse_flag(tmp_path: Path):
+    _skeleton(tmp_path)
+    target = tmp_path / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("null", encoding="utf-8")
+    before = target.read_bytes()
+    dry = connect(tmp_path, context_rel="context", harnesses=["claude"], dry_run=True)
+    assert dry["refused"] is True
+    assert any(p["action"] == "refuse" for p in dry["hook_plans"])
+    assert target.read_bytes() == before
+
+
+def test_uninstall_hooks_refused_wrapper(tmp_path: Path):
+    _skeleton(tmp_path)
+    target = tmp_path / ".codex" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{", encoding="utf-8")
+    result = uninstall_hooks(tmp_path, harnesses=["codex"])
+    assert result["refused"] is True
+    assert result["results"][0]["action"] == "refuse"
+    assert target.read_bytes() == b"{"
+
+
+def test_uninstall_skip_valid_without_hooks_merge(tmp_path: Path):
+    _skeleton(tmp_path)
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    payload = {"version": 1, "hooks": {"sessionStart": [{"command": "echo x"}]}}
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    before = target.read_bytes()
+    results = uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert results[0]["action"] == "skip"
+    assert results[0]["reason"] == "hooks_merge_unavailable"
+    assert target.read_bytes() == before
+
+
+def test_cli_dry_run_refuse_exit_nonzero(tmp_path: Path, monkeypatch):
+    _skeleton(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{broken", encoding="utf-8")
+
+    class Args:
+        context = "context"
+        harness = ["cursor"]
+        coverage = None
+        dry_run = True
+        json = False
+
+    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
+    assert cmd_connect(Args()) == 1
+
+
+def test_cli_uninstall_refuse_exit_nonzero(tmp_path: Path, monkeypatch):
+    _skeleton(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{broken", encoding="utf-8")
+
+    class Args:
+        harness = ["cursor"]
+        json = False
+
+    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
+    assert cmd_uninstall(Args()) == 1
+
+
+def test_cli_dry_run_ok_exit_zero(tmp_path: Path, monkeypatch):
+    _skeleton(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    class Args:
+        context = "context"
+        harness = ["cursor"]
+        coverage = 90
+        dry_run = True
+        json = False
+
+    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
+    assert cmd_connect(Args()) == 0
+
+
+def test_plan_create_when_missing(tmp_path: Path):
+    plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert plans[0]["action"] == "create"
+    assert plans[0]["changed"] is True
+
+
+def test_uninstall_skips_missing(tmp_path: Path):
+    assert uninstall_harness_hooks(tmp_path, ["cursor", "claude", "codex"]) == []
+
+
+def test_write_json_and_hooks_owned(tmp_path: Path):
+    path = tmp_path / "out.json"
+    assert write_json(path, {"a": 1}) is True
+    assert path.read_text(encoding="utf-8") == '{\n  "a": 1\n}\n'
+    assert write_json(path, {"a": 1}) is False
+    assert write_json(path, {"a": 2}) is True
+
+    assert load_hooks_owned(tmp_path, "context") == {}
+    save_hooks_owned(tmp_path, {"cursor": [".cursor/hooks/x.py"]}, "context")
+    assert load_hooks_owned(tmp_path, "context") == {"cursor": [".cursor/hooks/x.py"]}
+    owned = tmp_path / "context" / ".agentized" / "hooks_owned.json"
+    owned.write_text("{broken", encoding="utf-8")
+    assert load_hooks_owned(tmp_path, "context") == {}
+    owned.write_text("[1]\n", encoding="utf-8")
+    assert load_hooks_owned(tmp_path, "context") == {}
+    owned.write_text(json.dumps({"cursor": "bad", "claude": ["ok"]}, indent=2) + "\n", encoding="utf-8")
+    assert load_hooks_owned(tmp_path, "context") == {"claude": ["ok"]}
+
+
+def test_plan_update_when_hooks_exist(tmp_path: Path):
+    target = tmp_path / ".cursor" / "hooks.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({"version": 1}, indent=2) + "\n", encoding="utf-8")
+    plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
+    assert plans[0]["action"] == "update"
+    assert plans[0]["path"] == str(target)
