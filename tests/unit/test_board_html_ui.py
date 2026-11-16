@@ -17,39 +17,6 @@ def test_defaults_and_for_review_note():
 
 def test_ui_ru_en_exact_keys_and_values():
     assert set(ui.UI) == {"ru", "en"}
-    expected_keys = {
-        "intro",
-        "status",
-        "claim",
-        "blocked",
-        "deadline",
-        "parent",
-        "subtasks",
-        "age",
-        "overdue",
-        "updated",
-        "generated",
-        "empty",
-        "col_open",
-        "col_queue",
-        "col_in_progress",
-        "col_for_review",
-        "col_blocked",
-        "col_done",
-        "col_canceled",
-        "st_idea",
-        "st_open",
-        "st_queue",
-        "st_in-progress",
-        "st_self-review",
-        "st_for-review",
-        "st_blocked",
-        "st_done",
-        "st_canceled",
-        "hours_unit",
-    }
-    assert set(ui.UI["ru"]) == expected_keys
-    assert set(ui.UI["en"]) == expected_keys
     assert ui.UI["ru"] == {
         "intro": "Канбан из context/tasks — статический HTML, без сети.",
         "status": "Статус",
@@ -124,10 +91,10 @@ def test_css_exact_golden():
         "header{padding:1.25rem 1.5rem;border-bottom:1px solid #2a3548}"
         "header h1{margin:0;font-size:1.35rem;font-weight:650}"
         "header p{margin:.35rem 0 0;color:var(--muted);font-size:.9rem}"
-        ".board{display:flex;flex-wrap:wrap;gap:.5rem;padding:1rem;"
+        ".board{display:flex;gap:.75rem;padding:1rem;overflow-x:auto;"
         "align-items:flex-start}"
-        ".column{flex:1 1 10rem;max-width:12rem;background:var(--col);"
-        "border-radius:8px;padding:.75rem;min-height:12rem}"
+        ".column{flex:0 0 16rem;background:var(--col);border-radius:8px;"
+        "padding:.75rem;min-height:12rem}"
         ".column h2{margin:0 0 .75rem;font-size:.85rem;text-transform:uppercase;"
         "letter-spacing:.04em;color:var(--muted);font-weight:600}"
         ".column .count{color:var(--acc);font-weight:500}"
@@ -144,6 +111,5 @@ def test_css_exact_golden():
         ".card-blocked,.card-overdue{color:var(--bad)}"
         ".empty{color:var(--muted);font-size:.8rem;font-style:italic}"
     )
-    assert "flex:1 1 10rem" in ui.CSS
-    assert "flex-wrap:wrap" in ui.CSS
+    assert "flex:0 0 16rem" in ui.CSS
     assert ".card.overdue" in ui.CSS

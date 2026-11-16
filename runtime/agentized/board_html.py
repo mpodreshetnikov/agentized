@@ -1,10 +1,4 @@
-"""Static self-contained board.html from context/tasks/*.md (AGE-37).
-
-Renderer only — CLI `agentized board` writes HTML. Autopilot/metrics are
-`agentized autopilot` (AGE-30/#19). Status gates → AGE-22; status_guard → AGE-38.
-
-Fail-loud on bad task files. Deterministic HTML unless generated_at is set.
-"""
+"""Static board.html from context/tasks (AGE-37). Render-only; fail-loud."""
 from __future__ import annotations
 
 import html
@@ -59,44 +53,6 @@ PROGRESS_ANY_STAMP_RE = re.compile(
     re.MULTILINE,
 )
 
-__all__ = (
-    "BoardError",
-    "CANONICAL_STATUSES",
-    "COLUMN_FOR_STATUS",
-    "DEFAULT_LANG",
-    "DEFAULT_TITLE",
-    "EMPTY_COLUMN_HTML",
-    "JOIN_NL",
-    "OVERDUE_HOURS",
-    "STATUS_ALIASES",
-    "UI",
-    "_CSS",
-    "age_hours",
-    "board_columns",
-    "collect_board_cards",
-    "column_for_status",
-    "escape",
-    "extract_description",
-    "extract_fields",
-    "extract_goal_blurb",
-    "extract_value_line",
-    "for_review_note",
-    "generate_board",
-    "header_block",
-    "human_status",
-    "is_queue_overdue",
-    "load_human_participants",
-    "normalize_status",  # re-export status_gates
-    "parse_status_changed_at",
-    "remember_task_id",
-    "render_board_html",
-    "require_status",
-    "require_task_header",
-    "ui_for",
-    "write_board",
-)
-
-
 @dataclass(frozen=True)
 class BoardError(Exception):
     path: str
@@ -114,7 +70,6 @@ def ui_for(lang: str) -> dict[str, str]:
 
 
 def board_columns(lang: str = DEFAULT_LANG) -> tuple[tuple[str, str], ...]:
-    """Seven board columns; ids align with status_gates.COLUMN_FOR_STATUS values."""
     u = ui_for(lang)
     return (
         ("open", u["col_open"]),
@@ -210,6 +165,8 @@ def extract_fields(text: str | None, *, path: str = "<text>") -> dict[str, str]:
 
 
 def _parse_stamp(stamp_s: str, *, path: str, now: datetime) -> datetime:
+    if not isinstance(path, str):
+        raise TypeError("_parse_stamp path must be str")
     try:
         stamp = datetime.strptime(stamp_s, "%Y-%m-%d %H:%M").replace(
             tzinfo=timezone.utc
@@ -286,7 +243,12 @@ def load_human_participants(context_dir: Path) -> list[str]:
     raw = data["human_participants"]
     if not isinstance(raw, list):
         raise BoardError(str(path), "human_participants must be a list")
-    return [str(x).strip() for x in raw if str(x).strip()]
+    out: list[str] = []
+    for item in raw:
+        s = str(item).strip()
+        if s:
+            out.append(s)
+    return out
 
 
 def remember_task_id(seen: dict[str, Path], task_id: str, path: Path) -> None:

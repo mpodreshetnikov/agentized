@@ -20,6 +20,7 @@ from agentized.board_html import (
     _render_card,
     _render_column,
     _subtask_ids,
+    _parse_stamp,
     age_hours,
     board_columns,
     collect_board_cards,
@@ -44,7 +45,12 @@ from agentized.board_html import (
     ui_for,
     write_board,
 )
-from agentized.status_gates import ALL_STATUSES, INDEX_ACTIVE_STATUSES
+from agentized.status_gates import (
+    ALL_STATUSES,
+    INDEX_ACTIVE_STATUSES,
+    TEXT_ENCODING,
+    is_known_status,
+)
 
 NOW = datetime(2099, 6, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -75,6 +81,7 @@ def _write_task(
 
 
 def test_status_gates_surface_and_columns():
+    assert TEXT_ENCODING == "utf-8"
     assert CANONICAL_STATUSES[0] == "idea" and CANONICAL_STATUSES[-1] == "canceled"
     assert STATUS_ALIASES == {"dropped": "canceled", "queued": "queue"}
     assert COLUMN_FOR_STATUS["self-review"] == "queue"
@@ -83,6 +90,11 @@ def test_status_gates_surface_and_columns():
     assert INDEX_ACTIVE_STATUSES[0] == "open" and "done" not in INDEX_ACTIVE_STATUSES
     for raw in ALL_STATUSES:
         assert normalize_status(raw) in CANONICAL_STATUSES
+    assert is_known_status("queue") is True
+    assert is_known_status("self-review") is True
+    assert is_known_status("nope") is False
+    assert is_known_status("") is False
+    assert is_known_status(None) is False
     assert board_columns("ru") == (
         ("open", "Открыто"),
         ("queue", "Очередь"),
@@ -92,10 +104,12 @@ def test_status_gates_surface_and_columns():
         ("done", "Готово"),
         ("canceled", "Отменено"),
     )
+    assert board_columns("en")[0] == ("open", "Open")
     assert DEFAULT_LANG == "ru" and DEFAULT_TITLE.startswith("Доска")
     assert JOIN_NL == "\n" and OVERDUE_HOURS == 12
     assert for_review_note("ru", ["Maxim"]) == "только Maxim"
     assert ".card.overdue" in _CSS
+    assert human_status("missing", "ru") == "missing"
 
 
 def test_normalize_human_escape_header_fields():
@@ -108,14 +122,18 @@ def test_normalize_human_escape_header_fields():
     assert unknown.value.path == "x.md"
     assert column_for_status("self-review") == "queue"
     assert human_status("self-review", "ru") == "самопроверка"
+    assert human_status("self-review", "en") == "self-review"
+    assert human_status("for-review", "en") == "for review"
     with pytest.raises(BoardError) as bad_lang:
         ui_for("de")
     assert bad_lang.value.path == "<lang>"
+    assert bad_lang.value.reason == "unknown lang 'de'; expected ru|en"
     assert escape("<a>") == "&lt;a&gt;" and escape(None) == ""
     assert _plain(None) == "" and _plain("_(x)_") == "" and _plain(" a ") == "a"
     text = "статус: open\n\nЦенность: val\n\n## Цель\n\ngoal\n\nстатус: done\n"
     assert header_block(text).endswith("Ценность: val\n")
     assert header_block("## x\n") == ""
+    assert header_block("no ## here") == "no ## here"
     assert extract_fields(text)["статус"] == "open"
     with pytest.raises(BoardError) as dup:
         extract_fields("статус: a\nстатус: b\n", path="d.md")
@@ -123,9 +141,17 @@ def test_normalize_human_escape_header_fields():
     with pytest.raises(BoardError) as dup_def:
         extract_fields("статус: a\nстатус: b\n")
     assert dup_def.value.path == "<text>"
-    assert extract_value_line(text) == "val" and extract_value_line(None) == ""
-    assert extract_goal_blurb(text) == "goal" and extract_goal_blurb(None) == ""
+    assert extract_value_line(text) == "val"
+    assert extract_value_line(None) == ""
+    assert extract_value_line("no value\n") == ""
+    assert extract_goal_blurb(text) == "goal"
+    assert extract_goal_blurb(None) == ""
+    assert extract_goal_blurb("## Цель\n\n_(skip)_\n\nreal\n") == "real"
+    assert extract_goal_blurb("## Цель\n\n_(only)_\n") == ""
+    assert extract_goal_blurb("## other\n") == ""
     assert extract_description(text) == "goal"
+    assert extract_description("Ценность: only\n") == "only"
+    assert is_queue_overdue("open", 100.0) is False
 
 
 def test_age_no_fail_open_and_stamp_errors():
@@ -175,11 +201,17 @@ def test_age_no_fail_open_and_stamp_errors():
             now=NOW,
         )
     assert bad.value.path == "b.md"
+    assert bad.value.reason == "bad progress stamp '2099-99-01 00:00'"
+    with pytest.raises(TypeError) as te_p:
+        _parse_stamp("2099-01-01 00:00", path=None, now=NOW)  # type: ignore[arg-type]
+    assert str(te_p.value) == "_parse_stamp path must be str"
 
 
 def test_fail_loud_collect(tmp_path: Path):
+    missing = tmp_path / "no"
     with pytest.raises(BoardError) as e1:
-        collect_board_cards(tmp_path / "no", now=NOW)
+        collect_board_cards(missing, now=NOW)
+    assert e1.value.path == str(missing)
     assert e1.value.reason == "missing context/tasks directory"
     tasks = tmp_path / "tasks"
     tasks.mkdir()
@@ -211,11 +243,13 @@ def test_fail_loud_collect(tmp_path: Path):
     seen: dict[str, Path] = {}
     remember_task_id(seen, "T-1", Path("/tmp/a.md"))
     assert seen == {"T-1": Path("/tmp/a.md")}
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError) as te_r:
         remember_task_id(seen, "T-2", None)  # type: ignore[arg-type]
+    assert str(te_r.value) == "remember_task_id path must be pathlib.Path"
     with pytest.raises(BoardError) as e_dup:
         remember_task_id({"T-1": Path("/tmp/a.md")}, "T-1", Path("/tmp/b.md"))
     assert e_dup.value.path == "/tmp/b.md"
+    assert e_dup.value.reason == "duplicate task id T-1 (also /tmp/a.md)"
     _write_task(tasks, "T-261116-bod", "B", status="open", body_extra="статус: canceled\n")
     assert collect_board_cards(tasks, now=NOW)[0]["status"] == "open"
     blank = tasks / "T-261116-bs.md"
@@ -243,8 +277,13 @@ def test_fail_loud_collect(tmp_path: Path):
         collect_board_cards(tasks, now=NOW)
     assert e_bst.value.path == str(bst)
     require_task_header("# T-261116-ok — T\n", Path("x.md"))
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError) as te_h:
         require_task_header("# T-261116-ok — T\n", "x.md")  # type: ignore[arg-type]
+    assert str(te_h.value) == "require_task_header path must be pathlib.Path"
+    with pytest.raises(BoardError) as e_uh:
+        require_task_header("# junk\n", Path("j.md"))
+    assert e_uh.value.path == "j.md"
+    assert e_uh.value.reason == "unparseable or missing # T-… — title header"
 
 
 def test_render_collect_write(tmp_path: Path):
@@ -254,6 +293,7 @@ def test_render_collect_write(tmp_path: Path):
         '{"human_participants":["Maxim"]}\n', encoding="utf-8"
     )
     assert load_human_participants(tmp_path) == ["Maxim"]
+    assert load_human_participants(tmp_path)[0] == "Maxim"
     bare = tmp_path / "bare"
     bare.mkdir()
     (bare / "merge_policy.json").write_text('{"version":1}\n', encoding="utf-8")
@@ -272,12 +312,15 @@ def test_render_collect_write(tmp_path: Path):
     (bad_json / "merge_policy.json").write_text("{", encoding="utf-8")
     with pytest.raises(BoardError) as e_json:
         load_human_participants(bad_json)
-    assert "invalid merge_policy:" in e_json.value.reason
+    assert e_json.value.path == str(bad_json / "merge_policy.json")
+    assert e_json.value.reason.startswith("invalid merge_policy:")
     bad_utf = tmp_path / "bu"
     bad_utf.mkdir()
     (bad_utf / "merge_policy.json").write_bytes(b"\xff")
-    with pytest.raises(BoardError):
+    with pytest.raises(BoardError) as e_utfp:
         load_human_participants(bad_utf)
+    assert e_utfp.value.path == str(bad_utf / "merge_policy.json")
+    assert e_utfp.value.reason.startswith("invalid merge_policy:")
 
     _write_task(tasks, "T-261116-aaa", "Alpha <xss>", goal="увидеть")
     _write_task(
@@ -336,7 +379,17 @@ def test_render_collect_write(tmp_path: Path):
     assert by_id["T-261116-que"]["column"] == "queue"
     assert by_id["T-261116-drp"]["status"] == "canceled"
     assert by_id["T-261116-blk"]["blocked_reason"] == "wait"
+    assert by_id["T-261116-blk"]["blocked_deadline"] == "2026-12-01"
     assert by_id["T-261116-blk"]["status_label"] == "заблокирована"
+    assert by_id["T-261116-aaa"]["title"] == "Alpha <xss>"
+    assert by_id["T-261116-srv"]["title"] == "Self"
+    en_cards = collect_board_cards(tasks, lang="en", now=NOW)
+    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-srv"] == (
+        "self-review"
+    )
+    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-blk"] == (
+        "blocked"
+    )
     assert set(by_id["T-261116-blk"]) == {
         "id",
         "title",
@@ -356,9 +409,10 @@ def test_render_collect_write(tmp_path: Path):
     assert "<title>Моя доска</title>" in html and "только Maxim" in html
     assert "В статусе: 2099-05-31 12:00 UTC (24.0ч)" in html
     assert "Исполнитель: alice" in html and "(&gt;12ч)" in html
+    # srv + real overdue; queued alias without stamp also overdue (unknown age)
     assert html.split('data-column="queue"')[1].split("data-column=")[0].count(
         "card overdue"
-    ) == 2
+    ) == 3
 
     out = tmp_path / "o.html"
     write_board(
@@ -396,6 +450,17 @@ def test_render_collect_write(tmp_path: Path):
     }
     rendered = _render_card(card, ["T-261116-c1", "T-261116-c2"], u)
     assert rendered.startswith('<article class="card">')
+    assert rendered.endswith("</article>")
+    assert "</ARTICLE>" not in rendered and "XX</article>XX" not in rendered
+    assert '<h3 class="card-title">X</h3>' in rendered
+    assert '<p class="card-id">T-261116-x1</p>' in rendered
+    assert '<p class="card-desc">desc</p>' in rendered
+    assert "Статус: заблокирована" in rendered
+    assert "Блок: why" in rendered
+    assert "Дедлайн: 2026-01-01" in rendered
+    assert "Родитель: T-261116-p" in rendered
+    assert "Исполнитель: c" in rendered
+    assert "В статусе: t (12.0ч)" in rendered
     assert "Подзадачи: T-261116-c1, T-261116-c2" in rendered
     assert "XX, XX" not in rendered
     od = _render_card(
@@ -407,6 +472,7 @@ def test_render_collect_write(tmp_path: Path):
     )
     assert od.startswith('<article class="card overdue">')
     assert "Просрочено (&gt;12ч)" in od
+    assert "Блок:" not in od
     empty = render_board_html([], lang="ru", reviewers=["Maxim"])
     assert empty.count("(пусто)") == 7
     assert empty.startswith(
@@ -414,12 +480,24 @@ def test_render_collect_write(tmp_path: Path):
         '<meta charset="utf-8">\n'
         f"<title>{DEFAULT_TITLE}</title>\n"
     )
+    assert "</head>\n<body>\n<header>\n" in empty
+    assert f"<h1>{DEFAULT_TITLE}</h1>\n" in empty
+    assert "Канбан из context/tasks" in empty
+    assert '</header>\n<main class="board">\n' in empty
     assert empty.endswith("</main>\n</body>\n</html>\n")
     assert "None" not in empty and "XXXX" not in empty
     assert "<HEAD>" not in empty and "</MAIN>" not in empty
+    assert "</HEADER>" not in empty and "<MAIN" not in empty
+    assert empty.count("<head>") == 1 and empty.count("</head>") == 1
+    assert empty.count('<main class="board">') == 1
+    en_empty = render_board_html([], lang="en", title="Board", reviewers=["Z"])
+    assert 'lang="en"' in en_empty and "<title>Board</title>" in en_empty
+    assert "Kanban from context/tasks" in en_empty
+    assert "Open" in en_empty and "Queue" in en_empty
     col = _render_column(
         "for-review", "На ревью", [], {}, u, review_note="только Maxim"
     )
+    assert '<h2>На ревью <span class="count">(0)</span>' in col
     assert "только Maxim" in col
     assert "col-note" not in _render_column("for-review", "На ревью", [], {}, u)
     assert "XXXX" not in _render_column("for-review", "На ревью", [], {}, u)
@@ -431,6 +509,7 @@ def test_render_collect_write(tmp_path: Path):
     with pytest.raises(BoardError) as exc:
         render_board_html([bad_card], lang="ru")
     assert exc.value.path == "T-261116-badcol"
+    assert exc.value.reason == "unknown column 'not-a-column'"
     no_id = {**bad_card, "id": ""}
     with pytest.raises(BoardError) as exc2:
         render_board_html([no_id], lang="ru")
@@ -442,6 +521,10 @@ def test_render_collect_write(tmp_path: Path):
             {"id": "T-261116-ya", "parent": "T-261116-par"},
         ]
     ) == {"T-261116-par": ["T-261116-ya", "T-261116-zb"]}
+    assert _subtask_ids([{"id": "T-or", "parent": "T-missing"}]) == {}
+    assert by_id["T-261116-aaa"]["description"] == "увидеть"
+    assert by_id["T-261116-aaa"]["updated"] == ""
+    assert by_id["T-261116-srv"]["status_label"] == "самопроверка"
 
 
 def test_require_status_messages():
