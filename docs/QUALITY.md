@@ -16,7 +16,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
 | `mutation.gate` | `hard` on **`mutationScoreCovered`** for changed `include_globs` (default **100**; never gate overall `mutationScore`) |
-| `mutation.include_globs` | Which changed sources enter the mutation set. Dogfood uses dual globs `runtime/agentized/*.py` + `runtime/agentized/**/*.py` (`fnmatch` `**` does not match zero directories) |
+| `mutation.include_globs` | Which changed sources enter the mutation set. Default/dogfood: `runtime/agentized/*.py` (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested modules; a separate `**` glob is redundant) |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |

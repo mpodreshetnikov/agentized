@@ -1,7 +1,7 @@
-"""JSON file I/O for quality.json (outside mutation include_globs).
+"""JSON file I/O for quality.json.
 
-Equivalent mutants on encoding=/ensure_ascii= are observationally identical
-for UTF-8 JSON; keep the hard gate focused on merge/normalize logic in quality.py.
+Thin helpers for load/save. Prefer covering merge/normalize behavior in
+`quality.py` tests; editing this module still enters the mutation gate when changed.
 """
 from __future__ import annotations
 

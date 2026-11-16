@@ -20,7 +20,7 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 
 ## Reviewable PR size (AGE-32)
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Over the limit **hard-fails** `agentized process size` (exit 1). Dogfood config pins `size_mode=hard`. Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
+Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Over the limit **hard-fails** `agentized process size` (exit 1). `size_mode` must be **`hard`** (default from `default_process_config` / connect); any other value raises on load. Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
 
 ```bash
 ./bin/agentized process size

@@ -45,19 +45,31 @@ def _skeleton(root: Path) -> None:
     )
 
 
-def test_dogfood_process_control_and_mutation_globs():
-    """#18: dogfood JSON pins size_mode=hard + dual mutation include_globs."""
+def test_connect_writes_hard_size_mode_and_full_cover_globs(tmp_path: Path):
+    """Connect defaults: size_mode=hard + full-cover mutation include_globs."""
     import json
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2]
-    pc = json.loads((root / "context" / "process-control.json").read_text(encoding="utf-8"))
+    from agentized.connect import ensure_process_control_config
+    from agentized.quality_defaults import default_quality_config
+
+    _skeleton(tmp_path)
+    info = ensure_process_control_config(tmp_path, "context")
+    assert info["created"] is True
+    pc = json.loads(
+        (tmp_path / "context" / "process-control.json").read_text(encoding="utf-8")
+    )
     assert pc["size_mode"] == "hard"
     assert pc["reviewable_lines"] == 1500
-    globs = json.loads((root / "context" / "quality.json").read_text(encoding="utf-8"))[
-        "mutation"
-    ]["include_globs"]
-    assert globs == ["runtime/agentized/*.py", "runtime/agentized/**/*.py"]
+    # Second connect must not clobber.
+    assert ensure_process_control_config(tmp_path, "context")["created"] is False
+
+    qinfo = ensure_quality_config(tmp_path, "context")
+    assert qinfo["created"] is True
+    cfg = load_quality(tmp_path)
+    assert cfg["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
+    assert default_quality_config()["mutation"]["include_globs"] == [
+        "runtime/agentized/*.py"
+    ]
 
 
 def test_ensure_quality_and_coverage(tmp_path: Path):

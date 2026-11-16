@@ -55,40 +55,79 @@ def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
     assert out == ["runtime/agentized/quality.py"]
 
 
-def test_include_globs_match_flat_and_nested_modules():
-    """Maxim: fnmatch ** does not match zero dirs — dual globs required.
+def test_run_mutation_include_globs_filter_reaches_mutmut(tmp_path: Path, monkeypatch):
+    """Drive run_mutation: flat+nested under *.py reach mutmut; outside paths drop."""
+    (tmp_path / "context").mkdir()
+    (tmp_path / "tests" / "unit").mkdir(parents=True)
+    (tmp_path / "tests" / "unit" / "test_quality.py").write_text(
+        "def test_x():\n    assert True\n", encoding="utf-8"
+    )
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps(
+            {
+                "mutation": {
+                    "enabled": True,
+                    "min_score_covered": 100,
+                    "break_on_survived": True,
+                    "break_on_no_tests": True,
+                    "include_globs": ["runtime/agentized/*.py"],
+                    "base_ref": "origin/main",
+                },
+                "modules": [{"source": ["runtime/agentized"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        mut,
+        "_changed_py_files",
+        lambda *a, **k: [
+            "runtime/agentized/board.py",
+            "runtime/agentized/sub/pkg.py",
+            "runtime/other.py",
+            "tests/unit/test_x.py",
+        ],
+    )
+    captured: list[list[str]] = []
 
-    Mirrors mutation gate filter: any(fnmatch(path, pat) for pat in include_globs).
-    """
-    import fnmatch
+    def fake_write_setup(root, only):  # noqa: ARG001
+        captured.append(list(only))
+        (root / "setup.cfg").write_text("[mutmut]\n", encoding="utf-8")
 
-    def matches(path: str, globs: list[str]) -> bool:
-        path = path.replace("\\", "/")
-        return any(fnmatch.fnmatch(path, pat) for pat in globs)
+    monkeypatch.setattr(mut, "_write_setup", fake_write_setup)
+    monkeypatch.setattr(mut, "_ensure_agentized_link", lambda root: False)
 
-    root = Path(__file__).resolve().parents[2]
-    globs = json.loads((root / "context" / "quality.json").read_text(encoding="utf-8"))[
-        "mutation"
-    ]["include_globs"]
-    assert globs == ["runtime/agentized/*.py", "runtime/agentized/**/*.py"]
-    flat = [
-        "runtime/agentized/process_control.py",
-        "runtime/agentized/board.py",
-        "runtime/agentized/quality.py",
-    ]
-    nested = [
-        "runtime/agentized/sub/pkg.py",
-        "runtime/agentized/a/b/c.py",
-    ]
-    assert [matches(p, globs) for p in flat] == [True, True, True]
-    assert [matches(p, globs) for p in nested] == [True, True]
-    # Regression: ** alone must NOT cover flat files.
-    starstar_only = ["runtime/agentized/**/*.py"]
-    assert matches("runtime/agentized/process_control.py", starstar_only) is False
-    assert matches("runtime/agentized/board.py", starstar_only) is False
-    assert matches("runtime/agentized/sub/x.py", starstar_only) is True
-    assert matches("runtime/other.py", globs) is False
-    assert matches("tests/unit/test_x.py", globs) is False
+    class Done(Exception):
+        pass
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        class R:
+            returncode = 0
+
+        # Pre-mutation unit pytest then mutmut run.
+        if cmd[:3] == [__import__("sys").executable, "-m", "pytest"]:
+            return R()
+        if cmd[:3] == [__import__("sys").executable, "-m", "mutmut"]:
+            raise Done("mutmut reached")
+        return R()
+
+    monkeypatch.setattr(mut.subprocess, "run", fake_run)
+    monkeypatch.setattr(mut, "_collect_stats", lambda root: {  # noqa: ARG001
+        "killed": 0,
+        "survived": 0,
+        "no_tests": 0,
+        "timeout": 0,
+        "totalMutants": 0,
+        "mutationScoreCovered": 100.0,
+        "mutationScore": 100.0,
+    })
+    monkeypatch.chdir(tmp_path)
+    try:
+        mut.run_mutation(tmp_path)
+    except Done:
+        pass
+    assert captured == [["agentized/board.py", "agentized/sub/pkg.py"]]
 
 
 def test_write_setup(tmp_path: Path):

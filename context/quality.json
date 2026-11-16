@@ -26,8 +26,7 @@
     "break_on_survived": true,
     "break_on_no_tests": true,
     "include_globs": [
-      "runtime/agentized/*.py",
-      "runtime/agentized/**/*.py"
+      "runtime/agentized/*.py"
     ]
   },
   "test_smells": {

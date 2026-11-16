@@ -1,7 +1,8 @@
-"""Default quality.json payload (kept outside mutation include_globs).
+"""Default quality.json payload for connect / new projects.
 
-Literal defaults create hundreds of uninformative mutmut survivors; the
-hard gate still covers `quality.py` merge/normalize/save logic.
+`mutation.include_globs` defaults to full-cover `runtime/agentized/*.py`
+(Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested).
+Editing this module pulls it into the hard mutation gate when changed.
 """
 from __future__ import annotations
 
@@ -42,11 +43,7 @@ def default_quality_config() -> dict[str, Any]:
             "break_on_survived": True,
             "break_on_no_tests": True,
             "include_globs": [
-                "runtime/agentized/quality.py",
-                "runtime/agentized/paths.py",
-                "runtime/agentized/tasks.py",
-                "runtime/agentized/leases.py",
-                "runtime/agentized/hook_common.py",
+                "runtime/agentized/*.py",
             ],
         },
         "test_smells": {
