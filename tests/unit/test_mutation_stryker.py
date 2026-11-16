@@ -206,3 +206,12 @@ def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(mut.subprocess, "run", fake_run)
     assert mut._git_changed_names(tmp_path, "origin/main") == ["src/a.py"]
+
+
+def test_is_test_path_keeps_production_test_smells_module():
+    assert mut._is_test_path("runtime/agentized/test_smells.py") is False
+    assert mut._is_test_path("tests/unit/test_foo.py") is True
+    assert mut._is_test_path("src/foo.test.ts") is True
+    assert mut._is_test_path("src/__tests__/x.ts") is True
+    assert mut._is_test_path("src/util.ts") is False
+
