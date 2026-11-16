@@ -1,13 +1,15 @@
-"""Filesystem helpers for board_html (kept outside mutation include_globs)."""
+"""Filesystem helpers for board_html (AGE-37)."""
 from __future__ import annotations
 
 from pathlib import Path
 
+ENCODING = "utf-8"
+
 
 def read_task_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return path.read_bytes().decode(ENCODING)
 
 
 def write_html(path: Path, html_text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html_text, encoding="utf-8", newline="\n")
+    path.write_bytes(html_text.encode(ENCODING))

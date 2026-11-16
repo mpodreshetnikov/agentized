@@ -29,6 +29,7 @@ from agentized.board_html import (
     render_board_html,
     write_board,
 )
+from agentized.board_html_io import ENCODING, read_task_text, write_html
 from agentized.tasks import TaskMeta
 
 # Exact skeleton fragments — kills HTML case / XX-wrap / join mutants.
@@ -517,3 +518,27 @@ def test_empty_board_exact_skeleton():
     assert "Blocked" in html
     assert "Done" in html
     assert "Canceled" in html
+
+
+def test_board_html_io_roundtrip(tmp_path: Path):
+    assert ENCODING == "utf-8"
+    deep = tmp_path / "a" / "b" / "c" / "out.html"
+    payload = "<!DOCTYPE html>\n<html>Ценность: café — 日本語</html>\n"
+    write_html(deep, payload)
+    assert deep.is_file()
+    raw = deep.read_bytes()
+    assert raw == payload.encode("utf-8")
+    assert b"\r" not in raw
+    assert read_task_text(deep) == payload
+    # exist_ok=True: rewrite same path
+    write_html(deep, payload + "<!--2-->\n")
+    assert read_task_text(deep).endswith("<!--2-->\n")
+    # non-utf8 bytes → decode via ENCODING fails closed
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"\xff\xfe not utf-8")
+    try:
+        read_task_text(bad)
+        raised = False
+    except UnicodeDecodeError:
+        raised = True
+    assert raised is True
