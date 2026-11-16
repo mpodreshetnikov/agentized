@@ -51,7 +51,6 @@ def _test_selection_for(only_mutate: list[str], root: Path) -> list[str]:
         if unit.is_dir():
             for path in sorted(unit.glob(f"test_{stem}_*.py")):
                 selected.append(f"tests/unit/{path.name}")
-    # Preserve order, drop duplicates.
     return list(dict.fromkeys(selected)) or ["tests/unit"]
 
 

@@ -2,19 +2,25 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 from .env_check import is_claude_cloud, is_codex_agent, is_cursor_cloud, unknown_agent_label
 from .paths import DEFAULT_CONTEXT, find_repo_root
+from .process_size import (
+    DOC,
+    classify_size,
+    diff_insertions,
+    load_process_config_file,
+)
 from .tasks import ACTIVE_STATUSES, list_tasks
 
 PROCESS_FILENAME = "process-control.json"
-DOC = "docs/process-control.md"
+
+# Back-compat alias used by unit tests / callers.
+_diff_insertions = diff_insertions
 
 
 def default_process_config() -> dict[str, Any]:
@@ -50,22 +56,7 @@ def process_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 
 
 def load_process_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
-    path = process_path(root, context_rel)
-    cfg = default_process_config()
-    if not path.exists():
-        return cfg
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"process-control: invalid JSON in {path}: {exc}. See {DOC}."
-        ) from exc
-    if not isinstance(data, dict):
-        raise ValueError(
-            f"process-control: {path} must be a JSON object, got {type(data).__name__}. See {DOC}."
-        )
-    cfg.update({k: data[k] for k in data})
-    return cfg
+    return load_process_config_file(process_path(root, context_rel), default_process_config())
 
 
 def is_agent_session(env: dict[str, str] | None = None) -> bool:
@@ -154,58 +145,31 @@ def claim_check(
     return {"ok": True, "mode": "warn", "message": "WARN. " + msg, "paths": watched}
 
 
-def _diff_insertions(root: Path, base_ref: str) -> int:
-    proc = subprocess.run(
-        ["git", "diff", "--numstat", f"{base_ref}...HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        proc = subprocess.run(
-            ["git", "diff", "--numstat", base_ref],
-            cwd=root,
-            capture_output=True,
-            text=True,
-        )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
-        raise RuntimeError(
-            f"process-control: git diff failed for {base_ref!r}: {detail}. See {DOC}."
-        )
-    total = 0
-    for line in proc.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 3:
-            continue
-        if parts[0] == "-":
-            continue
-        try:
-            total += int(parts[0])
-        except ValueError:
-            continue
-    return total
-
-
 def size_check(
     root: Path,
     *,
     context_rel: str = DEFAULT_CONTEXT,
     base_ref: str | None = None,
 ) -> dict[str, Any]:
-    cfg = load_process_config(root, context_rel)
+    base = base_ref or os.environ.get("PROCESS_BASE") or "origin/main"
+    try:
+        cfg = load_process_config(root, context_rel)
+        insertions = diff_insertions(root, base)
+    except (RuntimeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "level": "error",
+            "insertions": 0,
+            "limit": 0,
+            "warn_at": 0,
+            "base": base,
+            "message": str(exc),
+        }
     limit = int(cfg.get("reviewable_lines") or 1500)
     warn_pct = float(cfg.get("warn_at_pct") or 75)
-    base = base_ref or os.environ.get("PROCESS_BASE") or "origin/main"
-    insertions = _diff_insertions(root, base)
-    warn_at = int(limit * warn_pct / 100.0)
-    level = "ok"
-    if insertions >= limit:
-        level = "over"
-    elif insertions >= warn_at:
-        level = "warn"
+    level, ok, warn_at = classify_size(insertions, limit, warn_pct)
     return {
-        "ok": level != "over",
+        "ok": ok,
         "level": level,
         "insertions": insertions,
         "limit": limit,
@@ -223,12 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     root = find_repo_root()
     context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
     if args and args[0] == "size":
-        try:
-            result = size_check(root, context_rel=context)
-        except (RuntimeError, ValueError) as exc:
-            sys.stderr.write(str(exc) + "\n")
-            return 1
-        stream = sys.stdout if result["level"] != "over" else sys.stderr
+        result = size_check(root, context_rel=context)
+        stream = sys.stdout if result["ok"] else sys.stderr
         stream.write(result["message"] + "\n")
         return 0 if result["ok"] else 1
     if args and args[0] == "claim":

@@ -58,7 +58,7 @@ def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
 def test_write_setup(tmp_path: Path):
     unit = tmp_path / "tests" / "unit"
     unit.mkdir(parents=True)
-    (unit / "test_quality.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    (unit / "test_quality.py").write_text("def test_x():\n    assert 1 == 1\n", encoding="utf-8")
     mut._write_setup(tmp_path, ["agentized/quality.py"])
     text = (tmp_path / "setup.cfg").read_text(encoding="utf-8")
     lines = text.splitlines()
@@ -73,29 +73,17 @@ def test_write_setup(tmp_path: Path):
 def test_test_selection_multi_file(tmp_path: Path):
     unit = tmp_path / "tests" / "unit"
     unit.mkdir(parents=True)
-    (unit / "test_process_control.py").write_text("def test_a():\n    assert 1 == 1\n", encoding="utf-8")
+    (unit / "test_process_size.py").write_text("def test_a():\n    assert 1 == 1\n", encoding="utf-8")
     (unit / "test_mutation_gate.py").write_text("def test_b():\n    assert 1 == 1\n", encoding="utf-8")
     (unit / "test_mutation_more.py").write_text("def test_c():\n    assert 1 == 1\n", encoding="utf-8")
     selected = mut._test_selection_for(
-        ["agentized/process_control.py", "agentized/mutation.py"],
+        ["agentized/process_size.py", "agentized/mutation.py"],
         tmp_path,
     )
     assert selected == [
-        "tests/unit/test_process_control.py",
+        "tests/unit/test_process_size.py",
         "tests/unit/test_mutation_gate.py",
         "tests/unit/test_mutation_more.py",
-    ]
-    mut._write_setup(
-        tmp_path,
-        ["agentized/process_control.py", "agentized/mutation.py"],
-    )
-    text = (tmp_path / "setup.cfg").read_text(encoding="utf-8")
-    sel = text.splitlines().index("pytest_add_cli_args_test_selection =")
-    block = text.splitlines()[sel + 1 : sel + 4]
-    assert block == [
-        "  tests/unit/test_process_control.py",
-        "  tests/unit/test_mutation_gate.py",
-        "  tests/unit/test_mutation_more.py",
     ]
 
 

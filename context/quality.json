@@ -31,7 +31,7 @@
       "runtime/agentized/tasks.py",
       "runtime/agentized/leases.py",
       "runtime/agentized/hook_common.py",
-      "runtime/agentized/process_control.py"
+      "runtime/agentized/process_size.py"
     ]
   },
   "test_smells": {

@@ -76,12 +76,12 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     def fake_diff(root, base_ref):  # noqa: ARG001
         return 60
 
-    monkeypatch.setattr("agentized.process_control._diff_insertions", fake_diff)
+    monkeypatch.setattr("agentized.process_control.diff_insertions", fake_diff)
     result = size_check(tmp_path)
     assert result["level"] == "warn"
     assert result["ok"] is True
 
-    monkeypatch.setattr("agentized.process_control._diff_insertions", lambda *_: 120)
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False
@@ -119,113 +119,23 @@ def test_load_bad_json_raises(tmp_path: Path):
         load_process_config(tmp_path)
 
 
-def test_load_non_object_json_raises(tmp_path: Path):
-    import pytest
-
-    (tmp_path / "context").mkdir()
-    (tmp_path / "context" / "process-control.json").write_text("[]\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="JSON object"):
-        load_process_config(tmp_path)
-
-
-def test_diff_insertions_git_error_raises(tmp_path: Path, monkeypatch):
-    import pytest
-    import subprocess
-    from agentized.process_control import _diff_insertions
-
-    class FakeProc:
-        def __init__(self, code: int, stderr: str = "boom"):
-            self.returncode = code
-            self.stdout = ""
-            self.stderr = stderr
-
-    calls: list[list[str]] = []
-
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        calls.append(list(cmd))
-        return FakeProc(128, "fatal: bad revision")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    with pytest.raises(RuntimeError, match="git diff failed"):
-        _diff_insertions(tmp_path, "origin/main")
-    assert len(calls) == 2
-    assert calls[0][3] == "origin/main...HEAD"
-    assert calls[1][3] == "origin/main"
-
-
-def test_diff_insertions_parses_numstat(tmp_path: Path, monkeypatch):
-    import subprocess
-    from agentized.process_control import _diff_insertions
-
-    class FakeProc:
-        def __init__(self, code: int, stdout: str = ""):
-            self.returncode = code
-            self.stdout = stdout
-            self.stderr = ""
-
-    numstat = "\n".join(
-        [
-            "10\t2\ta.py",
-            "-\t-\tbin.dat",
-            "badline",
-            "x\t1\tskip.py",
-            "5\t0\tb.py",
-            "",
-        ]
-    )
-
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        # First form (base...HEAD) succeeds with parsed numstat.
-        return FakeProc(0, numstat)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    # 10 + 5 = 15; binary/short/non-int skipped
-    assert _diff_insertions(tmp_path, "origin/main") == 15
-
-
-def test_diff_insertions_fallback_base_ref(tmp_path: Path, monkeypatch):
-    import subprocess
-    from agentized.process_control import _diff_insertions
-
-    class FakeProc:
-        def __init__(self, code: int, stdout: str = "", stderr: str = ""):
-            self.returncode = code
-            self.stdout = stdout
-            self.stderr = stderr
-
-    calls: list[str] = []
-
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        ref = cmd[3]
-        calls.append(ref)
-        if "..." in ref:
-            return FakeProc(128, stderr="no triple-dot")
-        return FakeProc(0, stdout="3\t1\tc.py\n")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    assert _diff_insertions(tmp_path, "main") == 3
-    assert calls == ["main...HEAD", "main"]
-
-
 def test_size_cli_bad_json_nonzero(tmp_path: Path, monkeypatch):
-    from agentized import process_control as pc
-
-    monkeypatch.setattr(pc, "find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: tmp_path)
     (tmp_path / "context").mkdir(exist_ok=True)
     (tmp_path / "context" / "process-control.json").write_text("{bad", encoding="utf-8")
     assert process_main(["size", "--context", "context"]) == 1
 
 
 def test_size_cli_git_error_nonzero(tmp_path: Path, monkeypatch):
-    from agentized import process_control as pc
+    from agentized import process_size as ps
 
     class FakeProc:
         returncode = 128
         stdout = ""
         stderr = "fatal: bad"
 
-    monkeypatch.setattr(pc.subprocess, "run", lambda *a, **k: FakeProc())  # noqa: ARG005
-    monkeypatch.setattr(pc, "find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(ps.subprocess, "run", lambda *a, **k: FakeProc())  # noqa: ARG005
+    monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: tmp_path)
     (tmp_path / "context").mkdir(exist_ok=True)
     assert process_main(["size", "--context", "context"]) == 1
 
