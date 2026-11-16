@@ -33,7 +33,8 @@
       "runtime/agentized/hook_common.py",
       "runtime/agentized/process_size.py",
       "runtime/agentized/connect_plan.py",
-      "runtime/agentized/hooks_install.py"
+      "runtime/agentized/hooks_install.py",
+      "runtime/agentized/hooks_install_io.py"
     ]
   },
   "test_smells": {

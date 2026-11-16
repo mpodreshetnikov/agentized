@@ -1,11 +1,10 @@
-"""Harness JSON I/O (AGE-36) — outside mutation include_globs.
-
-Encoding / OSError paths have equivalent mutants under mutmut; keep them here.
-"""
+"""Harness JSON I/O for connect dry-run / uninstall refuse (AGE-36)."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+JSON_TEXT_ENCODING = "utf-8"
 
 
 class HooksJsonError(ValueError):
@@ -22,12 +21,12 @@ def read_json_object(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        raw = path.read_bytes().decode("utf-8")
+        raw = path.read_bytes().decode(JSON_TEXT_ENCODING)
         data = json.loads(raw)
     except OSError as exc:
         raise HooksJsonError(path, f"unreadable ({exc})") from exc
     except UnicodeDecodeError as exc:
-        raise HooksJsonError(path, f"not utf-8 ({exc})") from exc
+        raise HooksJsonError(path, f"not {JSON_TEXT_ENCODING} ({exc})") from exc
     except json.JSONDecodeError as exc:
         raise HooksJsonError(path, f"broken JSON ({exc.msg})") from exc
     if type(data) is not dict:
