@@ -58,7 +58,6 @@ def test_config_defaults_and_overrides():
         CFG_SPEC_HEADING: "## Design",
         CFG_APPROVAL_HEADING: DEFAULT_APPROVAL_HEADING,
     }
-    # empty complex_tag must not replace default
     empty_tag = spec_approval_from_config(
         {"spec_approval": {"complex_tag": "   "}}
     )
@@ -84,6 +83,7 @@ def test_task_needs_spec():
 def test_evaluate_task_spec_matrix():
     policy = default_spec_approval()
     policy[CFG_ENABLED] = True
+    allow = ["bob@x.test", "Bob <b@x>", "reviewer@ex.com"]
 
     skip = evaluate_task_spec(
         task_id="T-1",
@@ -113,26 +113,24 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: missing_spec_message("T-2", DEFAULT_SPEC_HEADING),
     }
 
-    placeholder = evaluate_task_spec(
-        task_id="T-3",
-        claim="alice",
-        tags="complex",
-        text="# T-3\n\n## Spec\n\n_(todo)_\n",
-        policy=policy,
-    )
-    assert placeholder == {
-        KEY_OK: False,
-        KEY_MODE: MODE_REFUSE,
-        KEY_TASK_ID: "T-3",
-        KEY_MESSAGE: missing_spec_message("T-3", DEFAULT_SPEC_HEADING),
-    }
+    for body in ("_(todo)_", "TODO", "…", "...", "tbd"):
+        placeholder = evaluate_task_spec(
+            task_id="T-3",
+            claim="alice",
+            tags="complex",
+            text=f"# T-3\n\n## Spec\n\n{body}\n",
+            policy=policy,
+        )
+        assert placeholder[KEY_OK] is False
+        assert placeholder[KEY_MODE] == MODE_REFUSE
 
     empty_spec = evaluate_task_spec(
         task_id="T-4",
         claim="alice",
         tags="complex",
-        text="# T-4\n\n## Spec\n\n\n## Approval\n\napproved-by: bob\n",
+        text="# T-4\n\n## Spec\n\n\n## Approval\n\napproved-by: bob@x.test\n",
         policy=policy,
+        human_participants=allow,
     )
     assert empty_spec[KEY_OK] is False
     assert empty_spec[KEY_MODE] == MODE_REFUSE
@@ -157,6 +155,7 @@ def test_evaluate_task_spec_matrix():
         tags="complex",
         text="# T-6\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: alice\n",
         policy=policy,
+        human_participants=allow,
     )
     assert self_appr == {
         KEY_OK: False,
@@ -165,32 +164,18 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: self_approval_message("T-6", "Alice"),
     }
 
-    empty_approved = evaluate_task_spec(
+    # Other approver without allowlist match and no non-owner → refuse
+    no_allow = evaluate_task_spec(
         task_id="T-7",
         claim="alice",
         tags="complex",
-        text="# T-7\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by:   \n",
+        text="# T-7\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: XXXX\n",
         policy=policy,
+        human_participants=[],
     )
-    assert empty_approved[KEY_OK] is False
-    assert empty_approved[KEY_MODE] == MODE_REFUSE
+    assert no_allow[KEY_OK] is False
 
-    # None claim treated as empty; XXXX remains a valid other approver
-    none_claim = evaluate_task_spec(
-        task_id="T-11",
-        claim=None,  # type: ignore[arg-type]
-        tags="complex",
-        text="# T-11\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: XXXX\n",
-        policy=policy,
-    )
-    assert none_claim == {
-        KEY_OK: True,
-        KEY_MODE: MODE_OK,
-        KEY_TASK_ID: "T-11",
-        KEY_MESSAGE: "spec-approval: T-11 OK (approved-by XXXX)",
-        KEY_APPROVERS: ["XXXX"],
-    }
-
+    # Allowlist path
     ok = evaluate_task_spec(
         task_id="T-8",
         claim="alice",
@@ -200,6 +185,7 @@ def test_evaluate_task_spec_matrix():
             "approved-by: alice\napproved-by: Bob <b@x>\n"
         ),
         policy=policy,
+        human_participants=allow,
     )
     assert ok == {
         KEY_OK: True,
@@ -209,7 +195,19 @@ def test_evaluate_task_spec_matrix():
         KEY_APPROVERS: ["Bob <b@x>"],
     }
 
-    # custom headings
+    # Non-owner commit path even with self-approval text
+    via_git = evaluate_task_spec(
+        task_id="T-10",
+        claim="alice",
+        tags="complex",
+        text="# T-10\n\n## Spec\n\nReal plan.\n\n## Approval\n\napproved-by: alice\n",
+        policy=policy,
+        human_participants=[],
+        approval_by_non_owner=True,
+    )
+    assert via_git[KEY_OK] is True
+    assert via_git[KEY_MODE] == MODE_OK
+
     custom_policy = spec_approval_from_config(
         {
             "spec_approval": {
@@ -224,8 +222,9 @@ def test_evaluate_task_spec_matrix():
         task_id="T-9",
         claim="a",
         tags="hard",
-        text="# T-9\n\n## Design\n\nPlan.\n\n## Signoff\n\nApproved-By: reviewer\n",
+        text="# T-9\n\n## Design\n\nPlan.\n\n## Signoff\n\nApproved-By: reviewer@ex.com\n",
         policy=custom_policy,
+        human_participants=["reviewer@ex.com"],
     )
     assert custom_ok[KEY_MODE] == MODE_OK
-    assert custom_ok[KEY_APPROVERS] == ["reviewer"]
+    assert custom_ok[KEY_APPROVERS] == ["reviewer@ex.com"]

@@ -18,14 +18,20 @@ from .spec_approval_defaults import (
     MODE_OK,
     MODE_REFUSE,
     MODE_SKIP,
-    PLACEHOLDER_PREFIX,
+    approver_not_allowlisted_message,
     default_spec_approval,
     missing_approval_message,
     missing_spec_message,
     ok_message,
     self_approval_message,
 )
-from .spec_approval_text import parse_approvers, parse_tags, section_body
+from .spec_approval_text import (
+    is_placeholder_spec,
+    parse_approvers,
+    parse_tags,
+    participant_email_matches,
+    section_body,
+)
 
 
 def spec_approval_from_config(cfg: dict[str, Any] | None) -> dict[str, Any]:
@@ -56,15 +62,21 @@ def evaluate_task_spec(
     tags: str,
     text: str,
     policy: dict[str, Any],
+    human_participants: list[str] | None = None,
+    approval_by_non_owner: bool = False,
 ) -> dict[str, Any]:
-    """Pure check for one task file body. `policy` must be normalized via from_config."""
+    """Pure check for one task file body. `policy` must be normalized via from_config.
+
+    Pass when an approver is on human_participants (full email) OR the approval
+    line was committed by a non-owner (``approval_by_non_owner``).
+    """
     complex_tag = str(policy[CFG_COMPLEX_TAG])
     if not task_needs_spec(tags, complex_tag):
         return {KEY_OK: True, KEY_MODE: MODE_SKIP, KEY_TASK_ID: task_id, KEY_MESSAGE: EMPTY}
     spec_h = str(policy[CFG_SPEC_HEADING])
     appr_h = str(policy[CFG_APPROVAL_HEADING])
     spec = section_body(text, spec_h)
-    if spec is None or len(spec) == 0 or spec.startswith(PLACEHOLDER_PREFIX):
+    if spec is None or is_placeholder_spec(spec):
         return {
             KEY_OK: False,
             KEY_MODE: MODE_REFUSE,
@@ -82,6 +94,18 @@ def evaluate_task_spec(
     approvers = parse_approvers(approval)
     claim_s = (EMPTY if claim is None else claim).strip().lower()
     other = [a for a in approvers if a.lower() != claim_s]
+    allow = [str(p).strip() for p in (human_participants or []) if str(p).strip()]
+
+    if approval_by_non_owner:
+        label = other[0] if other else "non-owner-commit"
+        return {
+            KEY_OK: True,
+            KEY_MODE: MODE_OK,
+            KEY_TASK_ID: task_id,
+            KEY_MESSAGE: ok_message(task_id, label),
+            KEY_APPROVERS: other or [label],
+        }
+
     if len(other) == 0:
         return {
             KEY_OK: False,
@@ -89,10 +113,28 @@ def evaluate_task_spec(
             KEY_TASK_ID: task_id,
             KEY_MESSAGE: self_approval_message(task_id, claim),
         }
+
+    if allow:
+        matched = [a for a in other if participant_email_matches(a, allow)]
+        if matched:
+            return {
+                KEY_OK: True,
+                KEY_MODE: MODE_OK,
+                KEY_TASK_ID: task_id,
+                KEY_MESSAGE: ok_message(task_id, matched[0]),
+                KEY_APPROVERS: matched,
+            }
+        return {
+            KEY_OK: False,
+            KEY_MODE: MODE_REFUSE,
+            KEY_TASK_ID: task_id,
+            KEY_MESSAGE: approver_not_allowlisted_message(task_id),
+        }
+
+    # No allowlist and no non-owner commit proof → refuse (fail-closed).
     return {
-        KEY_OK: True,
-        KEY_MODE: MODE_OK,
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
         KEY_TASK_ID: task_id,
-        KEY_MESSAGE: ok_message(task_id, other[0]),
-        KEY_APPROVERS: other,
+        KEY_MESSAGE: approver_not_allowlisted_message(task_id),
     }

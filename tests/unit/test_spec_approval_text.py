@@ -1,7 +1,13 @@
 """Text helper tests for AGE-28 (mutation-covered)."""
 from __future__ import annotations
 
-from agentized.spec_approval_text import parse_approvers, parse_tags, section_body
+from agentized.spec_approval_text import (
+    is_placeholder_spec,
+    parse_approvers,
+    parse_tags,
+    participant_email_matches,
+    section_body,
+)
 
 
 def test_section_tags_approvers():
@@ -17,6 +23,20 @@ def test_section_tags_approvers():
     assert parse_approvers("approved-by: X\nApproved-By: Y\napproved-by:\n") == ["X", "Y"]
     assert parse_approvers("") == []
     assert parse_approvers("approved-by:   \n") == []
-    # next ## stops body
     multi = "## Spec\n\none\n## Other\n\ntwo\n"
     assert section_body(multi, "## Spec") == "one"
+
+
+def test_placeholder_and_email_match():
+    assert is_placeholder_spec("") is True
+    assert is_placeholder_spec("_(todo)_") is True
+    assert is_placeholder_spec("TODO") is True
+    assert is_placeholder_spec("…") is True
+    assert is_placeholder_spec("...") is True
+    assert is_placeholder_spec("Ship the gate.") is False
+    allow = ["bob@example.com", "Alice <alice@x.test>"]
+    assert participant_email_matches("bob@example.com", allow) is True
+    assert participant_email_matches("Bob <bob@example.com>", allow) is True
+    assert participant_email_matches("bob", allow) is False
+    assert participant_email_matches("Alice", allow) is False
+    assert participant_email_matches("eve@example.com", allow) is False

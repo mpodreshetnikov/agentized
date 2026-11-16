@@ -24,7 +24,9 @@ from agentized.spec_approval_defaults import (
     MODE_REFUSE,
     MODE_SKIP,
     PLACEHOLDER_PREFIX,
+    SPEC_GATE_STATUSES,
     STATUS_IN_PROGRESS,
+    approver_not_allowlisted_message,
     checked_message,
     default_spec_approval,
     missing_approval_message,
@@ -74,6 +76,9 @@ def test_constants_and_default():
         "",
         "in-progress",
     )
+    assert STATUS_IN_PROGRESS in SPEC_GATE_STATUSES
+    assert "done" in SPEC_GATE_STATUSES
+    assert "open" not in SPEC_GATE_STATUSES
     assert default_spec_approval() == {
         "enabled": False,
         "complex_tag": "complex",
@@ -96,4 +101,5 @@ def test_message_builders():
         "than claim owner 'Alice'. See docs/process-control.md."
     )
     assert ok_message("T-4", "bob") == "spec-approval: T-4 OK (approved-by bob)"
-    assert checked_message(3) == "spec-approval: checked 3 complex in-progress task(s)"
+    assert checked_message(3) == "spec-approval: checked 3 complex gated task(s)"
+    assert "human_participants" in approver_not_allowlisted_message("T-5")

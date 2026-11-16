@@ -29,14 +29,16 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 
 ## Spec approval gate (AGE-28)
 
-Config block: `spec_approval` in [`context/process-control.json`](../context/process-control.json). **Off by default.**
+Config block: `spec_approval` in [`context/process-control.json`](../context/process-control.json). **Off by default.** When enabled: fail-closed + CI/pre-push.
 
 | Knob | Default | Meaning |
 |------|---------|---------|
-| `enabled` | `false` | When true, pre-push `process spec-approval` checks in-progress tasks |
+| `enabled` | `false` | When true, CI + pre-push `process spec-approval` checks gated tasks |
 | `complex_tag` | `complex` | Tag that marks a task as requiring Spec + Approval |
-| `spec_heading` | `## Spec` | Required non-empty section (placeholder `_(…)` does not count) |
-| `approval_heading` | `## Approval` | Must contain `approved-by: <other>` different from claim owner |
+| `spec_heading` | `## Spec` | Required real Spec content (`TODO` / `…` / `_(…)` do not count) |
+| `approval_heading` | `## Approval` | Approver on `merge_policy.human_participants` (full email) **or** approval line committed by non-owner |
+
+Checks every status from `in-progress` onward (`self-review`, `for-review`, `blocked`, `done`, …), not only `in-progress`.
 
 ```bash
 ./bin/agentized process spec-approval

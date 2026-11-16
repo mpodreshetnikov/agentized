@@ -33,7 +33,8 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
     tasks = ctx / "tasks"
     tasks.mkdir(parents=True)
     (ctx / "process-control.json").write_text(
-        '{"version":1,"spec_approval":{"enabled":false}}\n',
+        '{"version":1,"spec_approval":{"enabled":false},'
+        '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
     _write_task(
@@ -66,7 +67,16 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
         status="in-progress",
         tags="complex",
         claim="alice",
-        extra="## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob\n",
+        extra="## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob@example.com\n",
+    )
+    # Done-lane also gated
+    _write_task(
+        tasks,
+        "T-260101-eeee",
+        status="done",
+        tags="complex",
+        claim="alice",
+        extra="## Spec\n\nDone plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
     )
     _write_task(
         tasks,
@@ -84,15 +94,15 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
     )
     still = spec_approval_check(root, policy=policy)
     assert still["ok"] is False
-    assert still["checked"] == 2
+    assert still["checked"] == 3  # aaaa refuse + bbbb + eeee
 
     (tasks / "T-260101-aaaa.md").unlink()
     ok = spec_approval_check(root, policy=policy)
     assert ok["ok"] is True
     assert ok["mode"] == "ok"
-    assert ok["checked"] == 1
+    assert ok["checked"] == 2
     assert ok["failures"] == []
-    assert ok["message"] == checked_message(1)
+    assert ok["message"] == checked_message(2)
 
     loaded = load_spec_approval(root)
     assert loaded["enabled"] is False
@@ -100,3 +110,25 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path):
     assert merged["spec_approval"]["enabled"] is False
     keep = ensure_default_in_config({"spec_approval": {"enabled": True}})
     assert keep["spec_approval"]["enabled"] is True
+
+
+def test_blocked_lane_is_checked(tmp_path: Path):
+    root = tmp_path
+    ctx = root / "context"
+    tasks = ctx / "tasks"
+    tasks.mkdir(parents=True)
+    (ctx / "process-control.json").write_text(
+        '{"version":1,"spec_approval":{"enabled":true},'
+        '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
+        encoding="utf-8",
+    )
+    _write_task(
+        tasks,
+        "T-260101-ffff",
+        status="blocked",
+        tags="complex",
+        claim="alice",
+    )
+    result = spec_approval_check(root)
+    assert result["ok"] is False
+    assert result["checked"] == 1

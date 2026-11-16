@@ -31,6 +31,19 @@ PLACEHOLDER_PREFIX = "_("
 EMPTY = ""
 STATUS_IN_PROGRESS = "in-progress"
 
+# Statuses from in-progress onward (board-forward compatible).
+SPEC_GATE_STATUSES: frozenset[str] = frozenset(
+    {
+        "in-progress",
+        "self-review",
+        "for-review",
+        "blocked",
+        "done",
+        "dropped",
+        "canceled",
+    }
+)
+
 
 def default_spec_approval() -> dict[str, Any]:
     return {
@@ -62,9 +75,17 @@ def self_approval_message(task_id: str, claim: str) -> str:
     )
 
 
+def approver_not_allowlisted_message(task_id: str) -> str:
+    return (
+        f"REFUSED. spec-approval: {task_id} approver must be on "
+        f"human_participants allowlist or the approval must be committed by a "
+        f"non-owner. See {DOC}."
+    )
+
+
 def ok_message(task_id: str, approver: str) -> str:
     return f"spec-approval: {task_id} OK (approved-by {approver})"
 
 
 def checked_message(checked: int) -> str:
-    return f"spec-approval: checked {checked} complex in-progress task(s)"
+    return f"spec-approval: checked {checked} complex gated task(s)"
