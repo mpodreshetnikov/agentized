@@ -68,13 +68,17 @@ def test_config_defaults_and_overrides():
 
 
 def test_task_needs_spec():
-    assert task_needs_spec("complex", "complex") is True
-    assert task_needs_spec("COMPLEX,foo", "complex") is True
-    assert task_needs_spec("foo bar", "complex") is False
-    assert task_needs_spec("complexish", "complex") is False
-    assert task_needs_spec("complex", "") is False
-    assert task_needs_spec("complex", "   ") is False
-    assert task_needs_spec("a,b", "b") is True
+    cases = (
+        ("complex", "complex"),
+        ("COMPLEX,foo", "complex"),
+        ("foo bar", "complex"),
+        ("complexish", "complex"),
+        ("complex", ""),
+        ("complex", "   "),
+        ("a,b", "b"),
+    )
+    outcomes = [task_needs_spec(tags, needle) for tags, needle in cases]
+    assert outcomes == [True, True, False, False, False, False, True]
 
 
 def test_evaluate_task_spec_matrix():
