@@ -318,15 +318,24 @@ def test_file_skip_transition_flags(tmp_path: Path):
     assert validate_tasks_dir(
         d, previous_by_name={name: "# T\n\nЦенность: x\n"}
     ) == GateResult(False, (f"{name}: {MSG_MISSING_STATUS} (previous)",))
-    # brand-new done at base is refused
+    from agentized.status_gates import NEW_PATH_FORBIDDEN_STATUSES
+
     fresh = tmp_path / "brand"
     fresh.mkdir()
-    (fresh / "T-261116-newdone.md").write_text(
-        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
-    )
+    extras = {
+        "done": "acceptance_note: forged",
+        "canceled": "",
+        "self-review": "review_note: x",
+        "for-review": "pr: #1",
+    }
+    assert NEW_PATH_FORBIDDEN_STATUSES == frozenset(extras)
+    for st, extra in extras.items():
+        p = fresh / f"T-261116-new{st}.md"
+        p.write_text(_task(st, extra=extra) if extra else _task(st), encoding="utf-8")
     bad_new = validate_tasks_dir(fresh, previous_by_name={})
     assert bad_new.ok is False
-    assert any("new task cannot start as done" in e for e in bad_new.errors)
+    for st in extras:
+        assert any(f"new task cannot start as {st}" in e for e in bad_new.errors), st
 
 
 def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
@@ -717,6 +726,7 @@ def test_rebuild_task_index_active(tmp_path: Path):
     write("T-261116-ph.md", "open", title="Ph", parent="_x", claim="_y")
     write("T-261116-done.md", "done", title="Done", parent="_(пусто)_", claim="_(пусто)_")
     write("T-261116-ip.md", "in-progress", title="Work", parent="_(пусто)_", claim="bob")
+    write("T-261116-qq.md", "queued", title="Alias", parent="_(пусто)_", claim="_(пусто)_")
     expected = (
         "# Задачи — живой индекс\n\n"
         "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
@@ -727,7 +737,7 @@ def test_rebuild_task_index_active(tmp_path: Path):
         "## open\n\n- [T-261116-ph](T-261116-ph.md) — Ph\n\n"
         "## queue\n\n"
         "- [T-261116-idx](T-261116-idx.md) — Demo (родитель: AGE-22) · claim: alice\n"
-        "- [T-261116-qz](T-261116-qz.md) — Second\n\n"
+        "- [T-261116-qz](T-261116-qz.md) — Second\n- [T-261116-qq](T-261116-qq.md) — Alias\n\n"
         "## in-progress\n\n- [T-261116-ip](T-261116-ip.md) — Work · claim: bob\n\n"
         "## self-review\n\n_(пусто)_\n\n## for-review\n\n_(пусто)_\n\n"
         "## blocked\n\n_(пусто)_\n\n"

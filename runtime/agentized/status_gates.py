@@ -75,7 +75,11 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "canceled": frozenset({"open", "queue"}),
 }
 
-VALUE_LINE_RE = re.compile(r"(?im)^\s*Ценность:\s*\S+")
+VALUE_LINE_RE = re.compile(r"(?im)^\s*Ценность:\s*(\S.*)$")
+# Brand-new paths at PR base cannot forge these (claim→in-progress still OK).
+NEW_PATH_FORBIDDEN_STATUSES: frozenset[str] = frozenset(
+    {"done", "canceled", "self-review", "for-review"}
+)
 FIELD_LINE_RE = re.compile(
     r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
     r"review_note|acceptance_note|pr):[ \t]*(.*)$",
@@ -153,7 +157,7 @@ def has_value_line(text: str | None) -> bool:
     m = VALUE_LINE_RE.search(text)
     if not m:
         return False
-    val = m.group(0).split(":", 1)[-1].strip()
+    val = m.group(1).strip()
     return bool(val) and not val.startswith("_")
 
 
@@ -455,11 +459,8 @@ def validate_tasks_dir(
                     continue
             else:
                 st = extract_status(text)
-                # Block forging done/review on a brand-new path (claim→in-progress OK).
-                if st in {"done", "canceled", "self-review", "for-review"}:
-                    errors.append(
-                        f"{path.name}: new task cannot start as {st}"
-                    )
+                if st in NEW_PATH_FORBIDDEN_STATUSES:
+                    errors.append(f"{path.name}: new task cannot start as {st}")
                     continue
         result = validate_task_text(
             text,
