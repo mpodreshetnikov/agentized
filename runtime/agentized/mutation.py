@@ -21,7 +21,7 @@ from .quality import load_quality
 DURABLE_SETUP = """[mutmut]
 # Top-level `agentized` symlink → runtime/agentized so trampoline keys match imports.
 source_paths = agentized
-mutate_only_covered_lines = true
+mutate_only_covered_lines = false
 use_git_change_detection = false
 # Equivalent lexemes (Python treats these the same) — do not count as survivors.
 ignore_lexemes =
