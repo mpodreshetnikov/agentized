@@ -66,3 +66,12 @@ def test_hooks(tmp_path: Path, monkeypatch):
     assert "NAV.md" in nav_reminder(tmp_path)
     (ctx / "leases" / "T-1.md").write_text(render_lease_file("T-1", "a", ["runtime"]), encoding="utf-8")
     assert "LEASE WARN" in lease_warn_for_paths(tmp_path, ["runtime/x.py"]) and lease_warn_for_paths(tmp_path, []) == ""
+
+
+def test_cli_rejects_multiline_value(tmp_path, monkeypatch):
+    import agentized_cli as cli
+    monkeypatch.setattr(cli, "find_repo_root", lambda: tmp_path)
+    (tmp_path / "context" / "tasks").mkdir(parents=True)
+    monkeypatch.setattr(cli, "load_state", lambda root: {"context": "context"})
+    ns = type("A", (), {"title": "t", "value": "ok\nстатус: done", "yes": True, "parent": None, "tags": None, "goal": None, "context": None})()
+    assert cli.cmd_new(ns) == 1

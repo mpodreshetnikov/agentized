@@ -744,11 +744,3 @@ def test_rebuild_task_index_active(tmp_path: Path):
         "blocked",
     ]
 
-
-def test_cli_rejects_multiline_value(tmp_path, monkeypatch):
-    import agentized_cli as cli
-    monkeypatch.setattr(cli, "find_repo_root", lambda: tmp_path)
-    (tmp_path / "context" / "tasks").mkdir(parents=True)
-    monkeypatch.setattr(cli, "load_state", lambda root: {"context": "context"})
-    ns = type("A", (), {"title": "t", "value": "ok\nстатус: done", "yes": True, "parent": None, "tags": None, "goal": None, "context": None})()
-    assert cli.cmd_new(ns) == 1
