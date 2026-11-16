@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "packages" / "shared" / "skills" / "acceptance-artifacts" / "SKILL.md"
 COMM = ROOT / "packages" / "shared" / "skills" / "communication-autonomy" / "SKILL.md"
 CONNECT = ROOT / "runtime" / "agentized" / "connect.py"
+
+# mutmut sandbox only also_copy's tests/ + context/ — skip when sources are absent.
+pytestmark = pytest.mark.skipif(
+    not (SKILL.is_file() and COMM.is_file() and CONNECT.is_file()),
+    reason="packages/runtime skill sources absent (mutmut sandbox)",
+)
 
 # Required human-facing block titles (order matters for the default short report).
 FIVE_BLOCKS = (
