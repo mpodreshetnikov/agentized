@@ -32,6 +32,29 @@ def test_tasks(tmp_path: Path):
     assert "## Progress" in append_progress("# T-261113-abc — X\n", "start")
 
 
+def test_parse_task_empty_parent_keeps_claim(tmp_path: Path):
+    """Empty `родитель:` must not swallow the following `claim:` line."""
+    path = tmp_path / "T-261116-emp.md"
+    path.write_text(
+        "# T-261116-emp — empty parent\n\n"
+        "статус: in-progress\n"
+        "теги: tasks,AGE-43\n"
+        "родитель:\n"
+        "claim: worker-x\n",
+        encoding="utf-8",
+    )
+    meta = parse_task(path)
+    assert meta is not None
+    assert meta.parent == ""
+    assert meta.claim == "worker-x"
+    assert meta.tags == "tasks,AGE-43"
+    assert meta.status == "in-progress"
+    # Index must show claim, not treat claim text as parent.
+    index = rebuild_task_index(tmp_path)
+    assert "claim: worker-x" in index
+    assert "(родитель: claim: worker-x)" not in index
+
+
 def test_leases(tmp_path: Path):
     assert path_overlaps("runtime", "runtime/x.py") and not path_overlaps("runtime", "docs")
     path = tmp_path / "T-261113-abc.md"

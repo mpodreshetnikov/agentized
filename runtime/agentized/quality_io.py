@@ -1,7 +1,8 @@
-"""JSON file I/O for quality.json (outside mutation include_globs).
+"""JSON file I/O helpers for quality.json.
 
-Equivalent mutants on encoding=/ensure_ascii= are observationally identical
-for UTF-8 JSON; keep the hard gate focused on merge/normalize logic in quality.py.
+Thin wrappers around json load/dump used by quality.py. Encoding and
+ensure_ascii choices are observationally identical for UTF-8 JSON payloads;
+behavior under test belongs in quality merge/normalize/save paths.
 """
 from __future__ import annotations
 

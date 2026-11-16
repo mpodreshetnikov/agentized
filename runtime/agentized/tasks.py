@@ -10,7 +10,8 @@ ACTIVE_STATUSES = ("open", "in-progress", "blocked")
 ALL_STATUSES = ("idea", "open", "in-progress", "blocked", "done", "dropped")
 
 TASK_ID_RE = re.compile(r"^T-\d{6}-[a-z0-9]{3,8}$")
-FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):\s*(.*)$", re.MULTILINE)
+# [ \t]* — not \s* — so an empty field cannot swallow the next header line.
+FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):[ \t]*(.*)$", re.MULTILINE)
 
 
 @dataclass
