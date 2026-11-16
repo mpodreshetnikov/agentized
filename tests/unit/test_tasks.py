@@ -121,8 +121,16 @@ def test_parse_task_same_line_spaces_only_are_stripped(tmp_path: Path):
 
 
 def test_parse_task_skips_index_template_even_if_content_looks_valid(tmp_path: Path):
-    # Content would parse if skip-list broke — stem fallback is not the kill.
+    # Same body parses as a real task file; INDEX/TEMPLATE/non-.md must still be skipped.
     validish = "# T-261116-abcd — should skip\n\nстатус: open\nclaim: z\n"
+    control = parse_task(_write(tmp_path / "T-261116-abcd.md", validish))
+    assert control is not None
+    assert (control.task_id, control.title, control.status, control.claim) == (
+        "T-261116-abcd",
+        "should skip",
+        "open",
+        "z",
+    )
     assert parse_task(_write(tmp_path / "INDEX.md", validish)) is None
     assert parse_task(_write(tmp_path / "TEMPLATE.md", validish)) is None
     assert parse_task(_write(tmp_path / "notes.txt", validish)) is None
