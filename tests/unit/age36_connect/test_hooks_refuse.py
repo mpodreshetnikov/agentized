@@ -54,7 +54,7 @@ def test_read_json_object_refuse_cases(tmp_path: Path):
     broken.write_text("{nope", encoding="utf-8")
     with pytest.raises(HooksJsonError) as exc:
         read_json_object(broken)
-    assert exc.value.reason[:12] == "broken JSON ("
+    assert exc.value.reason[:13] == "broken JSON ("
 
     arr = tmp_path / "arr.json"
     arr.write_text("[1]\n", encoding="utf-8")
