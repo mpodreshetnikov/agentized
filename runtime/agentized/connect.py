@@ -776,13 +776,24 @@ def pin_quality_templates(root: Path) -> dict:
     """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
 
     External repos without `templates/quality` use the installed Agentized root.
+    AGE-29: also pin `.gitleaks.toml` when missing (never clobber an existing file).
     """
     templates = _quality_templates_dir(root)
+    gitleaks_src = templates / "gitleaks.toml.example"
+    gitleaks_dst = root / ".gitleaks.toml"
+    if gitleaks_src.exists() and not gitleaks_dst.exists():
+        gitleaks_dst.write_text(gitleaks_src.read_text(encoding="utf-8"), encoding="utf-8")
+        gitleaks_status = "created"
+    elif gitleaks_dst.exists():
+        gitleaks_status = "unchanged"
+    else:
+        gitleaks_status = "missing-src"
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
+        "gitleaks_config": gitleaks_status,
         "js_guidance": (templates / "stryker.config.mjs.example").exists(),
         "templates_from": str(templates),
         "hooks_path": "skipped-no-git",
@@ -818,17 +829,39 @@ def ensure_quality_config(
     if created:
         save_quality(root, load_quality(root, context_rel), context_rel)
     else:
-        # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
+        # AGE-19/29: warn→hard for smells/architecture/secrets on reconnect.
         # Leaves intentional non-warn modes alone; does not touch other fields.
+        # AGE-29: inject default secrets section when the on-disk file lacks it
+        # (load_quality always normalizes defaults into memory).
+        from .quality_defaults import default_quality_config
+        from .quality_io import read_json_object
+
+        raw = read_json_object(path)
         data = load_quality(root, context_rel)
         dirty = False
-        for section_name in ("test_smells", "architecture"):
+        if "secrets" not in raw:
+            data["secrets"] = default_quality_config()["secrets"]
+            upgraded_modes.append("secrets")
+            dirty = True
+            gates = data.get("gates")
+            if isinstance(gates, dict):
+                for gate_key in ("pre_push", "ci"):
+                    names = list(gates.get(gate_key) or [])
+                    if "secrets" not in names:
+                        if "mechanical" in names:
+                            idx = names.index("mechanical") + 1
+                            names.insert(idx, "secrets")
+                        else:
+                            names.insert(0, "secrets")
+                        gates[gate_key] = names
+        for section_name in ("test_smells", "architecture", "secrets"):
             section = data.get(section_name)
             if not isinstance(section, dict):
                 continue
             if str(section.get("mode") or "").lower() == "warn":
                 section["mode"] = "hard"
-                upgraded_modes.append(section_name)
+                if section_name not in upgraded_modes:
+                    upgraded_modes.append(section_name)
                 dirty = True
         if dirty:
             save_quality(root, data, context_rel)

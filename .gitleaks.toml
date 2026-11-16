@@ -1,0 +1,13 @@
+# AGENTIZED:QUALITY — default gitleaks config (AGE-29). Connect may pin a copy.
+title = "Agentized"
+
+[extend]
+# Use built-in gitleaks rules; allowlist only Agentized noise paths.
+
+[allowlist]
+description = "Agentized generated/report paths"
+paths = [
+  '''(^|/)(coverage|reports|mutants|\.artifacts)/''',
+  '''(^|/)coverage/.*''',
+  '''(^|/)reports/.*''',
+]

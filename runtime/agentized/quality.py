@@ -99,6 +99,7 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "test_smells",
         "architecture",
+        "secrets",
         "property_based",
         "e2e",
         "shared_fixtures",

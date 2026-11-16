@@ -30,6 +30,7 @@ description: High-signal testing strategy and Agentized coverage/mutation hard g
 | Mutation | hard **`mutationScoreCovered = 100%`** | Zero surviving mutants on covered lines; do **not** gate overall `mutationScore` |
 | Test smells | **hard** (blocking) | Weak oracles / mock-call-only / `@patch` MUT |
 | Architecture | **hard** (blocking) | import-linter (Py) / dependency-cruiser (JS) |
+| Secrets | **hard** (blocking) | gitleaks detect; missing binary fails closed |
 | Batch release | process | Reviewed PRs may share one CI; keep “up-to-date before merge” |
 
 Mutation is **incremental** (changed files vs base), one command, required on CI + pre-push. If no relevant diff → skip **pass** (never false-fail). Compute covered score from tool JSON when built-in thresholds use the wrong metric (see `templates/quality/run-mutation-js.cjs.example`).

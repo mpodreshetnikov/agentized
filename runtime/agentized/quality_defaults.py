@@ -64,6 +64,13 @@ def default_quality_config() -> dict[str, Any]:
             "source_roots": ["runtime/agentized"],
             "forbidden_edges": [],
         },
+        "secrets": {
+            "enabled": True,
+            "mode": "hard",
+            "tool": "gitleaks",
+            "config": ".gitleaks.toml",
+            "report_dir": "reports/secrets",
+        },
         "property_based": {
             "enabled": False,
             "tools": {"python": "hypothesis", "javascript": "fast-check"},
@@ -85,6 +92,7 @@ def default_quality_config() -> dict[str, Any]:
         "gates": {
             "pre_push": [
                 "mechanical",
+                "secrets",
                 "module_tests",
                 "coverage",
                 "test_smells",
@@ -93,6 +101,7 @@ def default_quality_config() -> dict[str, Any]:
             ],
             "ci": [
                 "mechanical",
+                "secrets",
                 "module_tests",
                 "coverage",
                 "test_smells",

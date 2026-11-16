@@ -1,6 +1,6 @@
 # Quality (Agentized)
 
-Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture hard gates (blocking by default), pre-push/CI. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
+Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture + **secrets (gitleaks)** hard gates (blocking by default), pre-push/CI. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
 
 ## Config
 
@@ -20,6 +20,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head **raw bytes** (encoding cookie respected). Missing base, decode/parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
+| `secrets` | Hard-by-default **gitleaks** scan (AGE-29); missing binary fails closed when `mode=hard`; config `.gitleaks.toml` |
 | `property_based` | Hypothesis / fast-check pilot modules |
 | `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
@@ -32,7 +33,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 
 | Command | Role |
 |---------|------|
-| `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + mutation |
+| `./bin/agentized quality check` | Secrets (gitleaks) + module tests + coverage + test_smells + architecture + mutation |
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 | `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |
@@ -43,9 +44,9 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
 
-On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` / `secrets.mode` from **`warn` → `hard`** when still set to warn (AGE-19/29 policy), and injects a default `secrets` section + gate entry when missing. Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
-New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, `mutationScoreCovered=100`, coverage=80.
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80. CI template installs gitleaks before `quality check`; local pre-push needs `gitleaks` on `PATH`.
 
 ## Strong reviewer (AGE-11)
 

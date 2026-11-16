@@ -15,7 +15,7 @@
 | Skills (pinned) | [`skills/`](skills/) | navigate · registry · lease-sync · digest · quality-gates · communication-autonomy · acceptance-artifacts · strong-reviewer |
 | Agents (pinned) | [`agents/`](agents/) | readonly `reviewer` (AGE-11) |
 | Hooks (pinned) | [`hooks/`](hooks/) | session-start · process-guard (claim) · lease-overlap warn |
-| Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
+| Quality config | [`quality.json`](quality.json) | Coverage 80% · mutation 100% · smells/arch/secrets hard |
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |
 | Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size (hard gate) |
 | Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / env-check / process / new / claim / lease / digest / check / quality |

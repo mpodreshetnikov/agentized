@@ -80,16 +80,55 @@ def test_ensure_quality_upgrades_warn_modes(tmp_path: Path):
             "coverage": {"lines": 85, "branches": 85},
             "test_smells": {"mode": "warn", "enabled": True},
             "architecture": {"mode": "warn", "tool": "builtin"},
+            "secrets": {"mode": "warn", "enabled": True, "tool": "gitleaks"},
             "modules": [{"id": "keep", "source": ["src"]}],
         },
     )
     info = ensure_quality_config(tmp_path, "context")
     assert info["created"] is False
-    assert set(info["upgraded_modes"]) == {"test_smells", "architecture"}
+    assert set(info["upgraded_modes"]) == {"test_smells", "architecture", "secrets"}
     cfg = load_quality(tmp_path)
     assert cfg["test_smells"]["mode"] == "hard"
     assert cfg["architecture"]["mode"] == "hard"
+    assert cfg["secrets"]["mode"] == "hard"
     assert cfg["coverage"]["lines"] == 85.0
+    assert cfg["modules"] == [{"id": "keep", "source": ["src"]}]
+    again = ensure_quality_config(tmp_path, "context")
+    assert again["upgraded_modes"] == []
+
+
+def test_ensure_quality_injects_missing_secrets(tmp_path: Path):
+    """AGE-29: legacy quality.json without secrets gets hard defaults + gate entry."""
+    import json
+
+    _skeleton(tmp_path)
+    path = tmp_path / "context" / "quality.json"
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "test_smells": {"mode": "hard", "enabled": True},
+                "architecture": {"mode": "hard"},
+                "gates": {
+                    "pre_push": ["mechanical", "module_tests", "coverage"],
+                    "ci": ["mechanical", "module_tests", "coverage"],
+                },
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    info = ensure_quality_config(tmp_path, "context")
+    assert info["created"] is False
+    assert "secrets" in info["upgraded_modes"]
+    cfg = load_quality(tmp_path)
+    assert cfg["secrets"]["mode"] == "hard"
+    assert cfg["secrets"]["tool"] == "gitleaks"
+    assert cfg["gates"]["ci"][0:2] == ["mechanical", "secrets"]
+    assert cfg["gates"]["pre_push"][0:2] == ["mechanical", "secrets"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["secrets"]["mode"] == "hard"
     assert cfg["modules"] == [{"id": "keep", "source": ["src"]}]
     # Second pass: already hard → no upgrade list.
     again = ensure_quality_config(tmp_path, "context")
