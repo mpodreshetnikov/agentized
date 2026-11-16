@@ -35,7 +35,7 @@ jobs:
             echo "no ./tests/test_mechanical.sh — skip"
           fi
 
-      - name: Coverage + mutation hard gates
+      - name: Coverage + mutation + board artifact
         env:
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
         run: |
@@ -51,6 +51,7 @@ jobs:
           fi
           "${CLI[@]}" process size
           "${CLI[@]}" quality check
+          "${CLI[@]}" board -o board.html
 
       - name: Upload coverage + mutation + gate summaries
         if: always()
@@ -63,4 +64,12 @@ jobs:
             reports/mutation/mutation-summary.json
             reports/test-smells/test-smells-summary.json
             reports/architecture/architecture-summary.json
+          if-no-files-found: warn
+
+      - name: Upload task board
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-board
+          path: board.html
           if-no-files-found: warn
