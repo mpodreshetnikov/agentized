@@ -26,12 +26,8 @@
     "break_on_survived": true,
     "break_on_no_tests": true,
     "include_globs": [
-      "runtime/agentized/quality.py",
-      "runtime/agentized/paths.py",
-      "runtime/agentized/tasks.py",
-      "runtime/agentized/leases.py",
-      "runtime/agentized/hook_common.py",
-      "runtime/agentized/process_size.py"
+      "runtime/agentized/*.py",
+      "runtime/agentized/**/*.py"
     ]
   },
   "test_smells": {

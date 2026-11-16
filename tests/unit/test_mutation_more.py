@@ -55,6 +55,42 @@ def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
     assert out == ["runtime/agentized/quality.py"]
 
 
+def test_include_globs_match_flat_and_nested_modules():
+    """Maxim: fnmatch ** does not match zero dirs — dual globs required.
+
+    Mirrors mutation gate filter: any(fnmatch(path, pat) for pat in include_globs).
+    """
+    import fnmatch
+
+    def matches(path: str, globs: list[str]) -> bool:
+        path = path.replace("\\", "/")
+        return any(fnmatch.fnmatch(path, pat) for pat in globs)
+
+    root = Path(__file__).resolve().parents[2]
+    globs = json.loads((root / "context" / "quality.json").read_text(encoding="utf-8"))[
+        "mutation"
+    ]["include_globs"]
+    assert globs == ["runtime/agentized/*.py", "runtime/agentized/**/*.py"]
+    flat = [
+        "runtime/agentized/process_control.py",
+        "runtime/agentized/board.py",
+        "runtime/agentized/quality.py",
+    ]
+    nested = [
+        "runtime/agentized/sub/pkg.py",
+        "runtime/agentized/a/b/c.py",
+    ]
+    assert [matches(p, globs) for p in flat] == [True, True, True]
+    assert [matches(p, globs) for p in nested] == [True, True]
+    # Regression: ** alone must NOT cover flat files.
+    starstar_only = ["runtime/agentized/**/*.py"]
+    assert matches("runtime/agentized/process_control.py", starstar_only) is False
+    assert matches("runtime/agentized/board.py", starstar_only) is False
+    assert matches("runtime/agentized/sub/x.py", starstar_only) is True
+    assert matches("runtime/other.py", globs) is False
+    assert matches("tests/unit/test_x.py", globs) is False
+
+
 def test_write_setup(tmp_path: Path):
     unit = tmp_path / "tests" / "unit"
     unit.mkdir(parents=True)

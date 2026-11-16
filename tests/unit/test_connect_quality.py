@@ -45,6 +45,21 @@ def _skeleton(root: Path) -> None:
     )
 
 
+def test_dogfood_process_control_and_mutation_globs():
+    """#18: dogfood JSON pins size_mode=hard + dual mutation include_globs."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    pc = json.loads((root / "context" / "process-control.json").read_text(encoding="utf-8"))
+    assert pc["size_mode"] == "hard"
+    assert pc["reviewable_lines"] == 1500
+    globs = json.loads((root / "context" / "quality.json").read_text(encoding="utf-8"))[
+        "mutation"
+    ]["include_globs"]
+    assert globs == ["runtime/agentized/*.py", "runtime/agentized/**/*.py"]
+
+
 def test_ensure_quality_and_coverage(tmp_path: Path):
     _skeleton(tmp_path)
     info = ensure_quality_config(tmp_path, "context", coverage_pct=88)

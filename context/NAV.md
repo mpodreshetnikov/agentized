@@ -17,7 +17,7 @@
 | Hooks (pinned) | [`hooks/`](hooks/) | session-start · process-guard (claim) · lease-overlap warn |
 | Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |
-| Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size |
+| Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size (hard) |
 | Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / env-check / process / new / claim / lease / digest / check / quality |
 | Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
 | Quality | [`../docs/QUALITY.md`](../docs/QUALITY.md) | Coverage / mutation / pre-push / CI |
