@@ -55,12 +55,19 @@ def test_read_json_object_refuse_cases(tmp_path: Path):
     with pytest.raises(HooksJsonError) as exc:
         read_json_object(broken)
     assert exc.value.reason[:13] == "broken JSON ("
+    assert exc.value.path == broken
 
     arr = tmp_path / "arr.json"
     arr.write_text("[1]\n", encoding="utf-8")
     with pytest.raises(HooksJsonError) as exc2:
         read_json_object(arr)
     assert exc2.value.reason == "top-level must be object, got list"
+
+    num = tmp_path / "num.json"
+    num.write_text("1\n", encoding="utf-8")
+    with pytest.raises(HooksJsonError) as exc_num:
+        read_json_object(num)
+    assert exc_num.value.reason == "top-level must be object, got int"
 
     ok = tmp_path / "ok.json"
     ok.write_text('{"a": 1}\n', encoding="utf-8")
@@ -70,7 +77,9 @@ def test_read_json_object_refuse_cases(tmp_path: Path):
     bad_utf.write_bytes(b"\xff\xfe")
     with pytest.raises(HooksJsonError) as exc3:
         read_json_object(bad_utf)
-    assert exc3.value.reason.startswith("not utf-8")
+    assert exc3.value.reason[:9] == "not utf-8"
+    assert "utf-8" in exc3.value.reason
+    assert exc3.value.path == bad_utf
 
 
 def test_plan_and_uninstall_refuse_broken_cursor(tmp_path: Path):
@@ -83,13 +92,46 @@ def test_plan_and_uninstall_refuse_broken_cursor(tmp_path: Path):
     plans = plan_harness_hooks(tmp_path, ["cursor"], context_rel="context")
     assert len(plans) == 1
     assert plans[0]["action"] == "refuse"
+    assert plans[0]["harness"] == "cursor"
+    assert plans[0]["path"] == str(target)
     assert plans[0]["changed"] is False
     assert target.read_bytes() == before
 
     results = uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="context")
     assert results[0]["action"] == "refuse"
+    assert results[0]["harness"] == "cursor"
+    assert results[0]["path"] == str(target)
     assert results[0]["wrote"] is False
     assert target.read_bytes() == before
+
+
+def test_plan_continues_after_refuse(tmp_path: Path):
+    cursor = tmp_path / ".cursor" / "hooks.json"
+    cursor.parent.mkdir(parents=True)
+    cursor.write_text("{broken", encoding="utf-8")
+    plans = plan_harness_hooks(tmp_path, ["cursor", "claude"], context_rel="context")
+    assert [p["harness"] for p in plans] == ["cursor", "claude"]
+    assert [p["action"] for p in plans] == ["refuse", "create"]
+    assert plans[0]["path"] == str(cursor)
+    assert plans[1]["path"] == str(tmp_path / ".claude" / "settings.json")
+
+
+def test_uninstall_continues_past_missing_and_refuse(tmp_path: Path):
+    # cursor missing → skip; claude broken → refuse; codex valid → skip
+    claude = tmp_path / ".claude" / "settings.json"
+    claude.parent.mkdir(parents=True)
+    claude.write_text("{", encoding="utf-8")
+    codex = tmp_path / ".codex" / "hooks.json"
+    codex.parent.mkdir(parents=True)
+    codex.write_text("{}\n", encoding="utf-8")
+    results = uninstall_harness_hooks(
+        tmp_path, ["cursor", "claude", "codex"], context_rel="context"
+    )
+    assert [r["harness"] for r in results] == ["claude", "codex"]
+    assert [r["action"] for r in results] == ["refuse", "skip"]
+    assert results[0]["path"] == str(claude)
+    assert results[0]["harness"] == "claude"
+    assert results[1]["path"] == str(codex)
 
 
 def test_connect_dry_run_refuse_flag(tmp_path: Path):
@@ -202,7 +244,28 @@ def test_plan_harness_paths_exact(tmp_path: Path):
 
 
 def test_context_rel_required(tmp_path: Path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^context_rel required$"):
         plan_harness_hooks(tmp_path, ["cursor"], context_rel="")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^context_rel required$"):
         uninstall_harness_hooks(tmp_path, ["cursor"], context_rel="")
+
+
+def test_uninstall_all_three_harnesses(tmp_path: Path):
+    for rel in (".cursor/hooks.json", ".claude/settings.json", ".codex/hooks.json"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
+    results = uninstall_harness_hooks(
+        tmp_path, ["cursor", "claude", "codex"], context_rel="context"
+    )
+    assert [r["harness"] for r in results] == ["cursor", "claude", "codex"]
+    assert [r["action"] for r in results] == ["skip", "skip", "skip"]
+
+
+def test_hooks_json_error_keeps_path(tmp_path: Path):
+    path = tmp_path / "x.json"
+    path.write_bytes(b"\xff")
+    with pytest.raises(HooksJsonError) as exc:
+        read_json_object(path)
+    assert exc.value.path == path
+    assert str(exc.value) == f"invalid harness JSON at {path}: {exc.value.reason}"

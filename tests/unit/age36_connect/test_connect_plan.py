@@ -70,7 +70,9 @@ def _tree_snapshot(root: Path) -> dict[str, bytes]:
 
 
 def test_plan_quality_warn_to_hard_is_update_not_skip(tmp_path: Path):
-    _skeleton(tmp_path)
+    # Non-default context_rel kills mutants that drop the argument (defaults to "context").
+    ctx = "myctx"
+    (tmp_path / ctx).mkdir()
     save_quality(
         tmp_path,
         {
@@ -78,13 +80,15 @@ def test_plan_quality_warn_to_hard_is_update_not_skip(tmp_path: Path):
             "test_smells": {"mode": "warn", "enabled": True},
             "architecture": {"mode": "hard"},
         },
+        context_rel=ctx,
     )
-    assert plan_quality_action(tmp_path, "context") == "update"
-    assert plan_quality_action(tmp_path, "context", coverage_pct=80) == "update"
+    assert plan_quality_action(tmp_path, ctx) == "update"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=80) == "update"
 
 
 def test_plan_quality_honors_coverage_pct(tmp_path: Path):
-    _skeleton(tmp_path)
+    ctx = "myctx"
+    (tmp_path / ctx).mkdir()
     save_quality(
         tmp_path,
         {
@@ -92,20 +96,21 @@ def test_plan_quality_honors_coverage_pct(tmp_path: Path):
             "test_smells": {"mode": "hard"},
             "architecture": {"mode": "hard"},
         },
+        context_rel=ctx,
     )
-    assert plan_quality_action(tmp_path, "context") == "skip"
-    assert plan_quality_action(tmp_path, "context", coverage_pct=80) == "skip"
-    assert plan_quality_action(tmp_path, "context", coverage_pct=90) == "update"
-    assert plan_quality_action(tmp_path, "context", coverage_pct=80.0) == "skip"
+    assert plan_quality_action(tmp_path, ctx) == "skip"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=80) == "skip"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=90) == "update"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=80.0) == "skip"
 
 
 def test_plan_quality_missing_is_create(tmp_path: Path):
-    _skeleton(tmp_path)
-    assert plan_quality_action(tmp_path, "context") == "create"
+    assert plan_quality_action(tmp_path, "myctx") == "create"
 
 
 def test_plan_quality_architecture_warn_and_branch_mismatch(tmp_path: Path):
-    _skeleton(tmp_path)
+    ctx = "myctx"
+    (tmp_path / ctx).mkdir()
     save_quality(
         tmp_path,
         {
@@ -113,8 +118,9 @@ def test_plan_quality_architecture_warn_and_branch_mismatch(tmp_path: Path):
             "test_smells": {"mode": "hard"},
             "architecture": {"mode": "warn"},
         },
+        context_rel=ctx,
     )
-    assert plan_quality_action(tmp_path, "context") == "update"
+    assert plan_quality_action(tmp_path, ctx) == "update"
     save_quality(
         tmp_path,
         {
@@ -122,8 +128,52 @@ def test_plan_quality_architecture_warn_and_branch_mismatch(tmp_path: Path):
             "test_smells": {"mode": "hard"},
             "architecture": {"mode": "hard"},
         },
+        context_rel=ctx,
     )
-    assert plan_quality_action(tmp_path, "context", coverage_pct=90) == "update"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=90) == "update"
+
+
+def test_plan_quality_ignores_non_string_mode_and_warn_case(tmp_path: Path):
+    ctx = "myctx"
+    (tmp_path / ctx).mkdir()
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 70, "branches": 70},
+            "test_smells": {"mode": 1},
+            "architecture": {"mode": "hard"},
+        },
+        context_rel=ctx,
+    )
+    assert plan_quality_action(tmp_path, ctx) == "skip"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=80) == "update"
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 80, "branches": 80},
+            "test_smells": {"mode": "WARN"},
+            "architecture": {"mode": "hard"},
+        },
+        context_rel=ctx,
+    )
+    assert plan_quality_action(tmp_path, ctx) == "update"
+    assert plan_quality_action(tmp_path, ctx, coverage_pct=80) == "update"
+
+
+def test_plan_quality_second_section_warn_after_hard(tmp_path: Path):
+    """Must not stop at test_smells=hard — architecture=warn still forces update."""
+    ctx = "myctx"
+    (tmp_path / ctx).mkdir()
+    save_quality(
+        tmp_path,
+        {
+            "coverage": {"lines": 80, "branches": 80},
+            "test_smells": {"mode": "hard"},
+            "architecture": {"mode": "warn"},
+        },
+        context_rel=ctx,
+    )
+    assert plan_quality_action(tmp_path, ctx) == "update"
 
 
 def test_pin_tree_identical_skips(tmp_path: Path):
@@ -147,13 +197,17 @@ def test_tree_digests_multi_file_and_pycache(tmp_path: Path):
     tree.mkdir()
     (tree / "a.txt").write_text("a\n", encoding="utf-8")
     (tree / "b.txt").write_text("b\n", encoding="utf-8")
+    (tree / "orphan.pyc").write_bytes(b"pyc-bytes")
     (tree / "__pycache__").mkdir()
     (tree / "__pycache__" / "x.pyc").write_bytes(b"abc")
+    (tree / "__pycache__" / "keep.txt").write_text("nope\n", encoding="utf-8")
     dig = tree_digests(tree)
     assert dig == {
         "a.txt": __import__("hashlib").sha256(b"a\n").hexdigest(),
         "b.txt": __import__("hashlib").sha256(b"b\n").hexdigest(),
     }
+    assert "orphan.pyc" not in dig
+    assert "__pycache__/keep.txt" not in dig
     assert tree_digests(tmp_path / "missing") == {}
 
 

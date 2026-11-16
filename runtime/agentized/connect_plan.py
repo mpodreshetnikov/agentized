@@ -63,16 +63,15 @@ def plan_quality_action(
     if not path.exists():
         return "create"
     data = load_quality(root, context_rel)
+    # load_quality normalizes sections to dicts; mode may still be non-str.
     for section_name in ("test_smells", "architecture"):
-        section = data.get(section_name)
-        if isinstance(section, dict) and str(section.get("mode") or "").lower() == "warn":
+        mode = data[section_name].get("mode")
+        if isinstance(mode, str) and mode.lower() == "warn":
             return "update"
     if coverage_pct is not None:
-        cov = data.get("coverage") or {}
+        cov = data["coverage"]
         wanted = float(coverage_pct)
-        lines = float(cov["lines"]) if "lines" in cov else -1.0
-        branches = float(cov["branches"]) if "branches" in cov else -1.0
-        if lines != wanted or branches != wanted:
+        if float(cov["lines"]) != wanted or float(cov["branches"]) != wanted:
             return "update"
     return "skip"
 

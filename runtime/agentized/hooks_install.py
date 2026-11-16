@@ -1,46 +1,29 @@
-"""Minimal harness hooks refuse I/O (AGE-36) — mutation include_globs.
+"""Minimal harness hooks refuse planning (AGE-36) — mutation include_globs.
 
 Broken / non-object harness JSON → action=refuse. Full merge/strip is AGE-23.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
+from .hooks_install_io import HooksJsonError, read_json_object
+
+# Re-export for callers/tests.
+__all__ = [
+    "HARNESS_HOOK_PATHS",
+    "HooksJsonError",
+    "read_json_object",
+    "refuse_plan",
+    "plan_harness_hooks",
+    "uninstall_harness_hooks",
+]
 
 HARNESS_HOOK_PATHS: dict[str, str] = {
     "cursor": ".cursor/hooks.json",
     "claude": ".claude/settings.json",
     "codex": ".codex/hooks.json",
 }
-
-
-class HooksJsonError(ValueError):
-    """Broken or non-object harness JSON; file must stay byte-identical."""
-
-    def __init__(self, path: Path, reason: str):
-        self.path = path
-        self.reason = reason
-        super().__init__(f"invalid harness JSON at {path}: {reason}")
-
-
-def read_json_object(path: Path) -> dict:
-    """Load a JSON object. Missing file → {}. Broken / non-object → HooksJsonError."""
-    if not path.exists():
-        return {}
-    try:
-        raw = path.read_bytes().decode("utf-8")
-        data = json.loads(raw)
-    except OSError as exc:
-        raise HooksJsonError(path, f"unreadable ({exc})") from exc
-    except UnicodeDecodeError as exc:
-        raise HooksJsonError(path, f"not utf-8 ({exc})") from exc
-    except json.JSONDecodeError as exc:
-        raise HooksJsonError(path, f"broken JSON ({exc.msg})") from exc
-    if type(data) is not dict:
-        raise HooksJsonError(path, f"top-level must be object, got {type(data).__name__}")
-    return data
 
 
 def refuse_plan(path: Path, harness: str, exc: HooksJsonError) -> dict[str, Any]:
@@ -55,6 +38,11 @@ def refuse_plan(path: Path, harness: str, exc: HooksJsonError) -> dict[str, Any]
     }
 
 
+def _require_context_rel(context_rel: str) -> None:
+    if not isinstance(context_rel, str) or context_rel == "":
+        raise ValueError("context_rel required")
+
+
 def plan_harness_hooks(
     root: Path,
     harnesses: list[str],
@@ -62,10 +50,9 @@ def plan_harness_hooks(
     context_rel: str,
 ) -> list[dict[str, Any]]:
     """Plan hook file actions. Broken JSON → refuse; missing → create; else update."""
-    if not isinstance(context_rel, str) or not context_rel:
-        raise ValueError("context_rel required")
+    _require_context_rel(context_rel)
     plans: list[dict[str, Any]] = []
-    for harness in ("cursor", "claude", "codex"):
+    for harness in HARNESS_HOOK_PATHS:
         if harness not in harnesses:
             continue
         path = root / HARNESS_HOOK_PATHS[harness]
@@ -93,10 +80,9 @@ def uninstall_harness_hooks(
     context_rel: str,
 ) -> list[dict[str, Any]]:
     """Refuse on broken JSON. Skip valid files until AGE-23 strip helpers exist."""
-    if not isinstance(context_rel, str) or not context_rel:
-        raise ValueError("context_rel required")
+    _require_context_rel(context_rel)
     results: list[dict[str, Any]] = []
-    for harness in ("cursor", "claude", "codex"):
+    for harness in HARNESS_HOOK_PATHS:
         if harness not in harnesses:
             continue
         path = root / HARNESS_HOOK_PATHS[harness]
