@@ -343,6 +343,8 @@ def test_progress_parsers():
     assert task_completed_at(
         parse_progress_events("- 2026-11-12 12:00 UTC: статус → mystery\n")
     ) is None
+    assert board_mod._status_from_progress_msg("status → mystery") is None
+    assert board_mod._status_from_progress_msg("статус → done") == "done"
     assert task_completed_at([]) is None and task_blocked_since([]) is None
     only = parse_progress_events("- 2026-11-10 08:00 UTC: claim by a\n")
     assert task_completed_at(only) is None and task_blocked_since(only) is None
@@ -443,6 +445,12 @@ def test_wip_and_autopilot(tmp_path: Path):
     )
     assert disabled["reason"] == "autopilot disabled" and disabled["task"] is None
     assert pick_next_task([], cfg, now=NOW)["reason"] == "no pickable tasks"
+    nd=_write_task(tasks,"T-999999-noday","NoDay",status="open")
+    od=_write_task(tasks,"T-261114-dated","Dated",status="open",progress=["2026-11-14 09:00 UTC: opened"])
+    assert pick_next_task([
+        SimpleNamespace(task_id="T-999999-noday",title="NoDay",status="open",path=nd),
+        SimpleNamespace(task_id="T-261114-dated",title="Dated",status="open",path=od),
+    ], cfg, now=NOW)["task"]["id"]=="T-261114-dated"
 
 def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root, ctx = tmp_path, tmp_path / "context"
@@ -494,18 +502,22 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             ["2026-11-01 08:00 UTC: claim by a", "2026-11-02 08:00 UTC: статус → done"],
         ),
         ("T-261114-open", "Queued", "open", ["2026-11-14 12:00 UTC: opened"]),
+        ("T-261116-qeq", "Qeq", "open", ["2026-11-16 12:00 UTC: opened"]),
         (
             "T-261115-block",
             "Stuck",
             "blocked",
             ["2026-11-15 06:00 UTC: claim by b", "2026-11-15 12:00 UTC: статус → blocked"],
         ),
+        ("T-261116-bleq", "Bleq", "blocked", ["2026-11-16 12:00 UTC: статус → blocked"]),
         ("T-261114-blk2", "No stamp", "blocked", ["2026-11-14 08:00 UTC: claim by b"]),
         ("T-261114-fake", "Fake done", "done", ["2026-11-14 08:00 UTC: claim by a"]),
+        ("T-261116-dneq", "Dneq", "done", ["2026-11-16 10:00 UTC: claim by a", "2026-11-16 12:00 UTC: статус → done"]),
         ("T-261116-wip", "Working", "in-progress", None),
         ("T-261110-drop", "Weird", "dropped", None),
         ("T-261110-xx", "Other", "mystery", None),
         ("T-261110-yy", "Other2", "weird", None),
+        ("T-999999-noday", "NoDay", "open", None),
     ]
     for tid, title, st, prog in seeds:
         _write_task(tasks, tid, title, status=st, progress=prog)
@@ -527,22 +539,22 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert metrics["timing_source"] == "progress_status_arrows"
     assert metrics["version"] == 1
     assert metrics["generated_at"] == "2026-11-16T12:00:00Z"
-    assert metrics["counts"]["done"] == 5
-    assert metrics["counts"]["blocked"] == 2
+    assert metrics["counts"]["done"] == 6
+    assert metrics["counts"]["blocked"] == 3
     assert metrics["counts"]["in-progress"] == 1
-    assert metrics["counts"]["open"] == 1
+    assert metrics["counts"]["open"] == 3
     assert metrics["counts"]["canceled"] == 1
     assert metrics["counts"]["other"] == 2
-    assert metrics["throughput"] == {"window_days": 5, "done_count": 3, "per_day": 0.6}
+    assert metrics["throughput"] == {"window_days": 5, "done_count": 4, "per_day": 0.8}
     m7=compute_metrics(tasks,{**cfg,"metrics":{"throughput_window_days":7,"output":"board/metrics.json"}},now=NOW)
     assert m7["throughput"]["per_day"]==round(m7["throughput"]["done_count"]/7.0,4)
     assert metrics["cycle_time"] == {
-        "samples": 4,
-        "avg_hours": (48.0 + 0.0 + 4.0 + 24.0) / 4,
-        "p50_hours": 14.0,
+        "samples": 5,
+        "avg_hours": (48.0 + 0.0 + 4.0 + 24.0 + 2.0) / 5,
+        "p50_hours": 4.0,
     }
-    assert metrics["queue_age"] == {"samples": 1, "avg_hours": 48.0, "max_hours": 48.0}
-    assert metrics["blocked_age"] == {"samples": 1, "avg_hours": 24.0, "max_hours": 24.0}
+    assert metrics["queue_age"] == {"samples": 2, "avg_hours": 24.0, "max_hours": 48.0}
+    assert metrics["blocked_age"] == {"samples": 2, "avg_hours": 12.0, "max_hours": 24.0}
     assert metrics["wip"] == {
         "limit": 2,
         "current": 1,
@@ -618,48 +630,44 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert empty["counts"] == EMPTY_COUNTS
     assert empty["autopilot"]["reason"] == "no pickable tasks"
     assert empty["generated_at"] == "2026-11-16T12:00:00Z"
-
-    # created=None candidate + dated open: kills pick now=None (TypeError in rank)
-
-
-    slim = {
-        "wip_limit": 3,
-        "autopilot": {"enabled": True, "pick_from": ["open"], "count_as_wip": ["in-progress"]},
-        "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
-    }
     bad_path = tmp_path / "T-261114-bin.md"
     bad_path.write_bytes(b"\xff\xfe not utf-8")
     with pytest.raises(ValueError) as eutf:
         board_mod._task_events(SimpleNamespace(path=bad_path))
     assert eutf.value.args == ("T-261114-bin.md: not valid UTF-8",)
     assert board_mod._task_events(SimpleNamespace(path=tmp_path / "missing.md")) == []
-
-
-
     _write_task(fresh/"solo"/"tasks","T-261114-solo","Solo",status="open")
-    pinned2=write_metrics(fresh, context_rel="solo", now=NOW)
-    assert pinned2["metrics"]["counts"]["open"]==1
-    assert load_metrics_file(fresh,"solo")["counts"]["open"]==1
-    fixed=datetime(2026,11,17,8,30,tzinfo=timezone.utc)
+    lb_calls: list[str] = []
+    real_lb = board_mod.load_board
+    def _lb(root_arg, context_rel="context"):
+        lb_calls.append(context_rel)
+        return real_lb(root_arg, context_rel)
+    monkeypatch.setattr(board_mod, "load_board", _lb)
+    pinned2 = write_metrics(fresh, context_rel="solo", now=NOW)
+    assert lb_calls[-1] == "solo"
+    assert pinned2["metrics"]["counts"]["open"] == 1
+    lb_calls.clear()
+    assert load_metrics_file(fresh, "solo")["counts"]["open"] == 1
+    assert lb_calls == ["solo"]
+    monkeypatch.setattr(board_mod, "load_board", real_lb)
+    fixed = datetime(2026, 11, 17, 8, 30, tzinfo=timezone.utc)
     class _FixedDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
             assert tz is timezone.utc
             return fixed
-    monkeypatch.setattr(board_mod,"datetime",_FixedDateTime)
-    assert write_metrics(root, context_rel="context")["metrics"]["generated_at"]=="2026-11-17T08:30:00Z"
-    monkeypatch.setattr(board_mod,"datetime",datetime)
-    monkeypatch.setattr(board_mod,"pick_next_task",lambda *a,**k: {"ok":True,"task":None})
-    assert compute_metrics(tasks,cfg,now=NOW)["autopilot"]["reason"]==""
-    monkeypatch.setattr(board_mod,"pick_next_task",pick_next_task)
-    good_path=tmp_path/"T-261114-ok.md"
-    good_path.write_text("- 2026-11-14 09:00 UTC: opened\n",encoding="utf-8")
-    seen={}
-    real_read=Path.read_text
-    def _cap(self,*a,**k):
-        seen.clear(); seen.update(k); return real_read(self,*a,**k)
-    monkeypatch.setattr(Path,"read_text",_cap)
-    assert board_mod._task_events(SimpleNamespace(path=good_path))[0][1]=="opened"
-    assert seen=={"encoding":"utf-8"}
-
-    # tasks symlink must not be followed by write_metrics
+    monkeypatch.setattr(board_mod, "datetime", _FixedDateTime)
+    assert write_metrics(root, context_rel="context")["metrics"]["generated_at"] == "2026-11-17T08:30:00Z"
+    monkeypatch.setattr(board_mod, "datetime", datetime)
+    monkeypatch.setattr(board_mod, "pick_next_task", lambda *a, **k: {"ok": True, "task": None})
+    assert compute_metrics(tasks, cfg, now=NOW)["autopilot"]["reason"] == ""
+    monkeypatch.setattr(board_mod, "pick_next_task", pick_next_task)
+    good_path = tmp_path / "T-261114-ok.md"
+    good_path.write_text("- 2026-11-14 09:00 UTC: opened\n", encoding="utf-8")
+    seen: dict = {}
+    real_read = Path.read_text
+    def _cap(self, *a, **k):
+        seen.clear(); seen.update(k); return real_read(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", _cap)
+    assert board_mod._task_events(SimpleNamespace(path=good_path))[0][1] == "opened"
+    assert seen == {"encoding": "utf-8"}

@@ -5,12 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentized.context_paths import (
-    path_under,
-    require_safe_rel,
-    resolve_context_dir,
-    under_context,
-)
+from agentized.context_paths import path_under, require_safe_rel, resolve_context_dir, under_context
 
 
 def test_safe_rel_and_context_confinement(tmp_path: Path):
@@ -23,26 +18,18 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
     with pytest.raises(ValueError) as eo:
         require_safe_rel("/x", field="metrics.output")
     assert eo.value.args == ("metrics.output must be a safe relative path",)
-    ctx = resolve_context_dir(tmp_path, "context")
-    assert ctx == (tmp_path / "context").resolve()
+    assert resolve_context_dir(tmp_path, "context") == (tmp_path / "context").resolve()
     assert resolve_context_dir(tmp_path).name == "context"
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (repo / "context").symlink_to(outside)
+    repo, outside = tmp_path / "repo", tmp_path / "outside"
+    repo.mkdir(); outside.mkdir(); (repo / "context").symlink_to(outside)
     with pytest.raises(ValueError) as er:
         resolve_context_dir(repo, "context")
     assert er.value.args == ("context path escapes repository root",)
     (tmp_path / "context" / "board").mkdir(parents=True)
     got = under_context(tmp_path, "context", "board", "m.json")
     assert got == (tmp_path / "context" / "board" / "m.json").resolve()
-    assert got.name == "m.json"
-    leak = tmp_path / "leak"
-    (leak / "context").mkdir(parents=True)
-    out = leak / "out"
-    out.mkdir()
-    (leak / "context" / "board").symlink_to(out)
+    leak, out = tmp_path / "leak", tmp_path / "leak" / "out"
+    (leak / "context").mkdir(parents=True); out.mkdir(); (leak / "context" / "board").symlink_to(out)
     with pytest.raises(ValueError) as es:
         path_under(leak / "context", "board", "m.json")
     assert es.value.args == ("path escapes context directory",)
