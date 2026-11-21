@@ -701,19 +701,44 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     assert ensure_external_registry_skeleton(resolve_layout(nested)) == []
 
     created = ensure_external_registry_skeleton(layout)
-    assert (ext / "NAV.md").is_file()
-    assert (ext / "tasks" / "INDEX.md").is_file()
-    assert (ext / "leases" / "INDEX.md").is_file()
-    assert len(created) == 3
+    assert created == [
+        str(ext / "NAV.md"),
+        str(ext / "tasks" / "INDEX.md"),
+        str(ext / "leases" / "INDEX.md"),
+    ]
+    assert (ext / "NAV.md").read_text(encoding="utf-8") == (
+        "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
+    )
+    assert "_(empty)_" in (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8")
+    assert "| path | task | owner | expires |" in (ext / "leases" / "INDEX.md").read_text(
+        encoding="utf-8"
+    )
     assert ensure_external_registry_skeleton(layout) == []  # idempotent
     require_registry_ready(layout)
     preflight_bridge_conflicts(layout)  # clean — no raise
+
+    # Partial seed: existing NAV must not stop tasks/leases creation (continue≠break).
+    partial = tmp_path / "partial-ext"
+    partial.mkdir()
+    _git_init(partial)
+    (partial / "NAV.md").write_text("# keep\n", encoding="utf-8")
+    code_partial = tmp_path / "code-partial"
+    code_partial.mkdir()
+    _write_layout(
+        code_partial,
+        {"placement": "external", "external": {"path": str(partial), "remote": "r"}},
+    )
+    partial_created = ensure_external_registry_skeleton(resolve_layout(code_partial))
+    assert (partial / "NAV.md").read_text(encoding="utf-8") == "# keep\n"
+    assert partial_created == [
+        str(partial / "tasks" / "INDEX.md"),
+        str(partial / "leases" / "INDEX.md"),
+    ]
 
     (code / "context" / "tasks").mkdir(parents=True)
     (code / "context" / "tasks" / "stale.md").write_text("x", encoding="utf-8")
     with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
         preflight_bridge_conflicts(layout)
-
     # prepare_connect_layout seeds empty clone then fails preflight before bridges
     empty = tmp_path / "empty-ext"
     empty.mkdir()
@@ -736,7 +761,7 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
         bad,
         {"placement": "external", "external": {"path": str(tmp_path / "nope"), "remote": "r"}},
     )
-    with pytest.raises(ValueError, match="external Context path missing"):
+    with pytest.raises(ValueError, match="missing or not a directory"):
         ensure_external_registry_skeleton(resolve_layout(bad))
     not_git = tmp_path / "not-git"
     not_git.mkdir()
@@ -752,9 +777,8 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
         bad,
         {"placement": "external", "external": {"path": str(file_ext), "remote": "r"}},
     )
-    with pytest.raises(ValueError, match="not a directory"):
+    with pytest.raises(ValueError, match="missing or not a directory"):
         ensure_external_registry_skeleton(resolve_layout(bad))
-
 
 def test_bridge_link_target_cwd_independent(tmp_path: Path, monkeypatch):
     import os

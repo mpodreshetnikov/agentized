@@ -233,6 +233,11 @@ _EXT_TASKS_INDEX_MD = (
 _EXT_LEASES_INDEX_MD = (
     "# Path leases\n\n| path | task | owner | expires |\n|------|------|-------|--------|\n"
 )
+_EXT_SEED_REL_PATHS = (
+    ("NAV.md", _EXT_NAV_MD),
+    ("tasks/INDEX.md", _EXT_TASKS_INDEX_MD),
+    ("leases/INDEX.md", _EXT_LEASES_INDEX_MD),
+)
 
 
 def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
@@ -244,28 +249,20 @@ def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
     if not layout.is_external:
         return []
     root = layout.registry_root
-    if not root.exists():
-        hint = f" remote={layout.remote}" if layout.remote else ""
-        raise ValueError(f"external Context path missing: {root}{hint}")
     if not root.is_dir():
-        raise ValueError(f"external Context path is not a directory: {root}")
+        raise ValueError(f"external Context path missing or not a directory: {root}")
     if not is_git_checkout(root):
         raise ValueError(f"external Context is not a git checkout (no .git): {root}")
+    (root / "tasks").mkdir(exist_ok=True)
+    (root / "leases").mkdir(exist_ok=True)
     created: list[str] = []
-    (root / "tasks").mkdir(parents=True, exist_ok=True)
-    (root / "leases").mkdir(parents=True, exist_ok=True)
-    targets = (
-        (root / "NAV.md", _EXT_NAV_MD),
-        (root / "tasks" / "INDEX.md", _EXT_TASKS_INDEX_MD),
-        (root / "leases" / "INDEX.md", _EXT_LEASES_INDEX_MD),
-    )
-    for path, body in targets:
+    for rel, body in _EXT_SEED_REL_PATHS:
+        path = root / rel
         if path.exists():
             continue
-        path.write_text(body.rstrip() + "\n", encoding="utf-8")
+        path.write_text(body)
         created.append(str(path))
     return created
-
 
 def preflight_bridge_conflicts(layout: ContextLayout) -> None:
     """Raise if any bridge path would conflict — no filesystem writes."""
