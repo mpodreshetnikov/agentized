@@ -470,3 +470,38 @@ def test_tip_hygiene_placeholder_pr_ignored(tmp_path: Path):
         encoding="utf-8",
     )
     assert validate_tip_hygiene(tmp_path, pr_number=76) == GateResult(True)
+
+
+def test_tip_hygiene_underscore_pr_prefix_skipped_even_if_digits(tmp_path: Path):
+    """``pr: _#76`` must be ignored; startswith('_') not a dead placeholder check."""
+    (tmp_path / "T-261121-us.md").write_text(
+        _task("in-progress", claim="worker", pr="_#76"),
+        encoding="utf-8",
+    )
+    assert validate_tip_hygiene(tmp_path, pr_number=76) == GateResult(True)
+
+
+def test_tip_hygiene_continue_past_missing_and_empty_pr(tmp_path: Path):
+    """Missing / empty / underscore pr must continue (not break) to later tip files."""
+    (tmp_path / "T-261121-a1.md").write_text(
+        _task("in-progress", claim="worker"),  # no pr: line → None
+        encoding="utf-8",
+    )
+    (tmp_path / "T-261121-a2.md").write_text(
+        _task("in-progress", claim="worker", extra="pr:   "),  # empty after strip
+        encoding="utf-8",
+    )
+    (tmp_path / "T-261121-a3.md").write_text(
+        _task("in-progress", claim="worker", pr="_(пусто)_"),
+        encoding="utf-8",
+    )
+    (tmp_path / "T-261121-zz.md").write_text(
+        _task("in-progress", claim="worker", pr="#76"),
+        encoding="utf-8",
+    )
+    bad = validate_tip_hygiene(tmp_path, pr_number=76)
+    assert bad.ok is False
+    assert any("T-261121-zz.md" in e for e in bad.errors)
+    assert not any("T-261121-a1.md" in e for e in bad.errors)
+    assert not any("T-261121-a2.md" in e for e in bad.errors)
+    assert not any("T-261121-a3.md" in e for e in bad.errors)
