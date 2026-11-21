@@ -41,11 +41,16 @@ def main() -> int:
     }
 
     try:
-        from agentized.hook_common import extract_paths, lease_warn_for_paths, resolve_root
+        from agentized.hook_common import extract_paths, resolve_root
     except Exception as exc:  # noqa: BLE001
         allow["agent_message"] = f"[lease-warn] unavailable: {exc}"
         print(json.dumps(allow, ensure_ascii=False))
         return 0
+
+    try:
+        from agentized.context_layout import session_lease_warn as warn_fn
+    except ImportError:
+        from agentized.hook_common import lease_warn_for_paths as warn_fn
 
     root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
@@ -56,7 +61,7 @@ def main() -> int:
     if "tool_input" not in payload and isinstance(payload.get("input"), dict):
         paths = list(dict.fromkeys(paths + extract_paths({"tool_input": payload["input"]})))
 
-    warn = lease_warn_for_paths(root, paths)
+    warn = warn_fn(root, paths)
     if not warn:
         print(json.dumps(allow))
         return 0
