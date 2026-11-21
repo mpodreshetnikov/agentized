@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from . import __version__
 from . import connect as connect_mod
 from .hooks_install import (
     apply_harness_hook_merge,
@@ -18,6 +17,12 @@ _ORIG_CONNECT = connect_mod.connect
 _ORIG_CURSOR = connect_mod.install_cursor
 _ORIG_CLAUDE = connect_mod.install_claude
 _ORIG_CODEX = connect_mod.install_codex
+
+_HOOK_REL = {
+    "cursor": Path(".cursor") / "hooks.json",
+    "claude": Path(".claude") / "settings.json",
+    "codex": Path(".codex") / "hooks.json",
+}
 
 
 def _merge_after_orig(
@@ -33,7 +38,30 @@ def _merge_after_orig(
         return apply_harness_hook_merge(root, harness, context_rel=context_rel, dry_run=True)
     if saved is not None:
         path.write_bytes(saved)
-    return apply_harness_hook_merge(root, harness, context_rel=context_rel, dry_run=False)
+    return apply_harness_hook_merge(root, harness, context_rel=context_rel)
+
+
+def _wrap_install(
+    orig: Callable[..., dict],
+    harness: str,
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool,
+    manifest: dict[str, Any] | None,
+    dry_run: bool,
+) -> dict:
+    path = root / _HOOK_REL[harness]
+    saved = path.read_bytes() if path.is_file() else None
+    out: dict[str, Any]
+    if dry_run:
+        out = {}
+    else:
+        out = orig(root, context_rel, force=force, manifest=manifest)
+    out["hooks_merge"] = _merge_after_orig(
+        root, harness, context_rel, dry_run=dry_run, saved=saved, path=path
+    )
+    return out
 
 
 def install_cursor(
@@ -44,23 +72,15 @@ def install_cursor(
     manifest: dict[str, Any] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    path = root / ".cursor" / "hooks.json"
-    saved = path.read_bytes() if path.exists() else None
-    if dry_run:
-        out: dict[str, Any] = {
-            "skills_copied": [],
-            "skills_managed": {},
-            "skipped_user": [],
-            "hooks_json": str(path),
-            "plugin_path": None,
-            "local_plugin_hint": "cursor-agent --plugin-dir packages/agentized-cursor",
-        }
-    else:
-        out = _ORIG_CURSOR(root, context_rel, force=force, manifest=manifest)
-    out["hooks_merge"] = _merge_after_orig(
-        root, "cursor", context_rel, dry_run=dry_run, saved=saved, path=path
+    return _wrap_install(
+        _ORIG_CURSOR,
+        "cursor",
+        root,
+        context_rel,
+        force=force,
+        manifest=manifest,
+        dry_run=dry_run,
     )
-    return out
 
 
 def install_claude(
@@ -71,22 +91,15 @@ def install_claude(
     manifest: dict[str, Any] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    path = root / ".claude" / "settings.json"
-    saved = path.read_bytes() if path.exists() else None
-    if dry_run:
-        out: dict[str, Any] = {
-            "skills_copied": [],
-            "skills_managed": {},
-            "skipped_user": [],
-            "settings": str(path),
-            "plugin_hint": "claude --plugin-dir packages/agentized-claude",
-        }
-    else:
-        out = _ORIG_CLAUDE(root, context_rel, force=force, manifest=manifest)
-    out["hooks_merge"] = _merge_after_orig(
-        root, "claude", context_rel, dry_run=dry_run, saved=saved, path=path
+    return _wrap_install(
+        _ORIG_CLAUDE,
+        "claude",
+        root,
+        context_rel,
+        force=force,
+        manifest=manifest,
+        dry_run=dry_run,
     )
-    return out
 
 
 def install_codex(
@@ -97,20 +110,12 @@ def install_codex(
     manifest: dict[str, Any] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    path = root / ".codex" / "hooks.json"
-    saved = path.read_bytes() if path.exists() else None
+    path = root / _HOOK_REL["codex"]
+    saved = path.read_bytes() if path.is_file() else None
     market = root / ".agents" / "plugins" / "marketplace.json"
-    market_saved = market.read_bytes() if market.exists() else None
+    market_saved = market.read_bytes() if market.is_file() else None
     if dry_run:
-        out: dict[str, Any] = {
-            "skills_copied": [],
-            "skills_managed": {},
-            "skipped_user": [],
-            "hooks_json": str(path),
-            "marketplace": str(market),
-            "plugin_hint": "codex plugin marketplace add .",
-            "gap": "Codex: project .codex/hooks.json (no stable --plugin-dir).",
-        }
+        out: dict[str, Any] = {}
     else:
         out = _ORIG_CODEX(root, context_rel, force=force, manifest=manifest)
     out["hooks_merge"] = _merge_after_orig(
@@ -118,11 +123,11 @@ def install_codex(
     )
     if dry_run:
         out["marketplace_merge"] = apply_marketplace_merge(root, dry_run=True)
-    else:
-        if market_saved is not None:
-            market.parent.mkdir(parents=True, exist_ok=True)
-            market.write_bytes(market_saved)
-        out["marketplace_merge"] = apply_marketplace_merge(root, dry_run=False)
+        return out
+    if market_saved is not None:
+        market.parent.mkdir(parents=True, exist_ok=True)
+        market.write_bytes(market_saved)
+    out["marketplace_merge"] = apply_marketplace_merge(root)
     return out
 
 
@@ -134,42 +139,18 @@ def connect(
     coverage_pct: float | int | None = None,
     dry_run: bool = False,
 ) -> dict:
-    harnesses = harnesses or ["cursor", "claude", "codex"]
+    chosen = list(harnesses) if harnesses is not None else ["cursor", "claude", "codex"]
     if dry_run:
-        results: dict[str, Any] = {
-            "skeleton": {"created": False, "path": context_rel, "files": []},
-            "harnesses": {},
-            "dry_run": True,
-            "skipped_user": [],
-            "state": {
-                "version": __version__,
-                "context": context_rel,
-                "harnesses": harnesses,
-                "agents_md_updated": False,
-                "claude_md_updated": False,
-                "coverage_pct": coverage_pct,
-            },
-            "idempotent": True,
-        }
-        if "cursor" in harnesses:
-            results["harnesses"]["cursor"] = {
+        results: dict[str, Any] = {"harnesses": {}, "dry_run": True}
+        for name in chosen:
+            entry: dict[str, Any] = {
                 "hooks_merge": apply_harness_hook_merge(
-                    root, "cursor", context_rel=context_rel, dry_run=True
+                    root, name, context_rel=context_rel, dry_run=True
                 ),
             }
-        if "claude" in harnesses:
-            results["harnesses"]["claude"] = {
-                "hooks_merge": apply_harness_hook_merge(
-                    root, "claude", context_rel=context_rel, dry_run=True
-                ),
-            }
-        if "codex" in harnesses:
-            results["harnesses"]["codex"] = {
-                "hooks_merge": apply_harness_hook_merge(
-                    root, "codex", context_rel=context_rel, dry_run=True
-                ),
-                "marketplace_merge": apply_marketplace_merge(root, dry_run=True),
-            }
+            if name == "codex":
+                entry["marketplace_merge"] = apply_marketplace_merge(root, dry_run=True)
+            results["harnesses"][name] = entry
         ok, refused = summarize_hooks_refused(results["harnesses"])
         results["hooks_refused"] = refused
         results["ok"] = ok
@@ -178,10 +159,13 @@ def connect(
     result = _ORIG_CONNECT(
         root,
         context_rel=context_rel,
-        harnesses=harnesses,
+        harnesses=chosen,
         coverage_pct=coverage_pct,
     )
-    ok, refused = summarize_hooks_refused(result.get("harnesses") or {})
+    harness_map = result.get("harnesses")
+    if not isinstance(harness_map, dict):
+        harness_map = {}
+    ok, refused = summarize_hooks_refused(harness_map)
     result["hooks_refused"] = refused
     result["ok"] = ok
     result["dry_run"] = False

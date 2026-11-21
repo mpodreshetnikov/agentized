@@ -210,7 +210,7 @@ def summarize_hooks_refused(
     harnesses: dict[str, Any],
 ) -> tuple[bool, list[dict[str, Any]]]:
     refused: list[dict[str, Any]] = []
-    for name, h in (harnesses or {}).items():
+    for name, h in harnesses.items():
         merge = h.get("hooks_merge") if isinstance(h, dict) else None
         if isinstance(merge, dict) and merge.get("action") == "refuse":
             refused.append(
