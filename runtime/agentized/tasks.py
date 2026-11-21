@@ -10,7 +10,8 @@ ACTIVE_STATUSES = ("open", "in-progress", "blocked")
 ALL_STATUSES = ("idea", "open", "in-progress", "blocked", "done", "dropped")
 
 TASK_ID_RE = re.compile(r"^T-\d{6}-[a-z0-9]{3,8}$")
-FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):\s*(.*)$", re.MULTILINE)
+# [ \t]* — not \s* — so an empty field cannot swallow the next header line.
+FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):[ \t]*(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -99,7 +100,8 @@ def render_task_file(
 
 
 def set_field(text: str, field: str, value: str) -> str:
-    pattern = re.compile(rf"^{re.escape(field)}:\s*.*$", re.MULTILINE)
+    # [ \t]* — not \s* — so an empty field line cannot swallow the next header.
+    pattern = re.compile(rf"^{re.escape(field)}:[ \t]*.*$", re.MULTILINE)
     replacement = f"{field}: {value}"
     if pattern.search(text):
         return pattern.sub(replacement, text, count=1)

@@ -168,6 +168,24 @@ def test_active_claims_open_fallback(tmp_path: Path):
     assert any("T-261113-zzz" in c for c in claims)
 
 
+def test_active_claims_keeps_claim_when_parent_empty(tmp_path: Path):
+    """Empty `родитель:` must not eat `claim:` — active_claims still lists the owner."""
+    from agentized.process_control import active_claims
+
+    tasks = tmp_path / "context" / "tasks"
+    tasks.mkdir(parents=True, exist_ok=True)
+    (tasks / "T-261116-emp.md").write_text(
+        "# T-261116-emp — t\n\n"
+        "статус: in-progress\n"
+        "теги: AGE-43\n"
+        "родитель:\n"
+        "claim: worker-x\n",
+        encoding="utf-8",
+    )
+    claims = active_claims(tmp_path)
+    assert claims == ["T-261116-emp (worker-x, in-progress)"]
+
+
 def test_normalize_and_extract_paths(tmp_path: Path):
     from agentized.hook_common import context_rel, extract_paths, normalize_repo_path
 
