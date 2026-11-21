@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-8b9d](T-261121-8b9d.md) — AGE-63 board CI wiring (#30B) (родитель: AGE-22) · claim: age63-board
+_(пусто)_
 
 ## blocked
 
