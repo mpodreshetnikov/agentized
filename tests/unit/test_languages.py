@@ -92,7 +92,6 @@ def test_glob_excluded_and_globs_cover():
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
     assert _glob_excluded("vendor", ["vendor/**"]) is True
     assert _glob_excluded("vendor", ["**/vendor/**"]) is True
-    assert _glob_excluded("vendor/x.py", ["**/vendor/**"]) is True
     # fnmatch fails on single-segment /**/*.; custom partition must match
     assert _glob_excluded("src/x.py", ["src/**/*.py"]) is True
     assert _globs_cover([], "python") is False

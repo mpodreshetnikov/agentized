@@ -203,10 +203,11 @@ def _glob_excluded(rel: str, patterns: list[str]) -> bool:
             if pat.startswith("**/") and fnmatch.fnmatch(rel, pat[3:]):
                 return True
             if pat.endswith("/**"):
+                # Exact dir only — children already matched by fnmatch.
                 prefix = pat[:-3]
                 if prefix.startswith("**/"):
                     prefix = prefix[3:]
-                if rel == prefix or rel.startswith(prefix + "/"):
+                if rel == prefix:
                     return True
             if "/**/*." in pat:
                 head, _sep, ext = pat.partition("/**/*.")
