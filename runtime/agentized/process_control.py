@@ -12,9 +12,9 @@ from .env_check import is_claude_cloud, is_codex_agent, is_cursor_cloud, unknown
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .process_size import (
     DOC,
-    classify_size,
     diff_insertions,
     load_process_config_file,
+    size_check as _size_check_canonical,
 )
 from .tasks import ACTIVE_STATUSES, list_tasks
 
@@ -152,35 +152,8 @@ def size_check(
     context_rel: str = DEFAULT_CONTEXT,
     base_ref: str | None = None,
 ) -> dict[str, Any]:
-    base = base_ref or os.environ.get("PROCESS_BASE") or "origin/main"
-    try:
-        cfg = load_process_config(root, context_rel)
-        insertions = diff_insertions(root, base)
-    except (RuntimeError, ValueError) as exc:
-        return {
-            "ok": False,
-            "level": "error",
-            "insertions": 0,
-            "limit": 0,
-            "warn_at": 0,
-            "base": base,
-            "message": str(exc),
-        }
-    limit = int(cfg.get("reviewable_lines") or 1500)
-    warn_pct = float(cfg.get("warn_at_pct") or 75)
-    level, ok, warn_at = classify_size(insertions, limit, warn_pct)
-    return {
-        "ok": ok,
-        "level": level,
-        "insertions": insertions,
-        "limit": limit,
-        "warn_at": warn_at,
-        "base": base,
-        "message": (
-            f"process-control: PR size {insertions} insertions vs {base} "
-            f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over >{limit}). See {DOC}."
-        ),
-    }
+    """Delegate to canonical process_size.size_check (AGE-40)."""
+    return _size_check_canonical(root, context_rel=context_rel, base_ref=base_ref)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -61,3 +61,109 @@ def test_process_guard_allows_without_paths(monkeypatch, tmp_path, capsys):
     assert mod.main() == 0
     out = json.loads(capsys.readouterr().out)
     assert out["permission"] == "allow"
+
+
+def test_process_guard_import_fail_deny_exit_2(monkeypatch, tmp_path, capsys):
+    """Runtime import failure of claim guard → deny JSON + exit 2 (fail closed)."""
+    root = _repo_root()
+    script = root / "packages/shared/hooks/scripts/process_guard.py"
+    if not script.is_file():
+        pytest.skip("process_guard script not present")
+    payload = json.dumps({"tool_input": {"file_path": "runtime/x.py"}, "cwd": str(tmp_path)})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    mod = _load("process_guard_import_fail", script)
+
+    def fake_ensure(here=None):  # noqa: ARG001
+        return tmp_path
+
+    monkeypatch.setattr(mod, "ensure_runtime_on_path", fake_ensure)
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "agentized.hook_common" or name == "agentized.process_control":
+            raise ImportError("blocked agentized import")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    rc = mod.main()
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["permission"] == "deny"
+    assert "unavailable" in out["agent_message"]
+
+
+def test_process_guard_broken_json_deny_exit_2(monkeypatch, tmp_path, capsys):
+    """Broken process-control.json → deny JSON + exit 2 (fail closed)."""
+    root = _repo_root()
+    script = root / "packages/shared/hooks/scripts/process_guard.py"
+    if not script.is_file():
+        pytest.skip("process_guard script not present")
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text("{bad", encoding="utf-8")
+    (tmp_path / "runtime").mkdir()
+    payload = json.dumps({"tool_input": {"file_path": "runtime/x.py"}, "cwd": str(tmp_path)})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    # Ensure runtime import resolves to repo runtime, workspace is tmp_path
+    mod = _load("process_guard_failclosed", script)
+
+    def fake_ensure(here=None):  # noqa: ARG001
+        runtime = root / "runtime"
+        if str(runtime) not in sys.path:
+            sys.path.insert(0, str(runtime))
+        return tmp_path
+
+    monkeypatch.setattr(mod, "ensure_runtime_on_path", fake_ensure)
+    rc = mod.main()
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["permission"] == "deny"
+    assert "claim check failed" in out["agent_message"] or "invalid JSON" in out["agent_message"]
+
+
+def test_process_guard_array_json_deny_exit_2(monkeypatch, tmp_path, capsys):
+    root = _repo_root()
+    script = root / "packages/shared/hooks/scripts/process_guard.py"
+    if not script.is_file():
+        pytest.skip("process_guard script not present")
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text("[]\n", encoding="utf-8")
+    payload = json.dumps({"tool_input": {"file_path": "runtime/x.py"}, "cwd": str(tmp_path)})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    mod = _load("process_guard_array", script)
+
+    def fake_ensure(here=None):  # noqa: ARG001
+        runtime = root / "runtime"
+        if str(runtime) not in sys.path:
+            sys.path.insert(0, str(runtime))
+        return tmp_path
+
+    monkeypatch.setattr(mod, "ensure_runtime_on_path", fake_ensure)
+    assert mod.main() == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["permission"] == "deny"
+
+
+def test_cursor_hooks_process_guard_fail_closed():
+    root = _repo_root()
+    data = json.loads((root / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
+    pre = data["hooks"]["preToolUse"]
+    guard = next(h for h in pre if "process_guard" in h["command"])
+    assert guard == {
+        "command": ".cursor/hooks/process_guard.py",
+        "matcher": "Write|Edit",
+        "failClosed": True,
+    }
+    pkg = json.loads(
+        (root / "packages/agentized-cursor/hooks/hooks.json").read_text(encoding="utf-8")
+    )
+    pkg_guard = next(h for h in pkg["hooks"]["preToolUse"] if "process_guard" in h["command"])
+    assert pkg_guard == {
+        "command": "./scripts/process_guard.py",
+        "matcher": "Write|Edit",
+        "failClosed": True,
+    }

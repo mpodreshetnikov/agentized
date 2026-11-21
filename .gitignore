@@ -24,12 +24,16 @@ reports/architecture/
 !.cursor/hooks.json
 !.cursor/hooks/
 !.cursor/hooks/**
+.cursor/hooks/**/__pycache__/
+.cursor/hooks/**/*.py[cod]
 !.cursor/agents/
 !.cursor/agents/reviewer.md
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
 !.claude/hooks/**
+.claude/hooks/**/__pycache__/
+.claude/hooks/**/*.py[cod]
 !.claude/agents/
 !.claude/agents/reviewer.md
 .codex/*

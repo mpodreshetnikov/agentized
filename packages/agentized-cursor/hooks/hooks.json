@@ -9,7 +9,8 @@
     "preToolUse": [
       {
         "command": "./scripts/process_guard.py",
-        "matcher": "Write|Edit"
+        "matcher": "Write|Edit",
+        "failClosed": true
       },
       {
         "command": "./scripts/lease_warn.py",

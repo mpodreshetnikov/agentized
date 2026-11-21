@@ -21,9 +21,10 @@ def test_size_gate_hard_in_hooks_and_ci():
     expected = '"${CLI[@]}" process size'
     found: dict[str, list[str]] = {}
     for path in paths:
+        text = path.read_text(encoding="utf-8")
         lines = [
             ln.strip()
-            for ln in path.read_text(encoding="utf-8").splitlines()
+            for ln in text.splitlines()
             if "process size" in ln and not ln.strip().startswith("#") and "echo " not in ln
         ]
         found[str(path.relative_to(root))] = lines
@@ -33,3 +34,8 @@ def test_size_gate_hard_in_hooks_and_ci():
         "templates/quality/pre-push": [expected],
         "templates/quality/ci.yml": [expected],
     }
+    # CI must pass PR base sha via PROCESS_BASE (no HEAD bypass).
+    for rel in (".github/workflows/ci.yml", "templates/quality/ci.yml"):
+        text = (root / rel).read_text(encoding="utf-8")
+        assert "PROCESS_BASE:" in text
+        assert "pull_request.base.sha" in text
