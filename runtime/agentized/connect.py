@@ -883,6 +883,8 @@ MINIMAL_NAV_MD = """# NAV — карта Project Context
 Leases только предупреждают, запись не блокируют.
 """
 
+# Must match rebuild_task_index / rebuild_lease_index for empty dirs so
+# CI INDEX equality passes after a fresh connect without a hand-edited index.
 MINIMAL_TASKS_INDEX_MD = """# Задачи — живой индекс
 
 Генерируемый список **активной** работы. Не полный архив истории.
@@ -893,20 +895,22 @@ MINIMAL_TASKS_INDEX_MD = """# Задачи — живой индекс
 
 ## open
 
-_(пусто — skeleton)_
+_(пусто)_
 
 ## in-progress
 
-_(пусто — skeleton)_
+_(пусто)_
 
 ## blocked
 
-_(пусто — skeleton)_
+_(пусто)_
+
+Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом с этим индексом; при смене статуса файл **не перемещается**.
 """
 
 MINIMAL_LEASES_INDEX_MD = """# Path leases — индекс
 
-Кто держит какие пути кода. Генерируемый индекс (skeleton — пусто).
+Кто держит какие пути кода. Генерируемый индекс.
 
 | путь | задача | владелец | истекает |
 |------|--------|----------|----------|

@@ -35,6 +35,26 @@ jobs:
             echo "no ./tests/test_mechanical.sh — skip"
           fi
 
+      - name: Task status gates + INDEX freshness
+        run: |
+          set -euo pipefail
+          if [[ -x ./bin/agentized ]]; then
+            CLI=(./bin/agentized)
+          elif [[ -f runtime/agentized_cli.py ]]; then
+            CLI=(python3 runtime/agentized_cli.py)
+          elif command -v agentized >/dev/null 2>&1; then
+            CLI=(agentized)
+          else
+            echo "agentized CLI not found" >&2
+            exit 1
+          fi
+          "${CLI[@]}" tasks-validate
+          "${CLI[@]}" index
+          if ! git diff --exit-code -- context/tasks/INDEX.md context/leases/INDEX.md; then
+            echo "INDEX.md out of date — run agentized index and commit" >&2
+            exit 1
+          fi
+
       - name: Coverage + mutation hard gates
         env:
           PROCESS_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
