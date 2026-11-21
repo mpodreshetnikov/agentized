@@ -31,10 +31,6 @@ ignore_lexemes =
 also_copy =
   tests/
   context/
-  packages/
-  docs/
-  templates/
-  bin/
   pyproject.toml
   setup.cfg
 """
@@ -228,7 +224,6 @@ def run_mutation(
     backup = setup.read_text(encoding="utf-8") if setup.exists() else DURABLE_SETUP
     created_link = _ensure_agentized_link(root)
     _write_setup(root, only)
-    print(f"[mutation] pytest selection: {' '.join(_test_selection_for(only, root))}")
     # Wipe prior mutants so a failed current run cannot PASS on cached results.
     mutants_dir = root / "mutants"
     if mutants_dir.exists():

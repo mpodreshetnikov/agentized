@@ -64,8 +64,9 @@ def test_config_defaults_and_overrides():
         {"spec_approval": {"complex_tag": "   "}}
     )
     assert empty_tag[CFG_COMPLEX_TAG] == DEFAULT_COMPLEX_TAG
-    assert "spec_approval" in default_process_config()
-    assert default_process_config()["spec_approval"][CFG_ENABLED] is False
+    # process_control stays on main (full-cover mutation); defaults live in from_config
+    assert "spec_approval" not in default_process_config()
+    assert default_spec_approval()[CFG_ENABLED] is False
 
 
 def test_task_needs_spec():

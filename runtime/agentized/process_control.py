@@ -25,8 +25,6 @@ _diff_insertions = diff_insertions
 
 
 def default_process_config() -> dict[str, Any]:
-    from .spec_approval_defaults import default_spec_approval
-
     return {
         "version": 1,
         "reviewable_lines": 1500,
@@ -51,7 +49,6 @@ def default_process_config() -> dict[str, Any]:
             "**/__pycache__/**",
             ".artifacts/**",
         ],
-        "spec_approval": default_spec_approval(),
     }
 
 
@@ -60,11 +57,7 @@ def process_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 
 
 def load_process_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
-    from .spec_approval import spec_approval_from_config
-
-    cfg = load_process_config_file(process_path(root, context_rel), default_process_config())
-    cfg["spec_approval"] = spec_approval_from_config(cfg)
-    return cfg
+    return load_process_config_file(process_path(root, context_rel), default_process_config())
 
 
 def is_agent_session(env: dict[str, str] | None = None) -> bool:
