@@ -41,7 +41,19 @@ def test_path_kind_classifiers():
     ]
     assert got == cases
     assert [1 if gate.is_scannable_path(p) else 0 for p, *_ in cases] == [
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
     ]
 
 
