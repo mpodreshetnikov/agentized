@@ -19,6 +19,7 @@ from .spec_approval_defaults import (
     MODE_OK,
     MODE_REFUSE,
     MODE_SKIP,
+    approval_not_committed_message,
     approver_not_allowlisted_message,
     default_spec_approval,
     missing_approval_message,
@@ -27,7 +28,9 @@ from .spec_approval_defaults import (
     self_approval_message,
 )
 from .spec_approval_text import (
-    is_claim_owner_identity,
+    human_committer_emails,
+    identity_emails,
+    is_owner_or_agent_identity,
     is_placeholder_spec,
     parse_approvers,
     parse_tags,
@@ -65,15 +68,14 @@ def evaluate_task_spec(
     text: str,
     policy: dict[str, Any],
     human_participants: list[str] | None = None,
-    approval_by_non_owner: bool = False,
+    approval_committers: set[str] | None = None,
 ) -> dict[str, Any]:
     """Pure check for one task file body. `policy` must be normalized via from_config.
 
-    Pass when a non-owner approver is on ``human_participants`` (full email), or when
-    ``approval_by_non_owner`` is true **and** there is at least one non-owner
-    ``approved-by`` line. Self-only approval never passes — even if an agent commit
-    looks like a non-owner (caller must treat agent identities as owner before
-    setting ``approval_by_non_owner``).
+    Pass only when >=1 non-owner (non-agent) approver matches ``human_participants``
+    by full email **and** that approver also appears in ``approval_committers``
+    (full email). Typed ``approved-by`` alone never passes (``approval_committers``
+    None → refuse). Agent/bot identities never count as approvers or committers.
     """
     complex_tag = str(policy[CFG_COMPLEX_TAG])
     if not task_needs_spec(tags, complex_tag):
@@ -97,14 +99,13 @@ def evaluate_task_spec(
             KEY_MESSAGE: missing_approval_message(task_id, appr_h),
         }
     approvers = parse_approvers(approval)
-    other = [a for a in approvers if not is_claim_owner_identity(a, claim or EMPTY)]
+    other = [a for a in approvers if not is_owner_or_agent_identity(a, claim or EMPTY)]
     allow: list[str] = []
     for p in human_participants or []:
         s = str(p).strip()
         if s:
             allow.append(s)
 
-    # Self-approval cannot be laundered via agent/non-owner commit alone.
     if len(other) == 0:
         return {
             KEY_OK: False,
@@ -117,27 +118,31 @@ def evaluate_task_spec(
     for a in other:
         if participant_email_matches(a, allow):
             matched.append(a)
-    if matched:
+    if not matched:
         return {
-            KEY_OK: True,
-            KEY_MODE: MODE_OK,
+            KEY_OK: False,
+            KEY_MODE: MODE_REFUSE,
             KEY_TASK_ID: task_id,
-            KEY_MESSAGE: ok_message(task_id, matched[0]),
-            KEY_APPROVERS: matched,
+            KEY_MESSAGE: approver_not_allowlisted_message(task_id),
         }
 
-    if approval_by_non_owner:
+    committer_emails = human_committer_emails(approval_committers)
+    confirmed: list[str] = []
+    for a in matched:
+        if identity_emails(a) & committer_emails:
+            confirmed.append(a)
+    if not confirmed:
         return {
-            KEY_OK: True,
-            KEY_MODE: MODE_OK,
+            KEY_OK: False,
+            KEY_MODE: MODE_REFUSE,
             KEY_TASK_ID: task_id,
-            KEY_MESSAGE: ok_message(task_id, other[0]),
-            KEY_APPROVERS: list(other),
+            KEY_MESSAGE: approval_not_committed_message(task_id),
         }
 
     return {
-        KEY_OK: False,
-        KEY_MODE: MODE_REFUSE,
+        KEY_OK: True,
+        KEY_MODE: MODE_OK,
         KEY_TASK_ID: task_id,
-        KEY_MESSAGE: approver_not_allowlisted_message(task_id),
+        KEY_MESSAGE: ok_message(task_id, confirmed[0]),
+        KEY_APPROVERS: confirmed,
     }

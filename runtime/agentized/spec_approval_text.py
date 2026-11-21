@@ -4,17 +4,35 @@ from __future__ import annotations
 
 import re
 
-APPROVED_BY_RE = re.compile(r"(?im)^\s*approved-by:\s*(.+?)\s*$")
+# [ \t] only — \s would swallow newlines and merge following lines into the value.
+APPROVED_BY_RE = re.compile(r"(?im)^[ \t]*approved-by:[ \t]*(.+?)[ \t]*$")
 EMAIL_RE = re.compile(r"<([^>]+)>")
-PLACEHOLDER_BODIES = frozenset({"todo", "tbd", "...", "…", "todo.", "tbd.", "x", "."})
+PLACEHOLDER_BODIES = frozenset(
+    {
+        "todo",
+        "tbd",
+        "...",
+        "…",
+        "todo.",
+        "tbd.",
+        "x",
+        ".",
+        "ok",
+        "n/a",
+        "na",
+        "none",
+        "wip",
+        "see chat",
+    }
+)
 TODO_PREFIX = "todo"
 TBD_PREFIX = "tbd"
 ITALIC_PLACEHOLDER_MARK = "_("
 HEADING_PREFIX = "## "
 FILL_MARKERS = ("<fill>", "fill-me", "fillme")
 UNCHECKED_BOX = "[ ]"
-UTF8_ENCODING = "utf-8"
-MIN_REAL_SPEC_LEN = 2
+MIN_REAL_SPEC_WORDS = 3
+FENCE_MARK = "```"
 
 # Agent / bot commit locals treated as the claim owner for blame (not human approvers).
 AGENT_COMMIT_LOCALS = frozenset(
@@ -25,23 +43,6 @@ AGENT_COMMIT_LOCALS = frozenset(
         "renovate",
     }
 )
-
-
-class SpecApprovalUtf8Error(ValueError):
-    """Task file bytes are not valid UTF-8."""
-
-
-def decode_utf8_text(data: bytes | str, *, path: str = "") -> str:
-    """Decode task file content as UTF-8; raise SpecApprovalUtf8Error on failure."""
-    if isinstance(data, str):
-        return data
-    try:
-        return data.decode(UTF8_ENCODING)
-    except UnicodeDecodeError as exc:
-        suffix = f" ({path})" if path else ""
-        raise SpecApprovalUtf8Error(
-            f"spec-approval: task file is not valid UTF-8{suffix}: {exc}"
-        ) from exc
 
 
 def section_body(text: str, heading: str) -> str | None:
@@ -68,12 +69,26 @@ def parse_tags(raw: str) -> set[str]:
     return {t.strip().lower() for t in raw.replace(",", " ").split() if t.strip()}
 
 
+def _approval_body_without_fences(approval_body: str) -> str:
+    """Drop fenced code blocks so example approved-by lines do not count."""
+    # Split on fence markers: even chunks are outside fences.
+    chunks = approval_body.split(FENCE_MARK)
+    return "".join(chunks[i] for i in range(0, len(chunks), 2))
+
+
 def parse_approvers(approval_body: str) -> list[str]:
     if approval_body is None:
         return []
-    return [
-        m.group(1).strip() for m in APPROVED_BY_RE.finditer(approval_body) if m.group(1).strip()
-    ]
+    text = _approval_body_without_fences(approval_body)
+    found: list[str] = []
+    for m in APPROVED_BY_RE.finditer(text):
+        value = m.group(1).strip()
+        if not value:
+            continue
+        if value.startswith(ITALIC_PLACEHOLDER_MARK):
+            continue
+        found.append(value)
+    return found
 
 
 def is_placeholder_spec(spec: str) -> bool:
@@ -83,15 +98,21 @@ def is_placeholder_spec(spec: str) -> bool:
     s = spec.strip()
     if not s:
         return True
-    if len(s) < MIN_REAL_SPEC_LEN:
-        return True
     if not any(ch.isalnum() for ch in s):
         return True
     low_full = s.lower()
+    if low_full in PLACEHOLDER_BODIES:
+        return True
     for marker in FILL_MARKERS:
         if marker in low_full:
             return True
     if UNCHECKED_BOX in s:
+        return True
+    first = s.splitlines()[0].strip().lower()
+    if first.endswith(TBD_PREFIX) or first.endswith(TODO_PREFIX):
+        return True
+    words = [w for w in re.split(r"\s+", s) if w]
+    if len(words) < MIN_REAL_SPEC_WORDS:
         return True
     for line in s.splitlines():
         stripped = line.strip()
@@ -196,3 +217,15 @@ def participant_email_matches(identity: str, allowlist: list[str]) -> bool:
     if not emails:
         return False
     return any(emails & identity_emails(entry) for entry in allowlist)
+
+
+def human_committer_emails(committers: set[str] | list[str] | None) -> set[str]:
+    """Normalize committer identities to emails; drop agent/bot addresses."""
+    if committers is None:
+        return set()
+    out: set[str] = set()
+    for raw in committers:
+        if is_agent_commit_identity(raw):
+            continue
+        out |= identity_emails(raw)
+    return out

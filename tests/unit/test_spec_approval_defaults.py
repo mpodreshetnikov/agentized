@@ -27,6 +27,7 @@ from agentized.spec_approval_defaults import (
     PLACEHOLDER_PREFIX,
     SPEC_GATE_STATUSES,
     STATUS_IN_PROGRESS,
+    approval_not_committed_message,
     approver_not_allowlisted_message,
     checked_message,
     default_spec_approval,
@@ -107,3 +108,5 @@ def test_message_builders():
     assert ok_message("T-4", "bob") == "spec-approval: T-4 OK (approved-by bob)"
     assert checked_message(3) == "spec-approval: checked 3 complex gated task(s)"
     assert "human_participants" in approver_not_allowlisted_message("T-5")
+    assert "non-owner" not in approver_not_allowlisted_message("T-5")
+    assert "not committed by the approver" in approval_not_committed_message("T-6")

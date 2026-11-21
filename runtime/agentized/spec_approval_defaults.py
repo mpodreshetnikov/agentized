@@ -76,8 +76,13 @@ def self_approval_message(task_id: str, claim: str) -> str:
 def approver_not_allowlisted_message(task_id: str) -> str:
     return (
         f"REFUSED. spec-approval: {task_id} approver must be on "
-        f"human_participants allowlist or the approval must be committed by a "
-        f"non-owner. See {DOC}."
+        f"human_participants allowlist. See {DOC}."
+    )
+
+
+def approval_not_committed_message(task_id: str) -> str:
+    return (
+        f"REFUSED. spec-approval: {task_id} approval line not committed by the approver. See {DOC}."
     )
 
 

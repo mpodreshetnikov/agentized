@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agentized.spec_approval_text import (
-    MIN_REAL_SPEC_LEN,
-    UTF8_ENCODING,
-    SpecApprovalUtf8Error,
+    MIN_REAL_SPEC_WORDS,
+    _approval_body_without_fences,
     _email_local_matches_claim,
     _email_local_part,
-    decode_utf8_text,
+    human_committer_emails,
     identity_emails,
     is_agent_commit_identity,
     is_claim_owner_identity,
@@ -44,6 +41,24 @@ def test_section_tags_approvers():
     assert parse_tags(None) == set()  # type: ignore[arg-type]
 
 
+def test_parse_approvers_skips_italic_and_fenced():
+    italic = "approved-by: _(pending)_\napproved-by: bob@x.test\n"
+    assert parse_approvers(italic) == ["bob@x.test"]
+    # Empty approved-by must not stop parsing later lines (continue, not break).
+    blank_then = "approved-by:   \napproved-by: bob@x.test\n"
+    assert parse_approvers(blank_then) == ["bob@x.test"]
+    fenced = "Example:\n```\napproved-by: fake@example.com\n```\napproved-by: real@example.com\n"
+    assert parse_approvers(fenced) == ["real@example.com"]
+    nested = "```text\napproved-by: inside@x.test\n```\napproved-by: _(skip)_\n"
+    assert parse_approvers(nested) == []
+    both = "approved-by: a@x.test\n```\napproved-by: b@x.test\n```\napproved-by: c@x.test\n"
+    assert parse_approvers(both) == ["a@x.test", "c@x.test"]
+    stripped = _approval_body_without_fences(both)
+    assert "XXXX" not in stripped
+    assert "b@x.test" not in stripped
+    assert "a@x.test" in stripped and "c@x.test" in stripped
+
+
 def test_placeholder_trivial_and_fill():
     placeholders = {
         "none": is_placeholder_spec(None),  # type: ignore[arg-type]
@@ -63,15 +78,25 @@ def test_placeholder_trivial_and_fill():
         "x": is_placeholder_spec("x"),
         "dot": is_placeholder_spec("."),
         "fill_tag": is_placeholder_spec("<fill>"),
+        "fill_upper": is_placeholder_spec("PLEASE <FILL> THIS NOW"),
         "fill_me": is_placeholder_spec("fill-me"),
         "unchecked": is_placeholder_spec("- [ ] do the thing"),
         "punct_only": is_placeholder_spec("!!!"),
         "single_a": is_placeholder_spec("a"),
         "two_ok": is_placeholder_spec("ok"),
+        "ok_case": is_placeholder_spec("OK"),
+        "na": is_placeholder_spec("n/a"),
+        "wip": is_placeholder_spec("wip"),
+        "see_chat": is_placeholder_spec("see chat"),
+        "plan_tbd": is_placeholder_spec("plan: tbd"),
+        "long_tbd": is_placeholder_spec("Finish the plan: TBD"),
+        "two_words": is_placeholder_spec("Ship it."),
         "Ship the gate.": is_placeholder_spec("Ship the gate."),
-        "multi\nline": is_placeholder_spec("Real plan\nmore"),
+        "multi\nline": is_placeholder_spec("Real plan for more"),
+        "later_none": is_placeholder_spec("Real plan for more\n\nnone"),
+        "later_italic": is_placeholder_spec("Ship the gate.\nSee _(note)_"),
     }
-    assert MIN_REAL_SPEC_LEN == 2
+    assert MIN_REAL_SPEC_WORDS == 3
     assert placeholders == {
         "none": True,
         "": True,
@@ -90,17 +115,27 @@ def test_placeholder_trivial_and_fill():
         "x": True,
         "dot": True,
         "fill_tag": True,
+        "fill_upper": True,
         "fill_me": True,
         "unchecked": True,
         "punct_only": True,
         "single_a": True,
-        "two_ok": False,
+        "two_ok": True,
+        "ok_case": True,
+        "na": True,
+        "wip": True,
+        "see_chat": True,
+        "plan_tbd": True,
+        "long_tbd": True,
+        "two_words": True,
         "Ship the gate.": False,
         "multi\nline": False,
+        "later_none": True,
+        "later_italic": True,
     }
 
 
-def test_emails_owners_agents_utf8():
+def test_emails_owners_agents_committers():
     emails = {
         "angle": identity_emails("Alice <alice@x.test>"),
         "bare": identity_emails("bob@example.com"),
@@ -186,6 +221,18 @@ def test_emails_owners_agents_utf8():
     assert is_owner_or_agent_identity("worker-a", "worker-a") is True
     assert is_owner_or_agent_identity("bob@x.test", "worker-a") is False
 
+    assert human_committer_emails(None) == set()
+    assert human_committer_emails(set()) == set()
+    assert human_committer_emails({"cursoragent@cursor.com", "bob@x.test"}) == {"bob@x.test"}
+    assert human_committer_emails({"Bob <bob@x.test>"}) == {"bob@x.test"}
+    # List with agent first — continue (not break) must still reach the human.
+    assert human_committer_emails(["cursoragent@cursor.com", "bob@x.test"]) == {"bob@x.test"}
+    # Multiple humans — |= must accumulate (not replace).
+    assert human_committer_emails({"alice@x.test", "bob@x.test"}) == {
+        "alice@x.test",
+        "bob@x.test",
+    }
+
     assert _email_local_part("alice@corp.com") == "alice"
     assert _email_local_part("a@b@c.com") == "a"
     match_got = {
@@ -202,18 +249,3 @@ def test_emails_owners_agents_utf8():
         "noreply": True,
         "miss": False,
     }
-
-    assert UTF8_ENCODING == "utf-8"
-    assert decode_utf8_text("already text") == "already text"
-    assert decode_utf8_text("привет".encode(UTF8_ENCODING)) == "привет"
-    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8") as err_path:
-        decode_utf8_text(b"\xff\xfe bad", path="task.md")
-    msg_path = str(err_path.value)
-    assert "task.md" in msg_path
-    assert "None" not in msg_path
-    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8") as err_plain:
-        decode_utf8_text(b"\xff\xfe bad")
-    msg_plain = str(err_plain.value)
-    assert "()" not in msg_plain
-    assert "XXXX" not in msg_plain
-    assert "None" not in msg_plain

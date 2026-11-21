@@ -33,12 +33,12 @@ Optional `spec_approval` policy (defaults off). Pure evaluation lives in
 `runtime/agentized/spec_approval*.py` (text + defaults + decisions):
 
 - Complex-tagged tasks need a real `## Spec` (not `TODO` / `…` / `_(…)` / trivial
-  `x` / `.` / `<fill>` / unchecked fill-me).
-- `## Approval` must list `approved-by:` someone **other than** the claim owner.
-- That approver must match `merge_policy.human_participants` (full email), or a
-  later IO layer may accept a non-owner human commit of the approval line.
-- Agent commit addresses (`cursoragent@…`) count as the claim owner — they must
-  not launder self-approval.
+  `x` / `.` / `ok` / `<fill>` / unchecked fill-me; at least three words).
+- `## Approval` must list `approved-by:` someone **other than** the claim owner
+  (agent addresses like `cursoragent@…` also count as the owner).
+- That approver must match `merge_policy.human_participants` (full email) **and**
+  must have committed the approval line (typed text alone never passes).
+- Agent/bot committers never count.
 
 CLI / CI / pre-push wiring for `process spec-approval` ships in a follow-up PR.
 
