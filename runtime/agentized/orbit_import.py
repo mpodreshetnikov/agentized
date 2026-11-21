@@ -367,9 +367,7 @@ def import_orbit_tasks(
             while draft.task_id in reserved or (dest_tasks / f"{draft.task_id}.md").exists():
                 draft.task_id = allocate_task_id(dest_tasks)
             reserved.add(draft.task_id)
-            report.warnings.append(
-                f"{orbit_id}: converted → {draft.task_id} (orbit_id preserved)"
-            )
+            report.warnings.append(f"{orbit_id}: converted → {draft.task_id} (orbit_id preserved)")
             this_run_map[orbit_id] = draft.task_id
         else:
             this_run_map[source_id] = draft.task_id
