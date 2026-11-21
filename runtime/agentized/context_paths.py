@@ -1,4 +1,5 @@
 """Public context-path confinement helpers (AGE-30; not paths.py — mutmut tax)."""
+
 from __future__ import annotations
 
 from pathlib import Path

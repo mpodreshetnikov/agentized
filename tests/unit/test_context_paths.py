@@ -1,4 +1,5 @@
 """Confinement helpers for context paths (AGE-30)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,15 +22,19 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
     assert resolve_context_dir(tmp_path, "context") == (tmp_path / "context").resolve()
     assert resolve_context_dir(tmp_path).name == "context"
     repo, outside = tmp_path / "repo", tmp_path / "outside"
-    repo.mkdir(); outside.mkdir(); (repo / "context").symlink_to(outside)
+    repo.mkdir()
+    outside.mkdir()
+    (repo / "context").symlink_to(outside)
     with pytest.raises(ValueError) as er:
         resolve_context_dir(repo, "context")
     assert er.value.args == ("context path escapes repository root",)
     (tmp_path / "context" / "board").mkdir(parents=True)
     got = under_context(tmp_path, "context", "board", "m.json")
     assert got == (tmp_path / "context" / "board" / "m.json").resolve()
-    leak = tmp_path / "leak"; out = leak / "out"
-    (leak / "context").mkdir(parents=True); out.mkdir()
+    leak = tmp_path / "leak"
+    out = leak / "out"
+    (leak / "context").mkdir(parents=True)
+    out.mkdir()
     (leak / "context" / "board").symlink_to(out)
     with pytest.raises(ValueError) as es:
         path_under(leak / "context", "board", "m.json")

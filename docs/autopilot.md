@@ -1,6 +1,6 @@
 # Autopilot + board metrics (AGE-30)
 
-WIP next-task + board metrics (dashboard **data**). HTML board = AGE-37 — not this module.
+WIP next-task + board metrics (dashboard **data**). HTML = AGE-37 — not this module.
 
 ## Subcommands
 
@@ -26,4 +26,4 @@ agentized autopilot refresh [--json]     # recompute → board/metrics.json
 | `metrics.throughput_window_days` | `7` (max 3650) | not JSON int 1…3650 |
 | `metrics.output` | `"board/metrics.json"` | non-string / abs / `..` |
 
-Aliases: `dropped`→`canceled`, `queued`→`queue`. Metrics: `wip`, `counts`, `throughput`, `cycle_time`, `queue_age`, `blocked_age`, `next_task`, `autopilot`, `timing_source=progress_status_arrows`. **Limitation:** times only from Progress `статус → X` / `status → X`. `metrics.json` gitignored. Helpers: `context_paths.py`.
+Aliases: `dropped`→`canceled`, `queued`→`queue`. Metrics: `wip`/`counts`/`throughput`/`cycle_time`/`queue_age`/`blocked_age`/`next_task`/`autopilot`/`timing_source=progress_status_arrows`. **Limitation:** Progress `статус → X` only. `metrics.json` gitignored. Helpers: `context_paths.py`.

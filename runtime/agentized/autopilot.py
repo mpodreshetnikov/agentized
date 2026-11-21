@@ -1,4 +1,5 @@
 """WIP autopilot + board metrics (``agentized autopilot``). HTML board is AGE-37."""
+
 from __future__ import annotations
 
 import re
@@ -36,14 +37,10 @@ DEFAULT_PICK_FROM = ["queue", "open"]
 DEFAULT_COUNT_AS_WIP = ["in-progress", "self-review"]
 QUEUE_STATUSES = frozenset({"open", "queue"})
 
-PROGRESS_LINE_RE = re.compile(
-    r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC: (.+)$", re.MULTILINE
-)
+PROGRESS_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC: (.+)$", re.MULTILINE)
 TASK_ID_DAY_RE = re.compile(r"^T-(\d{6})-")
 # Progress stamps from ``agentized status`` (status-change record).
-STATUS_ARROW_RE = re.compile(
-    r"(?:status|статус)\s*→\s*([^\s,;]+)", re.IGNORECASE
-)
+STATUS_ARROW_RE = re.compile(r"(?:status|статус)\s*→\s*([^\s,;]+)", re.IGNORECASE)
 
 
 def normalize_status(raw: str | None) -> str:
@@ -116,9 +113,7 @@ def board_config_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
     return under_context(root, context_rel, BOARD_FILENAME)
 
 
-def metrics_path(
-    root: Path, cfg: dict[str, Any], context_rel: str = DEFAULT_CONTEXT
-) -> Path:
+def metrics_path(root: Path, cfg: dict[str, Any], context_rel: str = DEFAULT_CONTEXT) -> Path:
     if "metrics" in cfg and not isinstance(cfg.get("metrics"), dict):
         raise ValueError("metrics must be an object")
     section = cfg["metrics"] if isinstance(cfg.get("metrics"), dict) else {}
@@ -144,9 +139,7 @@ def _normalize_autopilot(auto_raw: Any) -> dict[str, Any]:
     if "count_as_wip" not in auto_in:
         count_as_wip = list(DEFAULT_COUNT_AS_WIP)
     else:
-        count_as_wip = _require_status_list(
-            auto_in["count_as_wip"], field="autopilot.count_as_wip"
-        )
+        count_as_wip = _require_status_list(auto_in["count_as_wip"], field="autopilot.count_as_wip")
     return {
         "enabled": enabled,
         "pick_from": pick_from,
@@ -181,17 +174,13 @@ def load_board(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]
     return _normalize_board(base, read_json_object(path))
 
 
-def save_board(
-    root: Path, data: dict[str, Any], context_rel: str = DEFAULT_CONTEXT
-) -> Path:
+def save_board(root: Path, data: dict[str, Any], context_rel: str = DEFAULT_CONTEXT) -> Path:
     path = board_config_path(root, context_rel)
     write_json_object(path, _normalize_board(default_board_config(), data))
     return path
 
 
-def ensure_board_config(
-    root: Path, context_rel: str = DEFAULT_CONTEXT
-) -> dict[str, Any]:
+def ensure_board_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     path = board_config_path(root, context_rel)
     created = not path.exists()
     if created:
@@ -230,9 +219,7 @@ def task_id_day_utc(task_id: str) -> datetime | None:
         return None
 
 
-def task_created_at(
-    task_id: str, events: list[tuple[datetime, str]]
-) -> datetime | None:
+def task_created_at(task_id: str, events: list[tuple[datetime, str]]) -> datetime | None:
     if events:
         return events[0][0]
     return task_id_day_utc(task_id)
@@ -294,9 +281,7 @@ def pick_next_task(
     now: datetime,
 ) -> dict[str, Any]:
     auto = _autopilot_cfg(cfg)
-    limit = _require_positive_int(
-        cfg.get("wip_limit", DEFAULT_WIP_LIMIT), field="wip_limit"
-    )
+    limit = _require_positive_int(cfg.get("wip_limit", DEFAULT_WIP_LIMIT), field="wip_limit")
     current = wip_tasks(tasks, cfg)
     enabled = auto["enabled"]
     result: dict[str, Any] = {
@@ -374,19 +359,13 @@ def compute_metrics(
                 blocked_hours.append(hours_between(since, now))
         if st == "done":
             completed = task_completed_at(events)
-            if (
-                created is not None
-                and completed is not None
-                and created <= completed <= now
-            ):
+            if created is not None and completed is not None and created <= completed <= now:
                 cycle_hours.append(hours_between(created, completed))
             if completed is not None and window_start <= completed <= now:
                 done_in_window += 1
 
     wip = wip_tasks(tasks, cfg)
-    limit = _require_positive_int(
-        cfg.get("wip_limit", DEFAULT_WIP_LIMIT), field="wip_limit"
-    )
+    limit = _require_positive_int(cfg.get("wip_limit", DEFAULT_WIP_LIMIT), field="wip_limit")
     next_pick = pick_next_task(tasks, cfg, now=now)
     reason = next_pick.get("reason") or ""
 
@@ -441,9 +420,7 @@ def write_metrics(
     return {"path": str(path.relative_to(root.resolve())), "metrics": payload}
 
 
-def load_metrics_file(
-    root: Path, context_rel: str = DEFAULT_CONTEXT
-) -> dict[str, Any] | None:
+def load_metrics_file(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any] | None:
     cfg = load_board(root, context_rel)
     path = metrics_path(root, cfg, context_rel)
     if not path.exists():
@@ -451,9 +428,7 @@ def load_metrics_file(
     return read_json_object(path)
 
 
-def set_wip_limit(
-    root: Path, limit: int, *, context_rel: str = DEFAULT_CONTEXT
-) -> dict[str, Any]:
+def set_wip_limit(root: Path, limit: int, *, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     data = load_board(root, context_rel)
     data["wip_limit"] = _require_positive_int(limit, field="wip_limit")
     save_board(root, data, context_rel)
