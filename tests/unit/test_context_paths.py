@@ -33,9 +33,10 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
     assert got == (tmp_path / "context" / "board" / "m.json").resolve()
     # Custom context_rel must be forwarded (not defaulted away).
     (tmp_path / "pc" / "board").mkdir(parents=True)
-    assert under_context(tmp_path, "pc", "board", "m.json") == (
-        tmp_path / "pc" / "board" / "m.json"
-    ).resolve()
+    assert (
+        under_context(tmp_path, "pc", "board", "m.json")
+        == (tmp_path / "pc" / "board" / "m.json").resolve()
+    )
     leak = tmp_path / "leak"
     out = leak / "out"
     (leak / "context").mkdir(parents=True)
