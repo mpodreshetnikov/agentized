@@ -249,28 +249,3 @@ def test_user_entries_byte_stable_on_skip(tmp_path: Path, monkeypatch):
     assert path.read_bytes() == snap
     assert b"echo foreign-stable" in snap
     assert desired_cursor_hooks(tmp_path)["sessionStart"]
-
-
-def test_install_defaults_pass_dry_run_false(tmp_path: Path, monkeypatch):
-    _skeleton(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    import agentized.hooks_install as hi
-
-    seen: list[dict] = []
-    rh, rm = hi.apply_harness_hook_merge, hi.apply_marketplace_merge
-    monkeypatch.setattr(
-        hi,
-        "apply_harness_hook_merge",
-        lambda r, h, **k: seen.append(k) or rh(r, h, **k),
-    )
-    monkeypatch.setattr(
-        hi,
-        "apply_marketplace_merge",
-        lambda r, **k: seen.append(k) or rm(r, **k),
-    )
-    man: dict = {"files": {}}
-    connect_mod.install_cursor(tmp_path, "context", manifest=man)
-    connect_mod.install_claude(tmp_path, "context", manifest=man)
-    out = connect_mod.install_codex(tmp_path, "context", manifest=man)
-    assert "hooks_merge" in out and "marketplace_merge" in out
-    assert all(k.get("dry_run") is False for k in seen)

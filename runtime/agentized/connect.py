@@ -441,7 +441,6 @@ def install_cursor(
     *,
     force: bool = False,
     manifest: dict[str, Any] | None = None,
-    dry_run: bool = False,
 ) -> dict:
     """Official project surfaces: .cursor/skills + .cursor/hooks.json (+ scripts)."""
     skills_src = root / context_rel / "skills"
@@ -461,10 +460,26 @@ def install_cursor(
 
     _pin_hook_scripts(root, context_rel, hooks_dir)
 
-    from .hooks_install import apply_harness_hook_merge
-
+    hooks_json = {
+        "version": 1,
+        "hooks": {
+            "sessionStart": [{"command": ".cursor/hooks/session_start.py"}],
+            "preToolUse": [
+                {
+                    "command": ".cursor/hooks/process_guard.py",
+                    "matcher": "Write|Edit",
+                },
+                {
+                    "command": ".cursor/hooks/lease_warn.py",
+                    "matcher": "Write|Edit|Shell|Bash",
+                },
+            ],
+            "beforeShellExecution": [{"command": ".cursor/hooks/ensure_agent_hooks.py"}],
+            "afterFileEdit": [{"command": ".cursor/hooks/lease_warn.py"}],
+        },
+    }
     hooks_path = root / ".cursor" / "hooks.json"
-    hooks_merge = apply_harness_hook_merge(root, "cursor", context_rel=context_rel, dry_run=dry_run)
+    hooks_path.write_text(json.dumps(hooks_json, indent=2) + "\n", encoding="utf-8")
     written = (
         skills_result.get("created", [])
         + skills_result.get("updated", [])
@@ -476,7 +491,6 @@ def install_cursor(
         "skills_managed": skills_result,
         "skipped_user": list(skills_result.get("skipped_user", [])),
         "hooks_json": str(hooks_path),
-        "hooks_merge": hooks_merge,
         "plugin_path": local_note[0] if local_note else None,
         "local_plugin_hint": (
             "cp -R packages/agentized-cursor ~/.cursor/plugins/local/agentized "
@@ -491,7 +505,6 @@ def install_claude(
     *,
     force: bool = False,
     manifest: dict[str, Any] | None = None,
-    dry_run: bool = False,
 ) -> dict:
     """Official project surfaces: .claude/skills + .claude/settings.json hooks."""
     skills_src = root / context_rel / "skills"
@@ -507,10 +520,56 @@ def install_claude(
     _pin_hook_scripts(root, context_rel, hooks_dir)
     _refresh_local_plugin(root, "agentized-claude", skills_src)
 
-    from .hooks_install import apply_harness_hook_merge
-
     settings_path = claude_dir / "settings.json"
-    hooks_merge = apply_harness_hook_merge(root, "claude", context_rel=context_rel, dry_run=dry_run)
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            settings = {}
+    hooks = settings.get("hooks") or {}
+    hooks["SessionStart"] = [
+        {
+            "matcher": "startup|resume|clear|compact|fork",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"',
+                }
+            ],
+        }
+    ]
+    hooks["PreToolUse"] = [
+        {
+            "matcher": "Edit|Write",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"',
+                }
+            ],
+        },
+        {
+            "matcher": "Edit|Write|Bash",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py"',
+                }
+            ],
+        },
+        {
+            "matcher": "Bash",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure_agent_hooks.py"',
+                }
+            ],
+        },
+    ]
+    settings["hooks"] = hooks
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     written = (
         skills_result.get("created", [])
         + skills_result.get("updated", [])
@@ -522,7 +581,6 @@ def install_claude(
         "skills_managed": skills_result,
         "skipped_user": list(skills_result.get("skipped_user", [])),
         "settings": str(settings_path),
-        "hooks_merge": hooks_merge,
         "plugin_hint": "claude --plugin-dir packages/agentized-claude",
     }
 
@@ -533,7 +591,6 @@ def install_codex(
     *,
     force: bool = False,
     manifest: dict[str, Any] | None = None,
-    dry_run: bool = False,
 ) -> dict:
     """Official project surfaces: .agents/skills + .codex/hooks.json.
 
@@ -559,21 +616,93 @@ def install_codex(
     _pin_hook_scripts(root, context_rel, codex_hooks)
     _refresh_local_plugin(root, "agentized-codex", skills_src)
 
-    from .hooks_install import apply_harness_hook_merge, apply_marketplace_merge
-
+    hooks_json = {
+        "description": "Agentized project hooks (claim guard, warn-only leases, NAV reminder).",
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup|resume|clear|compact|fork",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py"'
+                            ),
+                            "statusMessage": "Agentized NAV check",
+                            "additionalContextLimit": 5000,
+                        }
+                    ],
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "apply_patch|Edit|Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/process_guard.py"'
+                            ),
+                            "statusMessage": "Agentized process guard",
+                            "additionalContextLimit": 5000,
+                        }
+                    ],
+                },
+                {
+                    "matcher": "Bash|apply_patch|Edit|Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/lease_warn.py"'
+                            ),
+                            "statusMessage": "Agentized lease warn",
+                            "additionalContextLimit": 5000,
+                        }
+                    ],
+                },
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ensure_agent_hooks.py"'
+                            ),
+                            "statusMessage": "Agentized git-hooks self-heal",
+                            "additionalContextLimit": 2000,
+                        }
+                    ],
+                },
+            ],
+        },
+    }
     hooks_path = root / ".codex" / "hooks.json"
-    hooks_merge = apply_harness_hook_merge(root, "codex", context_rel=context_rel, dry_run=dry_run)
-    marketplace_merge = apply_marketplace_merge(root, dry_run=dry_run)
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    hooks_path.write_text(json.dumps(hooks_json, indent=2) + "\n", encoding="utf-8")
+
+    # Official layout: $REPO/.agents/plugins/marketplace.json.
+    # Marketplace root is the repository root; plugin path stays inside that root.
+    marketplace = {
+        "name": "agentized-local",
+        "plugins": [
+            {
+                "name": "agentized",
+                "source": {"source": "local", "path": "./packages/agentized-codex"},
+                "category": "Productivity",
+            }
+        ],
+    }
     market_path = root / ".agents" / "plugins" / "marketplace.json"
+    market_path.parent.mkdir(parents=True, exist_ok=True)
+    market_path.write_text(json.dumps(marketplace, indent=2) + "\n", encoding="utf-8")
 
     return {
         "skills_copied": copied,
         "skills_managed": skills_result,
         "skipped_user": list(skills_result.get("skipped_user", [])),
         "hooks_json": str(hooks_path),
-        "hooks_merge": hooks_merge,
         "marketplace": str(market_path),
-        "marketplace_merge": marketplace_merge,
         "plugin_hint": (
             "codex plugin marketplace add . && "
             "codex plugin install agentized@agentized-local  "
@@ -831,56 +960,8 @@ def connect(
     context_rel: str = DEFAULT_CONTEXT,
     harnesses: list[str] | None = None,
     coverage_pct: float | int | None = None,
-    dry_run: bool = False,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
-    if dry_run:
-        # Plan-only: no filesystem writes (AGE-52 / Lead REJECT-3).
-        from .hooks_install import (
-            apply_harness_hook_merge,
-            apply_marketplace_merge,
-            summarize_hooks_refused,
-        )
-
-        results: dict[str, Any] = {
-            "skeleton": {"created": False, "path": context_rel, "files": []},
-            "harnesses": {},
-            "dry_run": True,
-            "skipped_user": [],
-            "state": {
-                "version": __version__,
-                "context": context_rel,
-                "harnesses": harnesses,
-                "agents_md_updated": False,
-                "claude_md_updated": False,
-                "coverage_pct": coverage_pct,
-            },
-            "idempotent": True,
-        }
-        if "cursor" in harnesses:
-            results["harnesses"]["cursor"] = {
-                "hooks_merge": apply_harness_hook_merge(
-                    root, "cursor", context_rel=context_rel, dry_run=True
-                ),
-            }
-        if "claude" in harnesses:
-            results["harnesses"]["claude"] = {
-                "hooks_merge": apply_harness_hook_merge(
-                    root, "claude", context_rel=context_rel, dry_run=True
-                ),
-            }
-        if "codex" in harnesses:
-            results["harnesses"]["codex"] = {
-                "hooks_merge": apply_harness_hook_merge(
-                    root, "codex", context_rel=context_rel, dry_run=True
-                ),
-                "marketplace_merge": apply_marketplace_merge(root, dry_run=True),
-            }
-        ok, refused = summarize_hooks_refused(results["harnesses"])
-        results["hooks_refused"] = refused
-        results["ok"] = ok
-        return results
-
     skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
@@ -927,17 +1008,11 @@ def connect(
         "harnesses": {},
     }
     if "cursor" in harnesses:
-        results["harnesses"]["cursor"] = install_cursor(
-            root, context_rel, manifest=manifest, dry_run=False
-        )
+        results["harnesses"]["cursor"] = install_cursor(root, context_rel, manifest=manifest)
     if "claude" in harnesses:
-        results["harnesses"]["claude"] = install_claude(
-            root, context_rel, manifest=manifest, dry_run=False
-        )
+        results["harnesses"]["claude"] = install_claude(root, context_rel, manifest=manifest)
     if "codex" in harnesses:
-        results["harnesses"]["codex"] = install_codex(
-            root, context_rel, manifest=manifest, dry_run=False
-        )
+        results["harnesses"]["codex"] = install_codex(root, context_rel, manifest=manifest)
 
     save_managed(root, context_rel, manifest)
 
@@ -968,10 +1043,4 @@ def connect(
     )
     results["skipped_user"] = skipped_unique
     results["idempotent"] = not changed_agents and not changed_claude
-    from .hooks_install import summarize_hooks_refused
-
-    ok, refused = summarize_hooks_refused(results.get("harnesses") or {})
-    results["hooks_refused"] = refused
-    results["ok"] = ok
-    results["dry_run"] = False
     return results
