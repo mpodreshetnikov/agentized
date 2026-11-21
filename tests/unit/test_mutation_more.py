@@ -6,6 +6,12 @@ from pathlib import Path
 from agentized import mutation as mut
 
 
+def test_durable_setup_copies_packages_and_templates():
+    """AGE-31: mutmut sandbox needs packages/ + templates/ (fixture + skills)."""
+    assert "\n  packages/\n" in mut.DURABLE_SETUP
+    assert "\n  templates/\n" in mut.DURABLE_SETUP
+
+
 def test_mutation_disabled(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(mut, "load_quality", lambda *a, **k: {"mutation": {"enabled": False}})
     assert mut.run_mutation(tmp_path) == 0

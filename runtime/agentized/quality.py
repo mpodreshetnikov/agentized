@@ -107,7 +107,8 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     ):
         section = data.get(key)
         if isinstance(section, dict):
-            out[key].update(section)
+            # setdefault: db_tests (and any future layer) may be absent from defaults.
+            out.setdefault(key, {}).update(section)
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
     rev_in = data.get("reviewer") or {}

@@ -326,8 +326,9 @@ def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
     assert bad["gates"]["ci"] == ["e2e", "db_tests"]
     gates: list = ["coverage"]
     assert lg._ensure_gate_list(gates, "e2e") is True and gates == ["coverage", "e2e"]
+    # full-cover dogfood glob (fnmatch * matches /) covers layer_gates.py
     globs = list(defaults_fn()["mutation"]["include_globs"])
-    assert globs.count("runtime/agentized/layer_gates.py") == 1
+    assert globs == ["runtime/agentized/*.py"]
 
 
 def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):

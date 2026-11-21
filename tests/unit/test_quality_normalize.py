@@ -28,13 +28,11 @@ def test_default_config_contract():
     assert cfg["mutation"]["break_on_survived"] is True
     assert cfg["test_smells"]["mode"] == "hard"
     assert cfg["architecture"]["mode"] == "hard"
-    assert cfg["e2e"]["enabled"] == "auto"
-    assert cfg["e2e"]["mode"] == "hard"
-    assert cfg["db_tests"]["enabled"] == "auto"
-    assert cfg["db_tests"]["mode"] == "hard"
+    assert cfg["e2e"]["enabled"] is False
     assert "mutation" in cfg["gates"]["ci"]
-    assert "e2e" in cfg["gates"]["ci"]
-    assert "db_tests" in cfg["gates"]["ci"]
+    assert "e2e" not in cfg["gates"]["ci"]
+    assert "db_tests" not in cfg
+    assert "db_tests" not in cfg["gates"]["ci"]
 
 
 def test_load_missing_returns_defaults(tmp_path: Path):

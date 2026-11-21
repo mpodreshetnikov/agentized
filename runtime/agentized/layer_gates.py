@@ -671,9 +671,16 @@ def upgrade_layer_gate_config(data: dict[str, Any]) -> list[str]:
     return upgraded
 
 
+def _section_or_default(cfg: dict[str, Any], name: str) -> dict[str, Any]:
+    section = cfg.get(name)
+    if isinstance(section, dict):
+        return section
+    return {"enabled": "auto", "mode": "hard", "require_tests_for_changed": True}
+
+
 def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
     root = root or find_repo_root()
-    section = load_quality(root, context)["e2e"]
+    section = _section_or_default(load_quality(root, context), "e2e")
     return _evaluate_layer(
         root, gate_name="e2e", section=section,
         detection=detect_e2e(root, skip_prefixes=skip_rel_prefixes(root, section)),
@@ -682,7 +689,7 @@ def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
 
 def run_db_tests_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
     root = root or find_repo_root()
-    section = load_quality(root, context)["db_tests"]
+    section = _section_or_default(load_quality(root, context), "db_tests")
     return _evaluate_layer(
         root, gate_name="db_tests", section=section,
         detection=detect_db_layer(root, skip_prefixes=skip_rel_prefixes(root, section)),
