@@ -89,23 +89,6 @@ def _email_local_part(email: str) -> str:
     return email.partition("@")[0]
 
 
-def _claim_local_parts(claim: str) -> set[str]:
-    """Local-part tokens used only for owner checks (not allowlist matching)."""
-    if claim is None:
-        return set()
-    claim_s = claim.strip().lower()
-    if not claim_s:
-        return set()
-    emails = identity_emails(claim)
-    if emails:
-        return {_email_local_part(e) for e in emails}
-    if " " in claim_s:
-        return set()
-    if "<" in claim_s:
-        return set()
-    return {claim_s}
-
-
 def _email_local_matches_claim(email: str, claim_locals: set[str]) -> bool:
     if not claim_locals:
         return False

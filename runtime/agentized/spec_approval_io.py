@@ -26,12 +26,7 @@ from .spec_approval_defaults import (
     checked_message,
     default_spec_approval,
 )
-from .spec_approval_text import (
-    APPROVED_BY_RE,
-    HEADING_PREFIX,
-    identity_emails,
-    is_claim_owner_identity,
-)
+from .spec_approval_text import APPROVED_BY_RE, HEADING_PREFIX, is_claim_owner_identity
 from .tasks import list_tasks
 
 AUTHOR_MAIL_RE = re.compile(r"^author-mail <([^>]+)>\s*$")
@@ -89,12 +84,6 @@ def _git_blame_emails(root: Path, path: Path, line_no: int) -> set[str]:
         if "@" in mail:
             emails.add(mail)
     return emails
-
-
-def _email_is_claim_owner(email: str, claim: str, claim_emails: set[str]) -> bool:
-    if email in claim_emails:
-        return True
-    return is_claim_owner_identity(email, claim)
 
 
 def approval_committed_by_non_owner(

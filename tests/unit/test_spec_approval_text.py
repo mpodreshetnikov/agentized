@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from agentized.spec_approval_text import (
-    _claim_local_parts,
     _email_local_matches_claim,
     _email_local_part,
     identity_emails,
@@ -31,7 +30,6 @@ def test_section_tags_approvers():
     assert parse_approvers("approved-by:   \n") == []
     multi = "## Spec\nfirst line after heading\n## Other\n\ntwo\n"
     assert section_body(multi, "## Spec") == "first line after heading"
-    # start index must be heading+1 (not +2)
     spaced = "## Spec\n\nBody after blank\n"
     assert section_body(spaced, "## Spec") == "Body after blank"
     assert parse_tags(None) == set()  # type: ignore[arg-type]
@@ -149,24 +147,6 @@ def test_placeholder_and_email_match():
         "none_ident": False,
         "empty_ident": False,
         "xxxx_trap": False,
-    }
-    locals_got = {
-        "none": _claim_local_parts(None),  # type: ignore[arg-type]
-        "empty": _claim_local_parts(""),
-        "bare": _claim_local_parts("alice"),
-        "angle": _claim_local_parts("Alice <alice@corp.com>"),
-        "spaced": _claim_local_parts("Alice Bob"),
-        "lt": _claim_local_parts("alice<"),
-        "at_junk": _claim_local_parts("alice @x"),
-    }
-    assert locals_got == {
-        "none": set(),
-        "empty": set(),
-        "bare": {"alice"},
-        "angle": {"alice"},
-        "spaced": set(),
-        "lt": set(),
-        "at_junk": set(),
     }
     assert _email_local_part("alice@corp.com") == "alice"
     assert _email_local_part("a@b@c.com") == "a"
