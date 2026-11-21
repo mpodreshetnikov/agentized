@@ -3,20 +3,15 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from agentized import connect as connect_mod
-from agentized import quality as quality_mod  # installs AGE-31 ensure_quality hook
 from agentized.connect import (
     QUALITY_MARKER,
     _safe_install_template,
     connect,
     ensure_githooks_path,
+    ensure_quality_config,
     pin_quality_templates,
 )
 from agentized.quality import load_quality
-
-# Module attribute — picks up layer_gates hook (from-import would bind pre-hook).
-ensure_quality_config = connect_mod.ensure_quality_config
-assert quality_mod is not None
 
 
 def _skeleton(root: Path) -> None:
@@ -85,58 +80,20 @@ def test_ensure_quality_upgrades_warn_modes(tmp_path: Path):
             "coverage": {"lines": 85, "branches": 85},
             "test_smells": {"mode": "warn", "enabled": True},
             "architecture": {"mode": "warn", "tool": "builtin"},
-            "e2e": {"mode": "warn", "enabled": "auto"},
-            "db_tests": {"mode": "warn", "enabled": "auto"},
             "modules": [{"id": "keep", "source": ["src"]}],
         },
     )
     info = ensure_quality_config(tmp_path, "context")
     assert info["created"] is False
-    assert "test_smells" in info["upgraded_modes"]
-    assert "architecture" in info["upgraded_modes"]
-    assert "e2e.mode" in info["upgraded_modes"]
-    assert "db_tests.mode" in info["upgraded_modes"]
+    assert set(info["upgraded_modes"]) == {"test_smells", "architecture"}
     cfg = load_quality(tmp_path)
     assert cfg["test_smells"]["mode"] == "hard"
     assert cfg["architecture"]["mode"] == "hard"
-    assert cfg["e2e"]["mode"] == "hard"
-    assert cfg["db_tests"]["mode"] == "hard"
     assert cfg["coverage"]["lines"] == 85.0
     assert cfg["modules"] == [{"id": "keep", "source": ["src"]}]
     # Second pass: already hard → no upgrade list.
     again = ensure_quality_config(tmp_path, "context")
     assert again["upgraded_modes"] == []
-
-
-def test_ensure_quality_reenable_e2e_and_inject_gates(tmp_path: Path):
-    """Reconnect: enabled false→auto; missing e2e/db_tests inserted before mutation."""
-    _skeleton(tmp_path)
-    ensure_quality_config(tmp_path, "context")
-    from agentized.quality import save_quality
-
-    save_quality(
-        tmp_path,
-        {
-            "e2e": {"enabled": False, "mode": "hard"},
-            "db_tests": {"enabled": False, "mode": "hard"},
-            "gates": {
-                "ci": ["coverage", "mutation"],
-                "pre_push": ["module_tests", "mutation"],
-            },
-            "modules": [{"id": "keep", "source": ["src"]}],
-        },
-    )
-    info = ensure_quality_config(tmp_path, "context")
-    assert "e2e.enabled" in info["upgraded_modes"]
-    assert "db_tests.enabled" in info["upgraded_modes"]
-    assert "gates.ci" in info["upgraded_modes"]
-    assert "gates.pre_push" in info["upgraded_modes"]
-    cfg = load_quality(tmp_path)
-    assert cfg["e2e"]["enabled"] == "auto"
-    assert cfg["db_tests"]["enabled"] == "auto"
-    assert cfg["gates"]["ci"].index("e2e") < cfg["gates"]["ci"].index("mutation")
-    assert cfg["gates"]["ci"].index("db_tests") < cfg["gates"]["ci"].index("mutation")
-    assert cfg["gates"]["pre_push"].index("e2e") < cfg["gates"]["pre_push"].index("mutation")
 
 
 def test_safe_install_does_not_clobber_user(tmp_path: Path):

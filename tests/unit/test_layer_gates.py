@@ -1,85 +1,129 @@
-"""AGE-31 layer gates — real quality.json trees (no mocked load_quality)."""
+"""AGE-31a layer detection — exact evidence oracles (no gate runner yet)."""
 
-# fmt: off
 from __future__ import annotations
+
 import json
-import subprocess
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import pytest
+
 from agentized import layer_gates as lg
-from agentized.quality import default_quality_config, save_quality
-from agentized.quality_defaults import default_quality_config as defaults_fn
-def _ensure_mini_app(root: Path) -> Path:
-    """Minimal playwright + db/tests tree for layer-gate oracles."""
-    app = root / "app"
-    (app / "src").mkdir(parents=True)
-    (app / "src" / "app.ts").write_text("export {}\n", encoding="utf-8")
-    (app / "e2e").mkdir()
-    (app / "e2e" / "smoke.spec.ts").write_text("test('s', async () => {})\n", encoding="utf-8")
-    (app / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
-    (app / "package.json").write_text(
-        json.dumps({"devDependencies": {"@playwright/test": "1.0.0"}}), encoding="utf-8"
-    )
-    mig = app / "db" / "migrations"
-    mig.mkdir(parents=True)
-    (mig / "001_init.sql").write_text("CREATE TABLE t(id int);\n", encoding="utf-8")
-    tests = app / "db" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "test_init.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
-    return app
-def _git_init(root: Path) -> None:
-    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "t@example.com"], cwd=root, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "t"], cwd=root, check=True, capture_output=True
-    )
-def _commit_all(root: Path, msg: str = "chg") -> str:
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", msg, "--allow-empty"], cwd=root, check=True, capture_output=True
-    )
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-    ).stdout.strip()
-def _write_quality(root: Path, **section_overrides: object) -> None:
-    cfg = default_quality_config()
-    cfg["modules"] = []
-    for key, value in section_overrides.items():
-        if isinstance(value, dict) and isinstance(cfg.get(key), dict):
-            cfg[key].update(value)
-        else:
-            cfg[key] = value
-    save_quality(root, cfg)
-def _summary(root: Path, gate: str) -> dict:
-    return json.loads((root / "reports" / gate / f"{gate}-summary.json").read_text(encoding="utf-8"))
-def _decision(*, days: int = 7, approved_by: str = "Maxim") -> dict:
-    return {
-        "reason": "temporary migration",
-        "approved_by": approved_by,
-        "expires": (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(),
-    }
+
+
 def _pw_tree(root: Path) -> None:
     (root / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
     (root / "e2e").mkdir(exist_ok=True)
     (root / "e2e" / "a.spec.ts").write_text("test('a', async () => {})\n", encoding="utf-8")
-def test_detect_e2e_and_absent(tmp_path: Path):
+
+
+def test_detect_e2e_exact_evidence(tmp_path: Path):
     _pw_tree(tmp_path)
     (tmp_path / "package.json").write_text(
         json.dumps({"devDependencies": {"@playwright/test": "1.0.0"}}), encoding="utf-8"
     )
     det = lg.detect_e2e(tmp_path, skip_prefixes=())
-    assert sorted({e["kind"] for e in det["evidence"]}) == ["config", "package_dep", "tests_dir"]
-    assert det["framework"] == "playwright" and det["present"] is True
+    assert det["present"] is True
+    assert det["framework"] == "playwright"
+    assert {"kind": "config", "path": "playwright.config.ts"} in det["evidence"]
+    assert {
+        "kind": "package_dep",
+        "path": "package.json",
+        "detail": "@playwright/test",
+    } in det["evidence"]
+    assert {"kind": "tests_dir", "path": "e2e"} in det["evidence"]
+    # Nested web/e2e must report tests_dir "e2e" under web, not parent "web"
+    # (kills cypress_e2e `and`→`or` false positives on */e2e/*).
+    nested = tmp_path / "nested"
+    (nested / "web" / "e2e").mkdir(parents=True)
+    (nested / "web" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
+    nested_det = lg.detect_e2e(nested, skip_prefixes=())
+    assert {"kind": "tests_dir", "path": "web/e2e"} in nested_det["evidence"]
+    assert {"kind": "tests_dir", "path": "web"} not in nested_det["evidence"]
     empty = tmp_path / "empty"
     empty.mkdir()
     (empty / "README.md").write_text("x\n", encoding="utf-8")
-    assert lg.detect_e2e(empty, skip_prefixes=())["evidence"] == []
-def test_detect_db_and_nested_orm(tmp_path: Path):
+    absent = lg.detect_e2e(empty, skip_prefixes=())
+    assert absent == {"present": False, "evidence": [], "framework": None}
+    # Cypress: exact path cypress/e2e (not cypress alone).
+    cy = tmp_path / "cy"
+    (cy / "cypress" / "e2e").mkdir(parents=True)
+    (cy / "cypress" / "e2e" / "a.cy.js").write_text("it('a', () => {})\n", encoding="utf-8")
+    (cy / "cypress.config.js").write_text("module.exports = {}\n", encoding="utf-8")
+    (cy / "package.json").write_text(
+        json.dumps({"devDependencies": {"cypress": "13"}}), encoding="utf-8"
+    )
+    cy_det = lg.detect_e2e(cy, skip_prefixes=())
+    assert cy_det["present"] is True and cy_det["framework"] == "cypress"
+    assert {"kind": "tests_dir", "path": "cypress/e2e"} in cy_det["evidence"]
+    assert {"kind": "config", "path": "cypress.config.js"} in cy_det["evidence"]
+    assert {
+        "kind": "package_dep",
+        "path": "package.json",
+        "detail": "cypress",
+    } in cy_det["evidence"]
+    # reports/e2e ignored; placeholder-only playwright/ absent.
+    (tmp_path / "reports" / "e2e").mkdir(parents=True)
+    (tmp_path / "reports" / "e2e" / "x.spec.ts").write_text("test('x')\n", encoding="utf-8")
+    ph = tmp_path / "playwright_empty"
+    (ph / "playwright").mkdir(parents=True)
+    (ph / "playwright" / ".gitkeep").write_text("", encoding="utf-8")
+    assert lg.detect_e2e(ph, skip_prefixes=())["present"] is False
+    # continue (not break) past skipped prefix: later z_ok config still found.
+    skip_root = tmp_path / "skip_walk"
+    (skip_root / "a_skip").mkdir(parents=True)
+    (skip_root / "a_skip" / "playwright.config.ts").write_text(
+        "export default {}\n", encoding="utf-8"
+    )
+    (skip_root / "z_ok").mkdir(parents=True)
+    (skip_root / "z_ok" / "playwright.config.js").write_text(
+        "export default {}\n", encoding="utf-8"
+    )
+    skipped = lg.detect_e2e(skip_root, skip_prefixes=("a_skip/",))
+    assert {"kind": "config", "path": "z_ok/playwright.config.js"} in skipped["evidence"]
+    assert skipped["present"] is True
+    # Empty e2e dir then later real e2e: continue (not break) on empty dir_rel.
+    empty_then = tmp_path / "empty_then"
+    (empty_then / "a_empty" / "e2e").mkdir(parents=True)
+    (empty_then / "a_empty" / "e2e" / ".gitkeep").write_text("", encoding="utf-8")
+    (empty_then / "z_real" / "e2e").mkdir(parents=True)
+    (empty_then / "z_real" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
+    # Touch a file under a_empty/e2e path walk: use a real file path that references empty dir
+    # via sibling; detection walks z_real file and a_empty placeholder-only.
+    et = lg.detect_e2e(empty_then, skip_prefixes=())
+    assert {"kind": "tests_dir", "path": "z_real/e2e"} in et["evidence"]
+    assert {"kind": "tests_dir", "path": "a_empty/e2e"} not in et["evidence"]
+    # Multi-dep join oracle (kills ",".join → "XX,XX".join).
+    multi_pkg = tmp_path / "multi_pkg"
+    multi_pkg.mkdir()
+    (multi_pkg / "package.json").write_text(
+        json.dumps({"devDependencies": {"@playwright/test": "1", "cypress": "1"}}),
+        encoding="utf-8",
+    )
+    multi_det = lg.detect_e2e(multi_pkg, skip_prefixes=())
+    assert {
+        "kind": "package_dep",
+        "path": "package.json",
+        "detail": "@playwright/test,cypress",
+    } in multi_det["evidence"]
+    # skip_prefixes=None uses agentized defaults; explicit () does not.
+    dog = tmp_path / "dogfood"
+    (dog / "runtime" / "agentized").mkdir(parents=True)
+    (dog / "templates" / "quality").mkdir(parents=True)
+    (dog / "templates" / "e2e").mkdir(parents=True)
+    (dog / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
+    none_det = lg.detect_e2e(dog)  # skip_prefixes=None → skips templates/
+    assert none_det["present"] is False
+    empty_skip = lg.detect_e2e(dog, skip_prefixes=())
+    assert empty_skip["present"] is True
+    assert {"kind": "tests_dir", "path": "templates/e2e"} in empty_skip["evidence"]
+    assert lg.default_test_command("e2e", {"framework": "playwright"}) == "npx playwright test"
+    assert lg.default_test_command("e2e", {"framework": "cypress"}) == "npx cypress run"
+    assert lg.default_test_command("e2e", {"framework": None}) is None
+    assert lg.default_test_command("other", {"framework": "playwright"}) is None
+
+
+def test_detect_db_exact_evidence(tmp_path: Path):
     mig = tmp_path / "db" / "migrations"
     mig.mkdir(parents=True)
+    (mig / ".gitkeep").write_text("", encoding="utf-8")
     (mig / "001.sql").write_text("CREATE TABLE t(id int);\n", encoding="utf-8")
     tests = tmp_path / "db" / "tests"
     tests.mkdir(parents=True)
@@ -87,18 +131,15 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     (tmp_path / "schema.sql").write_text("CREATE TABLE x(id int);\n", encoding="utf-8")
     (tmp_path / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
     (tmp_path / "schema.prisma").write_text("model T { id Int }\n", encoding="utf-8")
-    # size-1 real file under pgtap/ (kills st_size==0→1 skip)
     pgt = tmp_path / "pgtap"
     pgt.mkdir()
     (pgt / "t.sql").write_text("x", encoding="utf-8")
-    # whitespace-only dir must stay absent (kills size==0 `or`→`and`)
     ws = tmp_path / "flyway" / "sql"
     ws.mkdir(parents=True)
     (ws / "blank.sql").write_text("\n\n", encoding="utf-8")
-    # placeholder before real sibling (kills placeholder continue→break)
-    (mig / ".gitkeep").write_text("", encoding="utf-8")
-    # Default skip_prefixes=None (not ()) — kills None/and-False trampoline mutants.
     det = lg.detect_db_layer(tmp_path)
+    assert det["present"] is True
+    assert det["framework"] == "pgtap"
     assert {"kind": "migrations_dir", "path": "db/migrations"} in det["evidence"]
     assert {"kind": "marker_file", "path": "schema.sql"} in det["evidence"]
     assert {"kind": "marker_file", "path": "alembic.ini"} in det["evidence"]
@@ -106,46 +147,100 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     assert {"kind": "pgtap_dir", "path": "pgtap"} in det["evidence"]
     assert {"kind": "pgtap_sql", "path": "db/tests/test_t.sql"} in det["evidence"]
     assert {"kind": "migrations_dir", "path": "flyway/sql"} not in det["evidence"]
-    assert det["framework"] == "pgtap"
-    # Alphabetical skip-dir before db/: continue (not break) past skipped files.
+    # continue past skipped prefix + later zzz marker still found (kills break).
     (tmp_path / "a_skip").mkdir()
     (tmp_path / "a_skip" / "x.txt").write_text("x\n", encoding="utf-8")
+    (tmp_path / "zzz_extra.sql").write_text("SELECT plan(9);\n", encoding="utf-8")
     walked = lg.detect_db_layer(tmp_path, skip_prefixes=("a_skip/",))
     assert {"kind": "migrations_dir", "path": "db/migrations"} in walked["evidence"]
-    assert {"kind": "pgtap_sql", "path": "db/tests/test_t.sql"} in walked["evidence"]
+    assert {"kind": "pgtap_sql", "path": "zzz_extra.sql"} in walked["evidence"]
+    # placeholder then real sibling: continue (not break) on .gitkeep
+    ph = tmp_path / "ph_mig" / "db" / "migrations"
+    ph.mkdir(parents=True)
+    (ph / ".gitkeep").write_text("", encoding="utf-8")
+    (ph / "002.sql").write_text("CREATE TABLE u(id int);\n", encoding="utf-8")
+    ph_det = lg.detect_db_layer(tmp_path / "ph_mig", skip_prefixes=())
+    assert {"kind": "migrations_dir", "path": "db/migrations"} in ph_det["evidence"]
+    # empty-file then real: continue not break; size==0 oracle
+    empty_mig = tmp_path / "empty_mig" / "db" / "migrations"
+    empty_mig.mkdir(parents=True)
+    (empty_mig / "000.sql").write_text("", encoding="utf-8")
+    (empty_mig / "003.sql").write_text("CREATE TABLE v(id int);\n", encoding="utf-8")
+    assert {
+        "kind": "migrations_dir",
+        "path": "db/migrations",
+    } in lg.detect_db_layer(tmp_path / "empty_mig", skip_prefixes=())["evidence"]
+    # OSError on first migration file then real sibling (continue≠break)
+    os_mig = tmp_path / "os_mig" / "db" / "migrations"
+    os_mig.mkdir(parents=True)
+    locked_sql = os_mig / "000.sql"
+    locked_sql.write_text("x\n", encoding="utf-8")
+    locked_sql.chmod(0o000)
+    (os_mig / "001.sql").write_text("CREATE TABLE w(id int);\n", encoding="utf-8")
+    try:
+        assert {
+            "kind": "migrations_dir",
+            "path": "db/migrations",
+        } in lg.detect_db_layer(tmp_path / "os_mig", skip_prefixes=())["evidence"]
+    finally:
+        locked_sql.chmod(0o644)
     mono = tmp_path / "mono"
-    (mono / "apps" / "web").mkdir(parents=True)
-    (mono / "apps" / "web" / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
-    (mono / "apps" / "web" / "e2e").mkdir()
-    (mono / "apps" / "web" / "e2e" / "h.spec.ts").write_text("test('h', async () => {})\n", encoding="utf-8")
+    (mono / "apps" / "web" / "e2e").mkdir(parents=True)
+    (mono / "apps" / "web" / "playwright.config.ts").write_text(
+        "export default {}\n", encoding="utf-8"
+    )
+    (mono / "apps" / "web" / "e2e" / "h.spec.ts").write_text(
+        "test('h', async () => {})\n", encoding="utf-8"
+    )
     (mono / "services" / "api" / "db" / "migrations").mkdir(parents=True)
-    (mono / "services" / "api" / "db" / "migrations" / "001.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (mono / "services" / "api" / "db" / "migrations" / "001.sql").write_text(
+        "SELECT 1;\n", encoding="utf-8"
+    )
     assert lg.detect_e2e(mono, skip_prefixes=())["present"] is True
-    assert any("services/api/db/migrations" in e.get("path", "") for e in lg.detect_db_layer(mono, skip_prefixes=())["evidence"])
+    assert {
+        "kind": "migrations_dir",
+        "path": "services/api/db/migrations",
+    } in lg.detect_db_layer(mono, skip_prefixes=())["evidence"]
     orm = tmp_path / "orm"
     orm.mkdir()
-    (orm / "package.json").write_text(json.dumps({"dependencies": {"prisma": "5"}}), encoding="utf-8")
+    (orm / "package.json").write_text(
+        json.dumps({"dependencies": {"prisma": "5"}}), encoding="utf-8"
+    )
     (orm / "db" / "tests").mkdir(parents=True)
     (orm / "db" / "tests" / "t.sql").write_text("SELECT 1;\n", encoding="utf-8")
     orm_det = lg.detect_db_layer(orm, skip_prefixes=())
-    assert orm_det["framework"] == "prisma"
+    assert orm_det["present"] is True and orm_det["framework"] == "prisma"
     assert {"kind": "orm_dep", "path": "package.json", "detail": "prisma"} in orm_det["evidence"]
-    # Isolated marker oracles (no pgtap_dir) — kills token/case/encoding/join survivors.
     tap_only = tmp_path / "tap_only"
     tap_only.mkdir()
     (tap_only / "a.sql").write_text("tap: 1\n", encoding="utf-8")
     tap_det = lg.detect_db_layer(tap_only, skip_prefixes=())
+    assert tap_det["present"] is True
     assert tap_det["evidence"] == [{"kind": "pgtap_sql", "path": "a.sql"}]
     assert tap_det["framework"] == "pgtap"
     pg_only = tmp_path / "pg_only"
     pg_only.mkdir()
     (pg_only / "b.sql").write_text("uses pgtap helpers\n", encoding="utf-8")
-    assert {"kind": "pgtap_sql", "path": "b.sql"} in lg.detect_db_layer(pg_only, skip_prefixes=())["evidence"]
+    assert {"kind": "pgtap_sql", "path": "b.sql"} in lg.detect_db_layer(pg_only, skip_prefixes=())[
+        "evidence"
+    ]
     bin_sql = tmp_path / "bin_sql"
     bin_sql.mkdir()
     (bin_sql / "c.sql").write_bytes(b"SELECT plan(1);\n\xff\xfe\n")
-    assert {"kind": "pgtap_sql", "path": "c.sql"} in lg.detect_db_layer(bin_sql, skip_prefixes=())["evidence"]
-    # Unreadable .sql then later readable — continue (not break) on OSError.
+    assert {"kind": "pgtap_sql", "path": "c.sql"} in lg.detect_db_layer(bin_sql, skip_prefixes=())[
+        "evidence"
+    ]
+    # Truncation: '(' of select plan( sits at index 4000 — [:4000] misses, [:4001] hits.
+    long_sql = tmp_path / "long_sql"
+    long_sql.mkdir()
+    (long_sql / "late.sql").write_bytes(b"x" * 3989 + b"select plan(1);\n")
+    assert {"kind": "pgtap_sql", "path": "late.sql"} not in lg.detect_db_layer(
+        long_sql, skip_prefixes=()
+    )["evidence"]
+    (long_sql / "early.sql").write_bytes(b"x" * 3988 + b"select plan(1);\n")
+    assert {"kind": "pgtap_sql", "path": "early.sql"} in lg.detect_db_layer(
+        long_sql, skip_prefixes=()
+    )["evidence"]
     bad_sql = tmp_path / "bad_sql"
     bad_sql.mkdir()
     nop = bad_sql / "a.sql"
@@ -161,14 +256,108 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     pyorm.mkdir()
     (pyorm / "requirements.txt").write_text("sqlalchemy\n", encoding="utf-8")
     py_det = lg.detect_db_layer(pyorm, skip_prefixes=())
-    assert {"kind": "orm_dep", "path": "requirements.txt", "detail": "sqlalchemy"} in py_det["evidence"]
+    assert py_det["present"] is True
+    assert {"kind": "orm_dep", "path": "requirements.txt", "detail": "sqlalchemy"} in py_det[
+        "evidence"
+    ]
     multi = tmp_path / "multi_js"
     multi.mkdir()
     (multi / "package.json").write_text(
         json.dumps({"dependencies": {"prisma": "1", "drizzle-orm": "1"}}), encoding="utf-8"
     )
     mdet = lg.detect_db_layer(multi, skip_prefixes=())
-    assert {"kind": "orm_dep", "path": "package.json", "detail": "drizzle-orm,prisma"} in mdet["evidence"]
+    assert {"kind": "orm_dep", "path": "package.json", "detail": "drizzle-orm,prisma"} in mdet[
+        "evidence"
+    ]
+    sql_only = tmp_path / "sql_only"
+    (sql_only / "db" / "migrations").mkdir(parents=True)
+    (sql_only / "db" / "migrations" / "001.sql").write_text(
+        "CREATE TABLE a(id int);\n", encoding="utf-8"
+    )
+    sql_det = lg.detect_db_layer(sql_only, skip_prefixes=())
+    assert sql_det["present"] is True and sql_det["framework"] == "sql"
+    # skip_prefixes=None skips templates; explicit () keeps them.
+    dog = tmp_path / "dog_db"
+    (dog / "runtime" / "agentized").mkdir(parents=True)
+    (dog / "templates" / "quality").mkdir(parents=True)
+    (dog / "templates" / "db" / "migrations").mkdir(parents=True)
+    (dog / "templates" / "db" / "migrations" / "001.sql").write_text(
+        "CREATE TABLE t(id int);\n", encoding="utf-8"
+    )
+    dog_none = lg.detect_db_layer(dog)
+    assert dog_none["present"] is False
+    dog_empty = lg.detect_db_layer(dog, skip_prefixes=())
+    assert dog_empty["present"] is True
+    assert {
+        "kind": "migrations_dir",
+        "path": "templates/db/migrations",
+    } in dog_empty["evidence"]
+    # multi python deps join
+    multi_py = tmp_path / "multi_py"
+    multi_py.mkdir()
+    (multi_py / "requirements.txt").write_text("django\nalembic\n", encoding="utf-8")
+    mp = lg.detect_db_layer(multi_py, skip_prefixes=())
+    assert {
+        "kind": "orm_dep",
+        "path": "requirements.txt",
+        "detail": "alembic,django",
+    } in mp["evidence"]
+    sb = tmp_path / "sb"
+    (sb / "supabase").mkdir(parents=True)
+    (sb / "supabase" / "config.toml").write_text("[db]\n", encoding="utf-8")
+    assert lg._has_supabase(sb) is True
+    assert (
+        lg.default_test_command("db_tests", {"framework": "pgtap"}, root=sb) == "supabase test db"
+    )
+    assert (
+        lg.default_test_command("db_tests", {"framework": "pgtap"})
+        == "pg_prove db/tests/*.sql tests/db/*.sql pgtap/*.sql"
+    )
+    assert lg.default_test_command("db_tests", {"framework": "sql"}) is None
+
+
+def test_framework_helpers_missing_keys():
+    assert lg._db_framework([{"kind": "pgtap_sql", "path": "t.sql"}]) == "pgtap"
+    assert lg._db_framework([{"kind": "pgtap_dir", "path": "pgtap"}]) == "pgtap"
+    assert (
+        lg._db_framework([{"kind": "orm_dep", "path": "package.json", "detail": "prisma"}])
+        == "prisma"
+    )
+    assert (
+        lg._db_framework([{"kind": "orm_dep", "path": "p.json", "detail": "drizzle-orm"}])
+        == "drizzle"
+    )
+    assert (
+        lg._db_framework([{"kind": "orm_dep", "path": "requirements.txt", "detail": "alembic"}])
+        == "alembic"
+    )
+    assert (
+        lg._db_framework([{"kind": "orm_dep", "path": "requirements.txt", "detail": "sqlalchemy"}])
+        == "alembic"
+    )
+    assert (
+        lg._db_framework([{"kind": "orm_dep", "path": "requirements.txt", "detail": "django"}])
+        == "django"
+    )
+    assert lg._db_framework([{"kind": "migrations_dir", "path": "db/migrations"}]) == "sql"
+    assert lg._db_framework([{"kind": "marker_file", "path": "schema.sql"}]) == "sql"
+    assert lg._db_framework([{"kind": "db_tests_dir", "path": "db/tests"}]) == "sql"
+    # orm_dep alone (no path/detail tokens) still sql via kinds ∩ orm_dep
+    assert lg._db_framework([{"kind": "orm_dep"}]) == "sql"
+    assert lg._db_framework([]) is None
+    assert lg._db_framework([{"kind": "other", "path": "x"}]) is None
+    assert lg._e2e_framework([{"kind": "config", "path": "playwright.config.ts"}]) == "playwright"
+    assert (
+        lg._e2e_framework([{"kind": "package_dep", "path": "package.json", "detail": "cypress"}])
+        == "cypress"
+    )
+    assert lg._e2e_framework([{"kind": "config", "path": "vite.config.ts"}]) is None
+    # Missing path/detail must not invent framework tokens via bad defaults.
+    assert lg._e2e_framework([{"kind": "config"}]) is None
+    assert lg._db_framework([{"kind": "marker_file"}]) == "sql"
+    assert lg._evidence_blob([{"path": "A", "detail": "B"}, {"path": "C"}]) == "a b c "
+
+
 def test_skip_prefixes_agentized_only(tmp_path: Path):
     (tmp_path / "templates" / "e2e").mkdir(parents=True)
     (tmp_path / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
@@ -177,9 +366,7 @@ def test_skip_prefixes_agentized_only(tmp_path: Path):
     assert lg.skip_rel_prefixes(tmp_path) == ()
     assert lg.detect_e2e(tmp_path)["present"] is True
     (tmp_path / "templates" / "quality").mkdir(parents=True)
-    # templates alone is not enough (kills has_pkg `and`→`or`).
     assert lg.is_agentized_repo(tmp_path) is False
-    # Top-level agentized/ pkg (no runtime/agentized) still counts.
     (tmp_path / "agentized").mkdir()
     assert lg.is_agentized_repo(tmp_path) is True
     (tmp_path / "agentized").rmdir()
@@ -187,276 +374,16 @@ def test_skip_prefixes_agentized_only(tmp_path: Path):
     assert lg.is_agentized_repo(tmp_path) is True
     assert lg.skip_rel_prefixes(tmp_path) == ("templates/", "tests/fixtures/")
     assert lg.skip_rel_prefixes(tmp_path, {"skip_rel_prefixes": ["vendor/"]}) == ("vendor/",)
-def test_disable_decision_rules():
-    assert lg.DISABLE_DECISION_MAX_DAYS == 14
-    clock = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    base = {"reason": "pause", "approved_by": "Maxim"}
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": (clock + timedelta(days=14)).isoformat()}}, now=clock
-    ) is True
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": (clock + timedelta(days=14, seconds=1)).isoformat()}},
-        now=clock,
-    ) is False
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": (clock + timedelta(milliseconds=500)).isoformat()}},
-        now=clock,
-    ) is True
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": clock.isoformat()}}, now=clock
-    ) is False
-    exp = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
-    assert lg.disable_decision_valid({"disable_decision": {"approved_by": "Maxim", "expires": exp}}) is False
-    assert lg.disable_decision_valid({"disable_decision": {"reason": "", "approved_by": "Maxim", "expires": exp}}) is False
-    assert lg.disable_decision_valid({"disable_decision": {"reason": "x", "approved_by": "", "expires": exp}}) is False
-    assert lg.disable_decision_valid({"disable_decision": {"reason": "x", "approved_by": "Maxim", "expires": 1}}) is False
-    assert lg.disable_decision_valid({"disable_decision": "nope"}) is False
-    assert lg.disable_decision_valid({}) is False
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": "2026-01-08T00:00:00"}}, now=clock
-    ) is False
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": "not-a-date"}}, now=clock
-    ) is False
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": "2026-01-08T00:00:00+00:00"}}, now=datetime(2026, 1, 1)
-    ) is False
-    # now=None uses utc clock; naive now rejected.
-    assert lg.disable_decision_valid(
-        {"disable_decision": {**base, "expires": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()}},
-        now=None,
-    ) is True
-def test_e2e_disabled_requires_decision(tmp_path: Path, monkeypatch):
-    _git_init(tmp_path)
-    _pw_tree(tmp_path)
-    _write_quality(tmp_path, e2e={"enabled": False, "mode": "hard", "test_command": "true"})
-    _commit_all(tmp_path, "init")
-    monkeypatch.delenv("LAYER_GATES_BASE", raising=False)
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(f["kind"] == "disabled_without_decision" for f in _summary(tmp_path, "e2e")["findings"])
-    _write_quality(tmp_path, e2e={"enabled": False, "mode": "hard", "disable_decision": _decision()})
-    assert lg.run_e2e_gate(tmp_path) == 0
-    assert _summary(tmp_path, "e2e")["reason"] == "disabled_by_decision"
-def test_red_commands_and_require_false(tmp_path: Path, monkeypatch):
-    _git_init(tmp_path)
-    _pw_tree(tmp_path)
-    _write_quality(
-        tmp_path,
-        e2e={
-            "enabled": "auto", "mode": "hard", "source_globs": ["src/**"],
-            "test_globs": ["e2e/**"], "test_command": "false",
-        },
-    )
-    base = _commit_all(tmp_path, "base")
-    monkeypatch.setenv("LAYER_GATES_BASE", base)
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(f["kind"] == "test_command_failed" for f in _summary(tmp_path, "e2e")["findings"])
-    mig = tmp_path / "db" / "migrations"
-    mig.mkdir(parents=True)
-    (mig / "001.sql").write_text("CREATE TABLE a(id int);\n", encoding="utf-8")
-    tests = tmp_path / "db" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "t.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
-    _write_quality(
-        tmp_path,
-        db_tests={
-            "enabled": "auto", "mode": "hard", "source_globs": ["**/migrations/**"],
-            "test_globs": ["**/db/tests/**"], "test_command": "exit 1",
-        },
-    )
-    base2 = _commit_all(tmp_path, "db")
-    monkeypatch.setenv("LAYER_GATES_BASE", base2)
-    assert lg.run_db_tests_gate(tmp_path) == 1
-    _write_quality(
-        tmp_path,
-        e2e={
-            "enabled": "auto", "require_tests_for_changed": False, "mode": "hard",
-            "test_command": "true",
-        },
-    )
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(
-        f["kind"] == "require_disabled_without_decision"
-        for f in _summary(tmp_path, "e2e")["findings"]
-    )
-def test_missing_suite_and_changed_sources(tmp_path: Path, monkeypatch):
-    _git_init(tmp_path)
-    _pw_tree(tmp_path)
-    (tmp_path / "e2e" / "a.spec.ts").write_text("   \n", encoding="utf-8")
-    (tmp_path / "e2e" / ".gitkeep").write_text("", encoding="utf-8")
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.ts").write_text("export const a = 1\n", encoding="utf-8")
-    _write_quality(
-        tmp_path,
-        e2e={
-            "enabled": "auto", "mode": "hard", "source_globs": ["src/**"],
-            "test_globs": ["e2e/**"], "test_command": "true",
-        },
-    )
-    base = _commit_all(tmp_path, "base")
-    monkeypatch.setenv("LAYER_GATES_BASE", base)
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(f["kind"] == "missing_tests" for f in _summary(tmp_path, "e2e")["findings"])
-    (tmp_path / "e2e" / "ok.spec.ts").write_text("test('ok', async () => {})\n", encoding="utf-8")
-    base_suite = _commit_all(tmp_path, "suite")
-    (tmp_path / "src" / "app.ts").write_text("export const a = 2\n", encoding="utf-8")
-    _commit_all(tmp_path, "ui")
-    monkeypatch.setenv("LAYER_GATES_BASE", base_suite)
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(f["kind"] == "tests_not_updated" for f in _summary(tmp_path, "e2e")["findings"])
-    (tmp_path / "e2e" / "ok.spec.ts").write_text("test('ok2', async () => {})\n", encoding="utf-8")
-    _commit_all(tmp_path, "ui+e2e")
-    assert lg.run_e2e_gate(tmp_path) == 0
-def test_git_fail_closed_and_autodetect(tmp_path: Path, monkeypatch):
-    _git_init(tmp_path)
-    _pw_tree(tmp_path)
-    _write_quality(
-        tmp_path,
-        e2e={"enabled": "auto", "mode": "hard", "base_ref": "does-not-exist", "test_command": "true"},
-    )
-    _commit_all(tmp_path, "init")
-    monkeypatch.delenv("LAYER_GATES_BASE", raising=False)
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
-    assert lg.run_e2e_gate(tmp_path) == 1
-    assert any(f["kind"] == "git_diff_failed" for f in _summary(tmp_path, "e2e")["findings"])
-    with pytest.raises(lg.GitDiffError, match="git diff failed"):
-        lg._changed_files(tmp_path, "no-such-ref-zzzz")
-    assert lg.default_test_command("e2e", {"framework": "playwright"}) == "npx playwright test"
-    assert lg.default_test_command("e2e", {"framework": "cypress"}) == "npx cypress run"
-    assert lg.default_test_command("db_tests", {"framework": "prisma"}) is None
-    assert lg.default_test_command("db_tests", {"framework": "pgtap"}) == (
-        "pg_prove db/tests/*.sql tests/db/*.sql pgtap/*.sql"
-    )
-    (tmp_path / "supabase").mkdir(exist_ok=True)
-    assert lg._has_supabase(tmp_path) is False
-    (tmp_path / "supabase" / "config.toml").write_text("[project]\n", encoding="utf-8")
-    assert lg.default_test_command("db_tests", {"framework": "sql"}, root=tmp_path) == "supabase test db"
-def test_test_command_required_orm(tmp_path: Path, monkeypatch):
-    _git_init(tmp_path)
-    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"prisma": "5"}}), encoding="utf-8")
-    tests = tmp_path / "db" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "t.sql").write_text("SELECT 1;\n", encoding="utf-8")
-    mig = tmp_path / "db" / "migrations"
-    mig.mkdir(parents=True)
-    (mig / "001.sql").write_text("CREATE TABLE a(id int);\n", encoding="utf-8")
-    _write_quality(
-        tmp_path,
-        db_tests={
-            "enabled": "auto", "mode": "hard", "source_globs": ["**/migrations/**"],
-            "test_globs": ["**/db/tests/**"], "test_command": None,
-        },
-    )
-    base = _commit_all(tmp_path, "base")
-    (mig / "002.sql").write_text("CREATE TABLE b(id int);\n", encoding="utf-8")
-    (tests / "t2.sql").write_text("SELECT 2;\n", encoding="utf-8")
-    _commit_all(tmp_path, "mig")
-    monkeypatch.setenv("LAYER_GATES_BASE", base)
-    assert lg.run_db_tests_gate(tmp_path) == 1
-    assert any(f["kind"] == "test_command_required" for f in _summary(tmp_path, "db_tests")["findings"])
-def test_apply_layer_upgrades_persists(tmp_path: Path):
-    cfg = defaults_fn()
-    cfg["e2e"] = {"enabled": False, "mode": "warn"}
-    cfg["gates"] = {"ci": ["coverage", "mutation"], "pre_push": ["mutation"]}
-    save_quality(tmp_path, cfg)
-    up = lg.apply_layer_upgrades_to_repo(tmp_path)
-    assert "e2e.enabled" in up and "e2e.mode" in up
-    assert "gates.ci" in up
-    loaded = json.loads((tmp_path / "context" / "quality.json").read_text(encoding="utf-8"))
-    assert loaded["e2e"]["enabled"] == "auto"
-    assert loaded["e2e"]["mode"] == "hard"
-    assert loaded["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
-    assert lg.apply_layer_upgrades_to_repo(tmp_path) == []
-def test_install_ensure_quality_hook_oracles(tmp_path: Path):
-    import agentized.connect as connect_mod
-    from agentized.quality import load_quality, save_quality as sq
-    lg.install_ensure_quality_hook()
-    wrapped = connect_mod.ensure_quality_config
-    assert wrapped._age31_layer_hook is True and wrapped._age31_orig is not None
-    real_orig = wrapped._age31_orig
-    # Bare orig (no hook attr) must install without AttributeError.
-    connect_mod.ensure_quality_config = real_orig
-    lg.install_ensure_quality_hook()
-    wrapped2 = connect_mod.ensure_quality_config
-    assert wrapped2._age31_layer_hook is True
-    cfg = defaults_fn()
-    cfg["e2e"] = {"enabled": False, "mode": "warn"}
-    cfg["db_tests"] = {"enabled": False, "mode": "warn"}
-    cfg["gates"] = {"ci": ["mutation"], "pre_push": ["mutation"]}
-    cfg["test_smells"] = {"mode": "warn", "enabled": True}
-    cfg["architecture"] = {"mode": "hard", "enabled": True}
-    sq(tmp_path, cfg, context_rel="alt-ctx")
-    out = wrapped2(tmp_path, "alt-ctx", coverage_pct=91)
-    assert out["created"] is False and out["coverage_pct"] == 91
-    # Preserve orig upgraded_modes + layer keys (kills get/or mutants).
-    assert "test_smells" in out["upgraded_modes"]
-    assert {"e2e.enabled", "db_tests.enabled", "gates.ci", "gates.pre_push"} <= set(out["upgraded_modes"])
-    loaded = load_quality(tmp_path, context_rel="alt-ctx")
-    assert loaded["e2e"]["enabled"] == "auto" and loaded["test_smells"]["mode"] == "hard"
-    assert loaded["gates"]["ci"].index("e2e") < loaded["gates"]["ci"].index("mutation")
-    assert loaded["gates"]["pre_push"] == ["e2e", "db_tests", "mutation"]
-    assert wrapped2(tmp_path, "alt-ctx")["upgraded_modes"] == []
-    # Missing upgraded_modes key (kills `in result or True`). Restore connect after —
-    # mutmut fork-server keeps process state across clean/mutant runs.
-    bare_root = tmp_path / "bare-hook"
-    bare_root.mkdir()
-    cfg2 = defaults_fn()
-    cfg2["e2e"] = {"enabled": False, "mode": "warn"}
-    cfg2["db_tests"] = {"enabled": False, "mode": "warn"}
-    cfg2["gates"] = {"ci": ["mutation"], "pre_push": ["mutation"]}
-    sq(bare_root, cfg2, context_rel="ctx2")
-    try:
-        def bare_orig(root, context_rel, coverage_pct=None):
-            return {"created": False}
-        connect_mod.ensure_quality_config = bare_orig
-        lg.install_ensure_quality_hook()
-        bare_out = connect_mod.ensure_quality_config(bare_root, "ctx2")
-        assert "e2e.enabled" in bare_out["upgraded_modes"] and "gates.pre_push" in bare_out["upgraded_modes"]
-    finally:
-        connect_mod.ensure_quality_config = real_orig
-        lg.install_ensure_quality_hook()
-def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
-    root = _ensure_mini_app(tmp_path)
-    _git_init(root)
-    _write_quality(
-        root,
-        e2e={
-            "enabled": "auto", "mode": "hard", "source_globs": ["src/**"],
-            "test_globs": ["e2e/**"], "test_command": "true", "skip_rel_prefixes": [],
-        },
-        db_tests={
-            "enabled": "auto", "mode": "hard", "source_globs": ["**/migrations/**"],
-            "test_globs": ["**/db/tests/**"], "test_command": "true", "skip_rel_prefixes": [],
-        },
-    )
-    base = _commit_all(root, "base")
-    monkeypatch.setenv("LAYER_GATES_BASE", base)
-    assert lg.run_e2e_gate(root) == 0 and lg.run_db_tests_gate(root) == 0
-    data = {
-        "e2e": {"enabled": False, "mode": "warn"},
-        "db_tests": {"enabled": False, "mode": "warn"},
-        "gates": {"ci": ["coverage", "mutation"], "pre_push": ["mutation"]},
-    }
-    up = lg.upgrade_layer_gate_config(data)
-    assert "e2e.enabled" in up and "gates.pre_push" in up
-    assert data["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
-    assert data["gates"]["pre_push"] == ["e2e", "db_tests", "mutation"]
-    created: dict = {"gates": {"ci": ["coverage"], "pre_push": ["coverage"]}}
-    up_c = lg.upgrade_layer_gate_config(created)
-    assert {"e2e.created", "db_tests.created", "gates.ci", "gates.pre_push"} <= set(up_c)
-    assert created["e2e"] == {"enabled": "auto", "mode": "hard", "require_tests_for_changed": True}
-    assert created["gates"]["pre_push"] == ["coverage", "e2e", "db_tests"]
-    bad = {"e2e": {"enabled": "auto", "mode": "hard"}, "db_tests": {"enabled": "auto", "mode": "hard"}, "gates": "bogus"}
-    up_b = lg.upgrade_layer_gate_config(bad)
-    assert bad["gates"]["ci"] == ["e2e", "db_tests"] and bad["gates"]["pre_push"] == ["e2e", "db_tests"]
-    assert "gates.pre_push" in up_b
-    gates: list = ["coverage"]
-    assert lg._ensure_gate_list(gates, "e2e") is True and gates == ["coverage", "e2e"]
-    # full-cover dogfood glob (fnmatch * matches /) covers layer_gates.py
-    globs = list(defaults_fn()["mutation"]["include_globs"])
-    assert globs == ["runtime/agentized/*.py"]
-def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
-    assert lg._JSON_ENCODING == "utf-8" and lg._CMD_OUTPUT_LIMIT == 4000
+    only_tpl = tmp_path / "only_tpl"
+    (only_tpl / "templates" / "quality").mkdir(parents=True)
+    (only_tpl / "runtime" / "agentized").mkdir(parents=True)
+    (only_tpl / "templates" / "e2e").mkdir(parents=True)
+    (only_tpl / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
+    assert lg.detect_e2e(only_tpl)["present"] is False
+
+
+def test_helpers_deps_paths_and_skip(tmp_path: Path):
+    assert lg._JSON_ENCODING == "utf-8"
     assert lg._normalize_rel(r"db\migrations/") == "db/migrations"
     assert lg._normalize_rel("db/migrations") == "db/migrations"
     assert lg._normalize_rel("foo/X") == "foo/X"
@@ -468,36 +395,52 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
     assert lg._looks_like_db_dir("tests/sql") == "db_tests_dir"
     assert lg._looks_like_db_dir("db/tests") == "db_tests_dir"
     assert lg._looks_like_db_dir("src/components") is None
-    assert lg._glob_match("e2e/a.ts", "e2e/**") is True
-    assert lg._enabled_mode(False) == "false"
-    assert lg._enabled_mode(True) == "true"
-    assert lg._enabled_mode("AUTO") == "auto"
-    g1 = ["mutation"]
-    assert lg._ensure_gate_list(g1, "e2e") is True and g1 == ["e2e", "mutation"]
-    g2 = ["e2e", "mutation"]
-    assert lg._ensure_gate_list(g2, "e2e") is False and g2 == ["e2e", "mutation"]
-    g3 = ["coverage"]
-    assert lg._ensure_gate_list(g3, "db_tests") is True and g3 == ["coverage", "db_tests"]
-    pkg = tmp_path / "pkg"
-    pkg.mkdir()
-    path = pkg / "package.json"
-    path.write_bytes(json.dumps({
-        "dependencies": {"prisma": "1"}, "devDependencies": {"@playwright/test": "1"},
-        "peerDependencies": {"cypress": "1"}, "optionalDependencies": {"drizzle-orm": "1"},
-    }).encode("utf-8"))
+    # _is_skipped_rel: backslash normalize + trailing-slash prefix equality
+    assert lg._is_skipped_rel(r"templates\e2e\a.ts", ("templates/",)) is True
+    assert lg._is_skipped_rel("templates", ("templates/",)) is True
+    assert lg._is_skipped_rel("libX", ("libX/",)) is True
+    assert lg._is_skipped_rel("templates_other/x", ("templates/",)) is False
+    assert lg._is_skipped_rel("vendor/x", ("vendor",)) is True
+    # _uniq_evidence: .get without defaults → None for missing keys
+    assert lg._uniq_evidence(
+        [{"kind": "a", "path": "1"}, {"kind": "a", "path": "1"}, {"kind": "b", "path": "2"}]
+    ) == [{"kind": "a", "path": "1"}, {"kind": "b", "path": "2"}]
+    assert lg._uniq_evidence([{"path": "1"}, {"kind": "a"}]) == [{"path": "1"}, {"kind": "a"}]
+    assert lg._uniq_evidence([{}, {}]) == [{}]
+    # missing kind is None, not "XXXX"/"" — keep distinct from explicit kind
+    assert len(lg._uniq_evidence([{"path": "1"}, {"kind": "XXXX", "path": "1"}])) == 2
+    assert len(lg._uniq_evidence([{"path": "1"}, {"kind": None, "path": "1"}])) == 1
+    assert lg._is_skipped_rel("libY/a.ts", ("libX/",)) is False
+    assert lg._is_skipped_rel("libX/a.ts", ("libX/",)) is True
+    path = tmp_path / "package.json"
+    path.write_bytes(
+        json.dumps(
+            {
+                "dependencies": {"prisma": "1"},
+                "devDependencies": {"@playwright/test": "1"},
+                "peerDependencies": {"cypress": "1"},
+                "optionalDependencies": {"drizzle-orm": "1"},
+            }
+        ).encode("utf-8")
+    )
     assert lg._read_package_deps(path) == {"prisma", "@playwright/test", "cypress", "drizzle-orm"}
+    assert lg._read_package_deps(tmp_path / "missing.json") == set()
+    (tmp_path / "bad.json").write_text("{", encoding="utf-8")
+    assert lg._read_package_deps(tmp_path / "bad.json") == set()
+    (tmp_path / "arr.json").write_text("[]", encoding="utf-8")
+    assert lg._read_package_deps(tmp_path / "arr.json") == set()
     py = tmp_path / "py"
     py.mkdir()
-    (py / "pyproject.toml").write_text('[project]\ndependencies = [\n  "sqlalchemy",\n]\n', encoding="utf-8")
+    (py / "pyproject.toml").write_text(
+        '[project]\ndependencies = [\n  "sqlalchemy",\n]\n', encoding="utf-8"
+    )
     (py / "requirements.txt").write_text("alembic==1\n", encoding="utf-8")
     found = lg._read_python_deps(py, ("pyproject.toml",))
     assert "requirements.txt" in {rel for rel, _ in found}
     assert any("alembic" in names for _, names in found)
-    # pyproject skipped via prefixes; requirements still counted.
     found2 = lg._read_python_deps(py, ())
     assert {rel for rel, _ in found2} >= {"pyproject.toml", "requirements.txt"}
     assert any("sqlalchemy" in names for _, names in found2)
-    # No pyproject: continue (not break) past missing file to requirements*.txt.
     req_only = tmp_path / "req_only"
     req_only.mkdir()
     (req_only / "requirements.txt").write_text("django\n", encoding="utf-8")
@@ -511,74 +454,79 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
         noperm.chmod(0o644)
     assert {rel for rel, _ in found3} >= {"requirements.txt", "requirements-bin.txt"}
     assert any("django" in n for _, n in found3) and any("alembic" in n for _, n in found3)
-    # Quoted-only deps — kills `in`/`not in` quote mutants (incl. false positives).
     qonly = tmp_path / "qonly"
     qonly.mkdir()
-    (qonly / "pyproject.toml").write_text('install_requires=["django", \'alembic\']\n', encoding="utf-8")
+    (qonly / "pyproject.toml").write_text(
+        "install_requires=[\"django\", 'alembic']\n", encoding="utf-8"
+    )
     found4 = lg._read_python_deps(qonly, ())
     names4 = set().union(*(n for _, n in found4))
     assert names4 == {"django", "alembic"}
-    (tmp_path / "marker.txt").write_text("yes", encoding="utf-8")
-    rc, out = lg._run_command(tmp_path, "test -f marker.txt && echo HELLO_GATE")
-    assert rc == 0 and isinstance(out, str) and "HELLO_GATE" in out
-    rc_big, out_big = lg._run_command(tmp_path, "python3 -c 'print(\"x\" * 5000)'")
-    assert rc_big == 0 and len(out_big) == 4000
-    _git_init(tmp_path)
-    _pw_tree(tmp_path)
-    mig = tmp_path / "db" / "migrations"
-    mig.mkdir(parents=True)
-    (mig / "001.sql").write_text("CREATE TABLE a(id int);\n", encoding="utf-8")
-    tests = tmp_path / "db" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "t.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
-    _write_quality(
-        tmp_path,
-        e2e={"enabled": "auto", "mode": "hard", "test_command": "true", "source_globs": ["src/**"], "test_globs": ["e2e/**"]},
-        db_tests={
-            "enabled": "auto", "mode": "hard", "test_command": "true",
-            "source_globs": ["**/migrations/**"], "test_globs": ["**/db/tests/**"],
-        },
-    )
-    alt = tmp_path / "ctx-alt"
-    alt.mkdir()
-    cfg = default_quality_config()
-    cfg["modules"] = []
-    cfg["e2e"] = {"enabled": False, "mode": "hard", "test_command": "true"}
-    cfg["db_tests"] = {"enabled": False, "mode": "hard", "test_command": "true"}
-    (alt / "quality.json").write_text(json.dumps(cfg), encoding="utf-8")
-    _commit_all(tmp_path, "init")
-    monkeypatch.setenv("LAYER_GATES_BASE", "HEAD")
-    assert lg.run_e2e_gate(tmp_path, context="context") == 0
-    assert lg.run_e2e_gate(tmp_path, context="ctx-alt") == 1
-    assert lg.run_db_tests_gate(tmp_path, context="ctx-alt") == 1
-    _write_quality(
-        tmp_path,
-        e2e={
-            "enabled": "auto", "mode": "hard",
-            "skip_rel_prefixes": ["playwright.config.ts", "e2e/", "e2e"],
-            "test_command": "true", "source_globs": ["src/**"], "test_globs": ["e2e/**"],
-        },
-        db_tests={
-            "enabled": "auto", "mode": "hard", "skip_rel_prefixes": ["db/"], "test_command": "true",
-            "source_globs": ["**/migrations/**"], "test_globs": ["**/db/tests/**"],
-        },
-    )
-    # Hide playwright dep under pkg/ as well as root config/e2e.
-    skip = ("playwright.config.ts", "e2e/", "e2e", "pkg/")
-    assert lg.detect_e2e(tmp_path, skip_prefixes=skip)["present"] is False
-    _write_quality(
-        tmp_path,
-        e2e={
-            "enabled": "auto", "mode": "hard", "skip_rel_prefixes": list(skip),
-            "test_command": "true", "source_globs": ["src/**"], "test_globs": ["e2e/**"],
-        },
-        db_tests={
-            "enabled": "auto", "mode": "hard",
-            "skip_rel_prefixes": ["db/", "py/", "pkg/"],
-            "test_command": "true",
-            "source_globs": ["**/migrations/**"], "test_globs": ["**/db/tests/**"],
-        },
-    )
-    assert lg.run_e2e_gate(tmp_path) == 0 and _summary(tmp_path, "e2e")["reason"] == "layer_absent"
-    assert lg.run_db_tests_gate(tmp_path) == 0 and _summary(tmp_path, "db_tests")["reason"] == "layer_absent"
-# fmt: on
+    d = tmp_path / "dircheck"
+    (d / "e2e").mkdir(parents=True)
+    (d / "e2e" / ".keep").write_text("", encoding="utf-8")
+    assert lg._dir_has_real_files(d, "e2e", ()) is False
+    (d / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(d, "e2e", ()) is True
+    assert lg._dir_has_real_files(d, "e2e", ("e2e/",)) is False
+    assert lg._dir_has_real_files(d, "missing", ()) is False
+    # nested dir before file still finds real file
+    nest = tmp_path / "nest" / "e2e" / "deep"
+    nest.mkdir(parents=True)
+    (nest / "x.spec.ts").write_text("test('x')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "nest", "e2e", ()) is True
+    # skipped vendor/ path then real sibling (continue≠break on SKIP_DIR_NAMES)
+    vd = tmp_path / "vend" / "e2e"
+    (vd / "vendor").mkdir(parents=True)
+    (vd / "vendor" / "x.ts").write_text("test('x')\n", encoding="utf-8")
+    (vd / "z.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "vend", "e2e", ()) is True
+    # size-1 whitespace-only then real later file
+    ws = tmp_path / "wsdir" / "e2e"
+    ws.mkdir(parents=True)
+    (ws / "a_blank.ts").write_text(" ", encoding="utf-8")
+    (ws / "z_real.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "wsdir", "e2e", ()) is True
+    # lone size-1 non-whitespace must count (kills st_size==0 → ==1)
+    one = tmp_path / "onedir" / "e2e"
+    one.mkdir(parents=True)
+    (one / "x.ts").write_bytes(b"x")
+    assert lg._dir_has_real_files(tmp_path / "onedir", "e2e", ()) is True
+    # skip prefix on first file, real later sibling (continue≠break)
+    sk = tmp_path / "skipdir" / "e2e"
+    sk.mkdir(parents=True)
+    (sk / "a_skip.ts").write_text("test('a')\n", encoding="utf-8")
+    (sk / "z_ok.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "skipdir", "e2e", ("e2e/a_skip.ts",)) is True
+    assert lg._dir_has_real_files(tmp_path / "skipdir", "e2e", ("e2e/",)) is False
+    # placeholder then real (continue≠break)
+    ph2 = tmp_path / "ph2" / "e2e"
+    ph2.mkdir(parents=True)
+    (ph2 / ".gitkeep").write_text("", encoding="utf-8")
+    (ph2 / "z.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "ph2", "e2e", ()) is True
+    # empty size-0 then real (continue≠break)
+    em = tmp_path / "emdir" / "e2e"
+    em.mkdir(parents=True)
+    (em / "a_empty.ts").write_text("", encoding="utf-8")
+    (em / "z.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "emdir", "e2e", ()) is True
+    # whitespace-only then real (continue≠break on strip-empty)
+    ws2 = tmp_path / "ws2" / "e2e"
+    ws2.mkdir(parents=True)
+    (ws2 / "a_ws.ts").write_text("\n\n", encoding="utf-8")
+    (ws2 / "z.ts").write_text("test('z')\n", encoding="utf-8")
+    assert lg._dir_has_real_files(tmp_path / "ws2", "e2e", ()) is True
+    # OSError on first file must continue to later readable sibling
+    locked = tmp_path / "lockdir" / "e2e"
+    locked.mkdir(parents=True)
+    bad = locked / "a_locked.ts"
+    bad.write_text("x\n", encoding="utf-8")
+    bad.chmod(0o000)
+    (locked / "z_ok.ts").write_text("test('z')\n", encoding="utf-8")
+    try:
+        assert lg._dir_has_real_files(tmp_path / "lockdir", "e2e", ()) is True
+    finally:
+        bad.chmod(0o644)
+    assert lg._decode_text(tmp_path / "arr.json") == "[]"
+    assert lg._evidence_blob([{"path": None}]) == " "

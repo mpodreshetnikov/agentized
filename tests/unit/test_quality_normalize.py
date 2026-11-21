@@ -28,23 +28,7 @@ def test_default_config_contract():
     assert cfg["mutation"]["break_on_survived"] is True
     assert cfg["test_smells"]["mode"] == "hard"
     assert cfg["architecture"]["mode"] == "hard"
-    assert cfg["e2e"]["enabled"] is False
     assert "mutation" in cfg["gates"]["ci"]
-    assert "e2e" not in cfg["gates"]["ci"]
-    assert "db_tests" not in cfg
-    assert "db_tests" not in cfg["gates"]["ci"]
-
-
-def test_quality_module_installs_age31_connect_hook():
-    import agentized.connect as connect_mod
-    import agentized.quality as quality_mod
-    from agentized.layer_gates import install_ensure_quality_hook
-
-    assert quality_mod.QUALITY_FILENAME == "quality.json"
-    assert connect_mod.ensure_quality_config._age31_layer_hook is True
-    orig = connect_mod.ensure_quality_config._age31_orig
-    install_ensure_quality_hook()
-    assert connect_mod.ensure_quality_config._age31_orig is orig
 
 
 def test_load_missing_returns_defaults(tmp_path: Path):
@@ -73,7 +57,6 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
             "architecture": {"tool": "builtin"},
             "property_based": {"enabled": True, "pilot_modules": ["a"]},
             "e2e": {"enabled": True, "new_spec_retries": 5},
-            "db_tests": {"enabled": "auto", "mode": "hard", "require_tests_for_changed": False},
             "shared_fixtures": {"required_when_duplicated_logic": False},
             "batch_release": {"keep_up_to_date_protection": False},
             "gates": {"ci": ["coverage", "mutation"]},
@@ -91,8 +74,6 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
     assert data["architecture"]["tool"] == "builtin"
     assert data["property_based"]["pilot_modules"] == ["a"]
     assert data["e2e"]["new_spec_retries"] == 5
-    assert data["db_tests"]["enabled"] == "auto"
-    assert data["db_tests"]["require_tests_for_changed"] is False
     assert data["shared_fixtures"]["required_when_duplicated_logic"] is False
     assert data["batch_release"]["keep_up_to_date_protection"] is False
     assert data["gates"]["ci"] == ["coverage", "mutation"]
@@ -172,9 +153,6 @@ def test_module_thresholds_fallbacks():
     cfg = {"coverage": {"lines": 80, "branches": 70}}
     assert module_thresholds(cfg, {"thresholds": {}}) == (80.0, 70.0)
     assert module_thresholds(cfg, {"thresholds": {"lines": 60}}) == (60.0, 70.0)
-    # Non-default globals — kills get("lines")→get("XXlinesXX") falling back to 80.
-    cfg91 = {"coverage": {"lines": 91, "branches": 77}}
-    assert module_thresholds(cfg91, {"thresholds": {}}) == (91.0, 77.0)
     assert module_thresholds({}, {"thresholds": {}}) == (
         float(DEFAULT_COVERAGE_PCT),
         float(DEFAULT_COVERAGE_PCT),

@@ -67,30 +67,7 @@
     ]
   },
   "e2e": {
-    "enabled": "auto",
-    "mode": "hard",
-    "base_ref": "origin/main",
-    "require_tests_for_changed": true,
-    "source_globs": [
-      "app/**",
-      "src/**",
-      "pages/**",
-      "components/**",
-      "web/**",
-      "frontend/**",
-      "ui/**",
-      "client/**"
-    ],
-    "test_globs": [
-      "e2e/**",
-      "tests/e2e/**",
-      "cypress/e2e/**",
-      "playwright/**",
-      "**/*.e2e.ts",
-      "**/*.e2e.js",
-      "**/*.e2e.tsx"
-    ],
-    "test_command": null,
+    "enabled": false,
     "on_failure_artifacts": [
       "video",
       "screenshot"
@@ -101,32 +78,6 @@
       "snapshot_markup",
       "formal_contracts"
     ]
-  },
-  "db_tests": {
-    "enabled": "auto",
-    "mode": "hard",
-    "base_ref": "origin/main",
-    "require_tests_for_changed": true,
-    "source_globs": [
-      "**/migrations/**",
-      "**/db/migrations/**",
-      "**/alembic/versions/**",
-      "**/prisma/migrations/**",
-      "**/supabase/migrations/**",
-      "db/**/*.sql",
-      "sql/**",
-      "schema.sql",
-      "**/schema/**"
-    ],
-    "test_globs": [
-      "**/tests/db/**",
-      "**/db/tests/**",
-      "**/pgtap/**",
-      "**/test_*.sql",
-      "**/*_test.sql",
-      "tests/sql/**"
-    ],
-    "test_command": null
   },
   "shared_fixtures": {
     "required_when_duplicated_logic": true
@@ -142,8 +93,6 @@
       "coverage",
       "test_smells",
       "architecture",
-      "e2e",
-      "db_tests",
       "mutation"
     ],
     "ci": [
@@ -152,8 +101,6 @@
       "coverage",
       "test_smells",
       "architecture",
-      "e2e",
-      "db_tests",
       "mutation"
     ]
   },

@@ -101,13 +101,12 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         "architecture",
         "property_based",
         "e2e",
-        "db_tests",
         "shared_fixtures",
         "batch_release",
     ):
         section = data.get(key)
         if isinstance(section, dict):
-            out.setdefault(key, {}).update(section)
+            out[key].update(section)
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
     rev_in = data.get("reviewer") or {}
@@ -153,14 +152,3 @@ def set_reviewer_options(
         rev["budget_max"] = int(budget_max)
     save_quality(root, data, rel)
     return data
-
-
-def _install_layer_gates_connect_hook() -> None:
-    import importlib
-
-    importlib.import_module(
-        __name__.rsplit(".", 1)[0] + ".layer_gates"
-    ).install_ensure_quality_hook()
-
-
-_install_layer_gates_connect_hook()
