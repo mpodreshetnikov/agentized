@@ -222,14 +222,13 @@ def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None)
     for name in DB_FILE_MARKERS:
         if (root / name).is_file() and not _is_skipped_rel(name, prefixes):
             evidence.append({"kind": "marker_file", "path": name})
-    seen_dirs: set[str] = set()
     for path in _iter_files(root):
         rel = _rel(root, path)
         if _is_skipped_rel(rel, prefixes):
             continue
         parent = Path(rel).parent.as_posix()
         kind = _looks_like_db_dir(parent)
-        if kind and parent not in seen_dirs:
+        if kind is not None:
             if path.name in PLACEHOLDER_NAMES:
                 continue
             try:
@@ -239,7 +238,6 @@ def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None)
                     continue
             except OSError:
                 continue
-            seen_dirs.add(parent)
             evidence.append({"kind": kind, "path": parent})
         if path.name == "schema.prisma":
             evidence.append({"kind": "marker_file", "path": rel})

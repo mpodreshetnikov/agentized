@@ -104,6 +104,7 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     assert {"kind": "marker_file", "path": "alembic.ini"} in det["evidence"]
     assert {"kind": "marker_file", "path": "schema.prisma"} in det["evidence"]
     assert {"kind": "pgtap_dir", "path": "pgtap"} in det["evidence"]
+    assert {"kind": "pgtap_sql", "path": "db/tests/test_t.sql"} in det["evidence"]
     assert {"kind": "migrations_dir", "path": "flyway/sql"} not in det["evidence"]
     assert det["framework"] == "pgtap"
     # Alphabetical skip-dir before db/: continue (not break) past skipped files.
@@ -111,6 +112,7 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     (tmp_path / "a_skip" / "x.txt").write_text("x\n", encoding="utf-8")
     walked = lg.detect_db_layer(tmp_path, skip_prefixes=("a_skip/",))
     assert {"kind": "migrations_dir", "path": "db/migrations"} in walked["evidence"]
+    assert {"kind": "pgtap_sql", "path": "db/tests/test_t.sql"} in walked["evidence"]
     mono = tmp_path / "mono"
     (mono / "apps" / "web").mkdir(parents=True)
     (mono / "apps" / "web" / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
@@ -128,6 +130,45 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     orm_det = lg.detect_db_layer(orm, skip_prefixes=())
     assert orm_det["framework"] == "prisma"
     assert {"kind": "orm_dep", "path": "package.json", "detail": "prisma"} in orm_det["evidence"]
+    # Isolated marker oracles (no pgtap_dir) — kills token/case/encoding/join survivors.
+    tap_only = tmp_path / "tap_only"
+    tap_only.mkdir()
+    (tap_only / "a.sql").write_text("tap: 1\n", encoding="utf-8")
+    tap_det = lg.detect_db_layer(tap_only, skip_prefixes=())
+    assert tap_det["evidence"] == [{"kind": "pgtap_sql", "path": "a.sql"}]
+    assert tap_det["framework"] == "pgtap"
+    pg_only = tmp_path / "pg_only"
+    pg_only.mkdir()
+    (pg_only / "b.sql").write_text("uses pgtap helpers\n", encoding="utf-8")
+    assert {"kind": "pgtap_sql", "path": "b.sql"} in lg.detect_db_layer(pg_only, skip_prefixes=())["evidence"]
+    bin_sql = tmp_path / "bin_sql"
+    bin_sql.mkdir()
+    (bin_sql / "c.sql").write_bytes(b"SELECT plan(1);\n\xff\xfe\n")
+    assert {"kind": "pgtap_sql", "path": "c.sql"} in lg.detect_db_layer(bin_sql, skip_prefixes=())["evidence"]
+    # Unreadable .sql then later readable — continue (not break) on OSError.
+    bad_sql = tmp_path / "bad_sql"
+    bad_sql.mkdir()
+    nop = bad_sql / "a.sql"
+    nop.write_text("x\n", encoding="utf-8")
+    nop.chmod(0o000)
+    (bad_sql / "z.sql").write_text("SELECT plan(2);\n", encoding="utf-8")
+    try:
+        bad_det = lg.detect_db_layer(bad_sql, skip_prefixes=())
+    finally:
+        nop.chmod(0o644)
+    assert {"kind": "pgtap_sql", "path": "z.sql"} in bad_det["evidence"]
+    pyorm = tmp_path / "pyorm"
+    pyorm.mkdir()
+    (pyorm / "requirements.txt").write_text("sqlalchemy\n", encoding="utf-8")
+    py_det = lg.detect_db_layer(pyorm, skip_prefixes=())
+    assert {"kind": "orm_dep", "path": "requirements.txt", "detail": "sqlalchemy"} in py_det["evidence"]
+    multi = tmp_path / "multi_js"
+    multi.mkdir()
+    (multi / "package.json").write_text(
+        json.dumps({"dependencies": {"prisma": "1", "drizzle-orm": "1"}}), encoding="utf-8"
+    )
+    mdet = lg.detect_db_layer(multi, skip_prefixes=())
+    assert {"kind": "orm_dep", "path": "package.json", "detail": "drizzle-orm,prisma"} in mdet["evidence"]
 def test_skip_prefixes_agentized_only(tmp_path: Path):
     (tmp_path / "templates" / "e2e").mkdir(parents=True)
     (tmp_path / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
