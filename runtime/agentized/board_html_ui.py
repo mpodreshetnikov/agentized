@@ -8,9 +8,18 @@ DEFAULT_LANG = "ru"
 DEFAULT_TITLE = "Доска задач Agentized"
 
 
+def _display_participant(raw: str) -> str:
+    """Show local part for emails; otherwise the stripped name."""
+    text = str(raw).strip()
+    at = text.find("@")
+    if at == -1:
+        return text
+    return text[:at]
+
+
 def for_review_note(lang: str, participants: Sequence[str]) -> str:
     """Build for-review column note from merge_policy.human_participants."""
-    names = [str(p).strip() for p in participants if str(p).strip()]
+    names = [_display_participant(p) for p in participants if str(p).strip()]
     if names:
         name = ", ".join(names)
     else:

@@ -289,52 +289,64 @@ def test_fail_loud_collect(tmp_path: Path):
 
 
 def test_render_collect_write(tmp_path: Path):
+    import json as _json
+
     tasks = tmp_path / "tasks"
     tasks.mkdir()
-    (tmp_path / "merge_policy.json").write_text(
-        '{"human_participants":["Maxim"]}\n', encoding="utf-8"
+    (tmp_path / "process-control.json").write_text(
+        _json.dumps({"merge_policy": {"human_participants": ["mpodreshetnikov@gmail.com"]}}) + "\n",
+        encoding="utf-8",
     )
-    assert load_human_participants(tmp_path) == ["Maxim"]
-    assert load_human_participants(tmp_path)[0] == "Maxim"
+    assert load_human_participants(tmp_path) == ["mpodreshetnikov@gmail.com"]
     bare = tmp_path / "bare"
     bare.mkdir()
-    (bare / "merge_policy.json").write_text('{"version":1}\n', encoding="utf-8")
+    (bare / "process-control.json").write_text('{"version":1}\n', encoding="utf-8")
     assert load_human_participants(bare) == []
     bad_list = tmp_path / "bl"
     bad_list.mkdir()
-    (bad_list / "merge_policy.json").write_text('{"human_participants":"x"}\n', encoding="utf-8")
+    (bad_list / "process-control.json").write_text(
+        '{"merge_policy":{"human_participants":"x"}}\n', encoding="utf-8"
+    )
     with pytest.raises(BoardError) as e_list:
         load_human_participants(bad_list)
     assert e_list.value.reason == "human_participants must be a list"
-    assert e_list.value.path == str(bad_list / "merge_policy.json")
+    assert e_list.value.path == str(bad_list / "process-control.json")
     bad_json = tmp_path / "bj"
     bad_json.mkdir()
-    (bad_json / "merge_policy.json").write_text("{", encoding="utf-8")
+    (bad_json / "process-control.json").write_text("{", encoding="utf-8")
     with pytest.raises(BoardError) as e_json:
         load_human_participants(bad_json)
-    assert e_json.value.path == str(bad_json / "merge_policy.json")
-    assert e_json.value.reason.startswith("invalid merge_policy:")
+    assert e_json.value.path == str(bad_json / "process-control.json")
+    assert e_json.value.reason.startswith("invalid process-control:")
     bad_utf = tmp_path / "bu"
     bad_utf.mkdir()
-    (bad_utf / "merge_policy.json").write_bytes(b"\xff")
+    (bad_utf / "process-control.json").write_bytes(b"\xff")
     with pytest.raises(BoardError) as e_utfp:
         load_human_participants(bad_utf)
-    assert e_utfp.value.path == str(bad_utf / "merge_policy.json")
-    assert e_utfp.value.reason.startswith("invalid merge_policy:")
+    assert e_utfp.value.path == str(bad_utf / "process-control.json")
+    assert e_utfp.value.reason.startswith("invalid process-control:")
     bad_obj = tmp_path / "bo"
     bad_obj.mkdir()
-    (bad_obj / "merge_policy.json").write_text("[1,2]\n", encoding="utf-8")
+    (bad_obj / "process-control.json").write_text("[1,2]\n", encoding="utf-8")
     with pytest.raises(BoardError) as e_obj:
         load_human_participants(bad_obj)
-    assert e_obj.value.path == str(bad_obj / "merge_policy.json")
-    assert e_obj.value.reason == "merge_policy must be a JSON object"
+    assert e_obj.value.path == str(bad_obj / "process-control.json")
+    assert e_obj.value.reason == "process-control must be a JSON object"
+    bad_pol = tmp_path / "bp"
+    bad_pol.mkdir()
+    (bad_pol / "process-control.json").write_text('{"merge_policy":[1,2]}\n', encoding="utf-8")
+    with pytest.raises(BoardError) as e_pol:
+        load_human_participants(bad_pol)
+    assert e_pol.value.path == str(bad_pol / "process-control.json")
+    assert e_pol.value.reason == "merge_policy must be a JSON object"
     for bad in (None, 1, {}, ""):
         bad_ent = tmp_path / f"be-{id(bad)}"
         bad_ent.mkdir()
-        import json as _json
-
-        policy = bad_ent / "merge_policy.json"
-        policy.write_text(_json.dumps({"human_participants": [bad]}), encoding="utf-8")
+        policy = bad_ent / "process-control.json"
+        policy.write_text(
+            _json.dumps({"merge_policy": {"human_participants": [bad]}}),
+            encoding="utf-8",
+        )
         with pytest.raises(BoardError) as e_ent:
             load_human_participants(bad_ent)
         assert e_ent.value.path == str(policy)
@@ -415,7 +427,7 @@ def test_render_collect_write(tmp_path: Path):
     }
 
     html = generate_board(tasks, lang="ru", now=NOW, title="Моя доска")
-    assert "<title>Моя доска</title>" in html and "только Maxim" in html
+    assert "<title>Моя доска</title>" in html and "только mpodreshetnikov" in html
     assert "В статусе: 2099-05-31 12:00 UTC (24.0ч)" in html
     assert "Исполнитель: alice" in html and "(&gt;12ч)" in html
     # srv + real overdue; queued alias without stamp also overdue (unknown age)

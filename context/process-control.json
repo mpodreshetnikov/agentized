@@ -21,5 +21,6 @@
     "context/digests/**",
     "**/__pycache__/**",
     ".artifacts/**"
-  ]
+  ],
+  "merge_policy": {"human_participants": ["mpodreshetnikov@gmail.com"]}
 }

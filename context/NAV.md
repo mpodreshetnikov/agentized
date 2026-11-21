@@ -23,7 +23,6 @@
 | Quality | [`../docs/QUALITY.md`](../docs/QUALITY.md) | Coverage / mutation / pre-push / CI |
 | Process control | [`../docs/process-control.md`](../docs/process-control.md) | Claim · PR size · hooks |
 | Agent environment | [`../docs/AGENT_ENVIRONMENT.md`](../docs/AGENT_ENVIRONMENT.md) | Fail-closed env-check · Cursor Cloud Install line |
-| Static board | [`../docs/dashboard-board.md`](../docs/dashboard-board.md) | `agentized board` → board.html · user CI/CD examples |
 | Утренний прогон | [`../docs/morning-runbook.ru.md`](../docs/morning-runbook.ru.md) | Сценарий §9.4 |
 
 ## Как искать задачи

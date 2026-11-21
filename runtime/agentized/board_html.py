@@ -230,18 +230,24 @@ def require_task_header(text: str, path: Path) -> re.Match[str]:
 
 
 def load_human_participants(context_dir: Path) -> list[str]:
-    path = context_dir / "merge_policy.json"
+    """Read merge_policy.human_participants from process-control.json (full emails)."""
+    path = context_dir / "process-control.json"
     if not path.is_file():
         return []
     try:
         data = json.loads(path.read_bytes().decode(ENCODING))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BoardError(str(path), f"invalid merge_policy: {exc}") from None
+        raise BoardError(str(path), f"invalid process-control: {exc}") from None
     if not isinstance(data, dict):
-        raise BoardError(str(path), "merge_policy must be a JSON object")
-    if "human_participants" not in data:
+        raise BoardError(str(path), "process-control must be a JSON object")
+    if "merge_policy" not in data:
         return []
-    raw = data["human_participants"]
+    policy = data["merge_policy"]
+    if not isinstance(policy, dict):
+        raise BoardError(str(path), "merge_policy must be a JSON object")
+    if "human_participants" not in policy:
+        return []
+    raw = policy["human_participants"]
     if not isinstance(raw, list):
         raise BoardError(str(path), "human_participants must be a list")
     out: list[str] = []

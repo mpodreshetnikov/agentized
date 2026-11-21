@@ -17,6 +17,13 @@ def test_defaults_and_for_review_note():
     assert ui.for_review_note("en", ["Alice", "Bob"]) == "only Alice, Bob"
     assert ui.for_review_note("ru", ["Alice", "  ", "", "Bob"]) == "только Alice, Bob"
     assert ui.for_review_note("en", ["", "Maxim", " "]) == "only Maxim"
+    assert ui.for_review_note("ru", ["mpodreshetnikov@gmail.com"]) == ("только mpodreshetnikov")
+    assert ui.for_review_note("en", ["a@b.c", "Name"]) == "only a, Name"
+    assert ui.for_review_note("ru", ["  ", "Bob"]) == "только Bob"
+    assert ui._display_participant("x@y.z") == "x"
+    assert ui._display_participant("a@b@c") == "a"
+    assert ui._display_participant("  Name  ") == "Name"
+    assert ui._display_participant("no-at") == "no-at"
 
 
 def test_ui_ru_en_exact_keys_and_values():
