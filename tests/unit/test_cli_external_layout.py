@@ -272,8 +272,14 @@ def test_env_check_cli_applies_external_gate(
     # Empty external clone → refuse via apply_external_env_check.
     assert cli.cmd_env_check(_ns()) == 1
     err = capsys.readouterr().err
-    assert "agent-env-check: REFUSED" in err
-    assert "External Project Context" in err or "external" in err.lower()
+    assert err == (
+        "agent-env-check: REFUSED. External Project Context clone is missing or incomplete "
+        f"(external Context missing NAV.md: {ext / 'NAV.md'}; "
+        f"external Context missing tasks/: {ext / 'tasks'}). "
+        "Code repo and Context repo must both be present. "
+        "Clone `external.remote` to `external.path` from context/context.json. "
+        "See docs/AGENT_ENVIRONMENT.md.\n"
+    )
 
     # Seed registry so external gate passes.
     (ext / "NAV.md").write_text("# n\n", encoding="utf-8")
@@ -300,3 +306,76 @@ def test_check_fails_without_nav_md(
     out = capsys.readouterr().out
     assert "check FAIL" in out
     assert "NAV.md" in out
+
+
+def test_local_to_external_migration_documented_procedure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """docs Local→external: copy → delete local (not --cached) → connect+index; task in external INDEX."""
+    import shutil
+
+    from agentized.context_layout import BRIDGE_NAMES
+    from agentized.tasks import render_task_file
+
+    code = tmp_path / "code"
+    code.mkdir()
+    _git_init(code)
+    ctx = code / "context"
+    ctx.mkdir()
+    monkeypatch.setattr(cli, "find_repo_root", lambda: code)
+    monkeypatch.chdir(code)
+
+    # Nested/local connected repo + 1 task.
+    assert cli.cmd_connect(_ns()) == 0
+    capsys.readouterr()
+    task_id = "T-261121-mig1"
+    (ctx / "tasks" / f"{task_id}.md").write_text(
+        render_task_file(task_id, "Migrate me", status="open"),
+        encoding="utf-8",
+    )
+    assert (ctx / "tasks" / f"{task_id}.md").is_file()
+    assert not (ctx / "tasks").is_symlink()
+
+    # Documented procedure: copy into clone → set external → delete local → connect.
+    ext = tmp_path / "ext"
+    ext.mkdir()
+    _git_init(ext)
+    for name in BRIDGE_NAMES:
+        src = ctx / name
+        if not src.exists():
+            continue
+        dest = ext / name
+        if src.is_dir():
+            shutil.copytree(src, dest)
+        else:
+            dest.write_bytes(src.read_bytes())
+    (ctx / "context.json").write_text(
+        json.dumps(
+            {
+                "placement": "external",
+                "external": {"path": str(ext), "remote": "git@example/context.git"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Living local dirs block bridges — must delete (rm), not --cached-only.
+    for name in BRIDGE_NAMES:
+        path = ctx / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+    assert cli.cmd_connect(_ns()) == 0
+    out = capsys.readouterr().out
+    assert "connect OK" in out
+    assert (ctx / "tasks").is_symlink()
+    assert (ctx / "tasks").resolve() == (ext / "tasks").resolve()
+    assert (ext / "tasks" / f"{task_id}.md").is_file()
+
+    assert cli.cmd_index(_ns(print=False)) == 0
+    capsys.readouterr()
+    idx = (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8")
+    assert task_id in idx
+    assert "Migrate me" in idx
