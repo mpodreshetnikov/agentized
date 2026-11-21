@@ -1,4 +1,5 @@
 """board_html presentation (i18n + CSS). On include_globs @ 100% mut."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

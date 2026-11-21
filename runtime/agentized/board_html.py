@@ -1,4 +1,5 @@
 """Static board.html from context/tasks (AGE-37). Render-only; fail-loud."""
+
 from __future__ import annotations
 
 import html
@@ -51,6 +52,7 @@ PROGRESS_ANY_STAMP_RE = re.compile(
     r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC:",
     re.MULTILINE,
 )
+
 
 @dataclass(frozen=True)
 class BoardError(Exception):
@@ -167,9 +169,7 @@ def _parse_stamp(stamp_s: str, *, path: str, now: datetime) -> datetime:
     if not isinstance(path, str):
         raise TypeError("_parse_stamp path must be str")
     try:
-        stamp = datetime.strptime(stamp_s, "%Y-%m-%d %H:%M").replace(
-            tzinfo=timezone.utc
-        )
+        stamp = datetime.strptime(stamp_s, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
     except ValueError:
         raise BoardError(path, f"bad progress stamp {stamp_s!r}") from None
     if stamp > now:
@@ -365,37 +365,29 @@ def _render_card(card: dict[str, str], children: list[str], u: dict[str, str]) -
     if card.get("description"):
         parts.append(f'<p class="card-desc">{escape(card["description"])}</p>')
     parts.append(
-        f'<p class="card-status">{escape(u["status"])}: '
-        f'{escape(card["status_label"])}</p>'
+        f'<p class="card-status">{escape(u["status"])}: {escape(card["status_label"])}</p>'
     )
     if card.get("updated"):
-        parts.append(
-            f'<p class="card-age">{escape(u["age"])}: {escape(card["updated"])}</p>'
-        )
+        parts.append(f'<p class="card-age">{escape(u["age"])}: {escape(card["updated"])}</p>')
     if card.get("overdue"):
         parts.append(
-            f'<p class="card-overdue">{escape(u["overdue"])} '
-            f"(&gt;{OVERDUE_HOURS}{unit})</p>"
+            f'<p class="card-overdue">{escape(u["overdue"])} (&gt;{OVERDUE_HOURS}{unit})</p>'
         )
     if card.get("claim"):
-        parts.append(
-            f'<p class="card-claim">{escape(u["claim"])}: {escape(card["claim"])}</p>'
-        )
+        parts.append(f'<p class="card-claim">{escape(u["claim"])}: {escape(card["claim"])}</p>')
     if card["status"] == "blocked":
         if card.get("blocked_reason"):
             parts.append(
                 f'<p class="card-blocked">{escape(u["blocked"])}: '
-                f'{escape(card["blocked_reason"])}</p>'
+                f"{escape(card['blocked_reason'])}</p>"
             )
         if card.get("blocked_deadline"):
             parts.append(
                 f'<p class="card-deadline">{escape(u["deadline"])}: '
-                f'{escape(card["blocked_deadline"])}</p>'
+                f"{escape(card['blocked_deadline'])}</p>"
             )
     if card.get("parent"):
-        parts.append(
-            f'<p class="card-parent">{escape(u["parent"])}: {escape(card["parent"])}</p>'
-        )
+        parts.append(f'<p class="card-parent">{escape(u["parent"])}: {escape(card["parent"])}</p>')
     if children:
         kids = ", ".join(escape(c) for c in children)
         parts.append(f'<p class="card-subtasks">{escape(u["subtasks"])}: {kids}</p>')
@@ -454,16 +446,11 @@ def render_board_html(
     for col_id, col_label in columns:
         items = sorted(by_col[col_id], key=lambda c: c["id"])
         columns_html.append(
-            _render_column(
-                col_id, col_label, items, children_map, u, review_note=note
-            )
+            _render_column(col_id, col_label, items, children_map, u, review_note=note)
         )
 
     if generated_at:
-        stamp = (
-            f'\n<p class="stamp">{escape(u["generated"])}: '
-            f"{escape(generated_at)}</p>"
-        )
+        stamp = f'\n<p class="stamp">{escape(u["generated"])}: {escape(generated_at)}</p>'
     else:
         stamp = ""
 
@@ -481,9 +468,7 @@ def render_board_html(
         f"<p>{escape(u['intro'])}</p>"
         f"{stamp}\n"
         "</header>\n"
-        '<main class="board">\n'
-        + JOIN_NL.join(columns_html)
-        + "\n</main>\n"
+        '<main class="board">\n' + JOIN_NL.join(columns_html) + "\n</main>\n"
         "</body>\n"
         "</html>\n"
     )

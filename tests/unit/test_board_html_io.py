@@ -1,4 +1,5 @@
 """Focused mutmut selection for board_html_io (stem map from #29)."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,4 +1,5 @@
 """board_html — fail-loud, status_gates vocab, RU UI (AGE-37)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -164,10 +165,7 @@ def test_age_no_fail_open_and_stamp_errors():
     changed = parse_status_changed_at(real, "self-review", path="t.md", now=NOW)
     assert changed == datetime(2099, 5, 31, 17, 8, tzinfo=timezone.utc)
     assert parse_status_changed_at(real, "done", path="t.md", now=NOW) is None
-    later = (
-        "## Progress\n- 2099-05-31 12:00 UTC: статус → queue\n"
-        "- 2099-06-01 11:00 UTC: note\n"
-    )
+    later = "## Progress\n- 2099-05-31 12:00 UTC: статус → queue\n- 2099-06-01 11:00 UTC: note\n"
     assert parse_status_changed_at(later, "queue", path="t.md", now=NOW) == datetime(
         2099, 5, 31, 12, 0, tzinfo=timezone.utc
     )
@@ -179,12 +177,15 @@ def test_age_no_fail_open_and_stamp_errors():
     with pytest.raises(TypeError) as te:
         age_hours(changed, now=None)  # type: ignore[arg-type]
     assert str(te.value) == "age_hours now must be datetime"
-    assert parse_status_changed_at(
-        "## Progress\n- 2099-06-01 12:00 UTC: статус → queue\n",
-        "queue",
-        path="eq.md",
-        now=NOW,
-    ) == NOW
+    assert (
+        parse_status_changed_at(
+            "## Progress\n- 2099-06-01 12:00 UTC: статус → queue\n",
+            "queue",
+            path="eq.md",
+            now=NOW,
+        )
+        == NOW
+    )
     with pytest.raises(BoardError) as fut:
         parse_status_changed_at(
             "## Progress\n- 2099-06-02 00:00 UTC: статус → queue\n",
@@ -301,9 +302,7 @@ def test_render_collect_write(tmp_path: Path):
     assert load_human_participants(bare) == []
     bad_list = tmp_path / "bl"
     bad_list.mkdir()
-    (bad_list / "merge_policy.json").write_text(
-        '{"human_participants":"x"}\n', encoding="utf-8"
-    )
+    (bad_list / "merge_policy.json").write_text('{"human_participants":"x"}\n', encoding="utf-8")
     with pytest.raises(BoardError) as e_list:
         load_human_participants(bad_list)
     assert e_list.value.reason == "human_participants must be a list"
@@ -350,10 +349,7 @@ def test_render_collect_write(tmp_path: Path):
         "T-261116-real",
         "Real",
         status="self-review",
-        progress=(
-            "- 2099-05-20 17:08 UTC: task→self-review; push\n"
-            "- 2099-06-01 11:50 UTC: note\n"
-        ),
+        progress=("- 2099-05-20 17:08 UTC: task→self-review; push\n- 2099-06-01 11:50 UTC: note\n"),
     )
     _write_task(
         tasks,
@@ -373,9 +369,7 @@ def test_render_collect_write(tmp_path: Path):
     _write_task(tasks, "T-261116-que", "Q", status="queued")
     _write_task(tasks, "T-261116-drp", "D", status="dropped")
     _write_task(tasks, "T-261116-par", "P")
-    _write_task(
-        tasks, "T-261116-ch", "C", status="in-progress", parent="T-261116-par"
-    )
+    _write_task(tasks, "T-261116-ch", "C", status="in-progress", parent="T-261116-par")
 
     cards = collect_board_cards(tasks, lang="ru", now=NOW)
     by_id = {c["id"]: c for c in cards}
@@ -392,12 +386,8 @@ def test_render_collect_write(tmp_path: Path):
     assert by_id["T-261116-aaa"]["title"] == "Alpha <xss>"
     assert by_id["T-261116-srv"]["title"] == "Self"
     en_cards = collect_board_cards(tasks, lang="en", now=NOW)
-    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-srv"] == (
-        "self-review"
-    )
-    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-blk"] == (
-        "blocked"
-    )
+    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-srv"] == ("self-review")
+    assert {c["id"]: c["status_label"] for c in en_cards}["T-261116-blk"] == ("blocked")
     assert set(by_id["T-261116-blk"]) == {
         "id",
         "title",
@@ -418,9 +408,7 @@ def test_render_collect_write(tmp_path: Path):
     assert "В статусе: 2099-05-31 12:00 UTC (24.0ч)" in html
     assert "Исполнитель: alice" in html and "(&gt;12ч)" in html
     # srv + real overdue; queued alias without stamp also overdue (unknown age)
-    assert html.split('data-column="queue"')[1].split("data-column=")[0].count(
-        "card overdue"
-    ) == 3
+    assert html.split('data-column="queue"')[1].split("data-column=")[0].count("card overdue") == 3
 
     out = tmp_path / "o.html"
     write_board(
@@ -472,9 +460,17 @@ def test_render_collect_write(tmp_path: Path):
     assert "Подзадачи: T-261116-c1, T-261116-c2" in rendered
     assert "XX, XX" not in rendered
     od = _render_card(
-        {**card, "status": "queue", "status_label": "очередь", "overdue": "1",
-         "blocked_reason": "", "blocked_deadline": "", "description": "",
-         "claim": "", "parent": ""},
+        {
+            **card,
+            "status": "queue",
+            "status_label": "очередь",
+            "overdue": "1",
+            "blocked_reason": "",
+            "blocked_deadline": "",
+            "description": "",
+            "claim": "",
+            "parent": "",
+        },
         [],
         u,
     )
@@ -484,7 +480,7 @@ def test_render_collect_write(tmp_path: Path):
     empty = render_board_html([], lang="ru", reviewers=["Maxim"])
     assert empty.count("(пусто)") == 7
     assert empty.startswith(
-        "<!DOCTYPE html>\n<html lang=\"ru\">\n<head>\n"
+        '<!DOCTYPE html>\n<html lang="ru">\n<head>\n'
         '<meta charset="utf-8">\n'
         f"<title>{DEFAULT_TITLE}</title>\n"
     )
@@ -502,18 +498,26 @@ def test_render_collect_write(tmp_path: Path):
     assert 'lang="en"' in en_empty and "<title>Board</title>" in en_empty
     assert "Kanban from context/tasks" in en_empty
     assert "Open" in en_empty and "Queue" in en_empty
-    col = _render_column(
-        "for-review", "На ревью", [], {}, u, review_note="только Maxim"
-    )
+    col = _render_column("for-review", "На ревью", [], {}, u, review_note="только Maxim")
     assert '<h2>На ревью <span class="count">(0)</span>' in col
     assert "только Maxim" in col
     assert "col-note" not in _render_column("for-review", "На ревью", [], {}, u)
     assert "XXXX" not in _render_column("for-review", "На ревью", [], {}, u)
 
-    bad_card = {**card, "id": "T-261116-badcol", "column": "not-a-column",
-                "blocked_reason": "", "blocked_deadline": "", "claim": "",
-                "parent": "", "description": "", "updated": "", "overdue": "",
-                "status": "open", "status_label": "открыта"}
+    bad_card = {
+        **card,
+        "id": "T-261116-badcol",
+        "column": "not-a-column",
+        "blocked_reason": "",
+        "blocked_deadline": "",
+        "claim": "",
+        "parent": "",
+        "description": "",
+        "updated": "",
+        "overdue": "",
+        "status": "open",
+        "status_label": "открыта",
+    }
     with pytest.raises(BoardError) as exc:
         render_board_html([bad_card], lang="ru")
     assert exc.value.path == "T-261116-badcol"

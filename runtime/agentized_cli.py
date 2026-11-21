@@ -393,9 +393,7 @@ def cmd_board(args: argparse.Namespace) -> int:
     out = Path(args.output) if args.output else (root / "board.html")
     if not out.is_absolute():
         out = root / out
-    stamp = (
-        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if args.stamp else None
-    )
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if args.stamp else None
     try:
         path = write_board(
             _ctx(root, args) / "tasks",

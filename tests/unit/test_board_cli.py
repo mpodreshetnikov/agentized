@@ -1,4 +1,5 @@
 """cmd_board CLI — exit 1, -o rel/abs, --lang, --stamp (lead remarks)."""
+
 from __future__ import annotations
 
 from argparse import Namespace
