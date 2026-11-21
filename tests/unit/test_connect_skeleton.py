@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import agentized  # noqa: F401 — AGE-68 patch
 from agentized.connect import connect, ensure_context_skeleton
 from agentized.leases import rebuild_lease_index
 from agentized.tasks import rebuild_task_index

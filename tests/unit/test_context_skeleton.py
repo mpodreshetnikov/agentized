@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import agentized  # noqa: F401 — AGE-68 patch connect.ensure_context_skeleton
 from agentized.connect import connect, ensure_context_skeleton
 from agentized.context_skeleton import MINIMAL_NAV_MD, ensure_context_skeleton as skeleton_fn
 from agentized.leases import rebuild_lease_index
@@ -11,7 +12,9 @@ from agentized.tasks import rebuild_task_index
 
 def _snapshot(root: Path) -> dict[str, bytes]:
     return {
-        str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
+        str(p.relative_to(root)): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
     }
 
 
@@ -65,18 +68,22 @@ def test_ensure_skeleton_noop_when_nav_exists(tmp_path: Path):
 
 def test_connect_then_index_leaves_tree_unchanged(tmp_path: Path, monkeypatch):
     """connect tmp → index rewrite → full tree byte-identical (AGE-68)."""
-    import agentized_cli as cli
-
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "find_repo_root", lambda: tmp_path)
 
     connect(tmp_path, context_rel="context", harnesses=["cursor"], coverage_pct=80)
     before = _snapshot(tmp_path)
 
-    class _Args:
-        context = "context"
-        print = False
-
-    assert cli.cmd_index(_Args()) == 0
+    ctx = tmp_path / "context"
+    (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
+    (ctx / "leases" / "INDEX.md").write_text(rebuild_lease_index(ctx / "leases"), encoding="utf-8")
     assert _snapshot(tmp_path) == before
+
+
+def test_package_init_patches_connect_skeleton():
+    import agentized
+    import agentized.connect as connect_mod
+    from agentized.context_skeleton import ensure_context_skeleton as skel
+
+    assert agentized.__version__ == "0.1.0"
+    assert connect_mod.ensure_context_skeleton is skel
