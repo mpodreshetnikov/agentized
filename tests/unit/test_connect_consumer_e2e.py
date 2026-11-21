@@ -13,7 +13,9 @@ import pytest
 from agentized.connect import connect
 from agentized.quality import load_quality
 
-AGENTIZED_ROOT = Path(__file__).resolve().parents[2]
+# mutmut copies tests under mutants/ without bin/ — resolve real source tree.
+_TEST_ROOT = Path(__file__).resolve().parents[2]
+AGENTIZED_ROOT = _TEST_ROOT.parent if _TEST_ROOT.name == "mutants" else _TEST_ROOT
 BIN = AGENTIZED_ROOT / "bin" / "agentized"
 
 
