@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from . import connect as connect_mod
+from .managed import load_managed, save_managed
 from .hooks_merge import (
     HooksShapeError,
     collect_owned_commands,
@@ -289,3 +291,132 @@ def apply_marketplace_merge(root: Path, *, dry_run: bool = False) -> dict[str, A
     market_path.parent.mkdir(parents=True, exist_ok=True)
     plan["wrote"] = write_json(market_path, after)
     return plan
+
+
+def _cm():
+    from . import connect as connect_mod
+
+    return connect_mod
+
+
+def _skills_install(
+    root: Path,
+    context_rel: str,
+    *,
+    skills_dst: Path,
+    hooks_dir: Path,
+    plugin: str,
+    force: bool,
+    manifest: dict[str, Any] | None,
+) -> tuple[dict, dict[str, Any] | None, list[str]]:
+    """Shared skills/hooks-script pin for harness install_*."""
+    skills_src = root / context_rel / "skills"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    man = manifest if manifest is not None else load_managed(root, context_rel)
+    skills_result = _cm()._managed_copy_tree(
+        root, context_rel, skills_src, skills_dst, force=force, manifest=man
+    )
+    if manifest is None:
+        save_managed(root, context_rel, man)
+    refreshed = _cm()._refresh_local_plugin(root, plugin, skills_src)
+    _cm()._pin_hook_scripts(root, context_rel, hooks_dir)
+    written = (
+        skills_result.get("created", [])
+        + skills_result.get("updated", [])
+        + skills_result.get("unchanged", [])
+        + skills_result.get("bootstrapped", [])
+    )
+    return skills_result, ({"path": refreshed} if refreshed else None), written
+
+
+def install_cursor(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Official project surfaces: .cursor/skills + merged .cursor/hooks.json."""
+    skills_result, plugin, written = _skills_install(
+        root,
+        context_rel,
+        skills_dst=root / ".cursor" / "skills",
+        hooks_dir=root / ".cursor" / "hooks",
+        plugin="agentized-cursor",
+        force=force,
+        manifest=manifest,
+    )
+    hooks_merge = apply_harness_hook_merge(root, "cursor", context_rel=context_rel, dry_run=dry_run)
+    return {
+        "skills_copied": written,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
+        "hooks_json": str(root / ".cursor" / "hooks.json"),
+        "hooks_merge": hooks_merge,
+        "plugin_path": None if plugin is None else plugin["path"],
+        "local_plugin_hint": "cursor-agent --plugin-dir packages/agentized-cursor",
+    }
+
+
+def install_claude(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Official project surfaces: .claude/skills + merged .claude/settings.json."""
+    claude_dir = root / ".claude"
+    skills_result, _plugin, written = _skills_install(
+        root,
+        context_rel,
+        skills_dst=claude_dir / "skills",
+        hooks_dir=claude_dir / "hooks",
+        plugin="agentized-claude",
+        force=force,
+        manifest=manifest,
+    )
+    hooks_merge = apply_harness_hook_merge(root, "claude", context_rel=context_rel, dry_run=dry_run)
+    return {
+        "skills_copied": written,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
+        "settings": str(claude_dir / "settings.json"),
+        "hooks_merge": hooks_merge,
+        "plugin_hint": "claude --plugin-dir packages/agentized-claude",
+    }
+
+
+def install_codex(
+    root: Path,
+    context_rel: str,
+    *,
+    force: bool = False,
+    manifest: dict[str, Any] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Official project surfaces: .agents/skills + merged .codex/hooks.json."""
+    skills_result, _plugin, written = _skills_install(
+        root,
+        context_rel,
+        skills_dst=root / ".agents" / "skills",
+        hooks_dir=root / ".codex" / "hooks",
+        plugin="agentized-codex",
+        force=force,
+        manifest=manifest,
+    )
+    hooks_merge = apply_harness_hook_merge(root, "codex", context_rel=context_rel, dry_run=dry_run)
+    marketplace_merge = apply_marketplace_merge(root, dry_run=dry_run)
+    return {
+        "skills_copied": written,
+        "skills_managed": skills_result,
+        "skipped_user": list(skills_result.get("skipped_user", [])),
+        "hooks_json": str(root / ".codex" / "hooks.json"),
+        "hooks_merge": hooks_merge,
+        "marketplace": str(root / ".agents" / "plugins" / "marketplace.json"),
+        "marketplace_merge": marketplace_merge,
+        "plugin_hint": "codex plugin marketplace add . && codex plugin install agentized@agentized-local",
+        "gap": "Codex: project .codex/hooks.json (no stable --plugin-dir).",
+    }

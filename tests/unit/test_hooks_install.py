@@ -441,3 +441,30 @@ def test_marketplace_and_desired_root_and_abs_path(tmp_path: Path, monkeypatch):
         hi._desired_bundle_path(miss_root)
     assert miss.value.reason == "harness_desired.json missing (local and installed)"
     assert miss.value.path == miss_root / "packages/shared/hooks/harness_desired.json"
+
+
+def test_install_harness_merge_wiring(tmp_path: Path, monkeypatch):
+    from agentized.hooks_install import install_claude, install_codex, install_cursor
+
+    _skeleton(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for rel in ("context/hooks/scripts", "packages/shared/hooks/scripts", "context/skills"):
+        (tmp_path / rel).mkdir(parents=True, exist_ok=True)
+    for name in ("session_start.py", "process_guard.py", "lease_warn.py", "ensure_agent_hooks.py"):
+        for base in ("context/hooks/scripts", "packages/shared/hooks/scripts"):
+            (tmp_path / base / name).write_text("print(1)\n", encoding="utf-8")
+    from agentized.hooks_install import _desired_bundle_path
+
+    (tmp_path / "packages/shared/hooks/harness_desired.json").write_bytes(
+        _desired_bundle_path().read_bytes()
+    )
+    for pkg in ("agentized-cursor", "agentized-claude", "agentized-codex"):
+        (tmp_path / "packages" / pkg).mkdir(parents=True, exist_ok=True)
+    man: dict = {"files": {}}
+    cur = install_cursor(tmp_path, "context", manifest=man, force=False)
+    assert cur["hooks_merge"]["wrote"] is True and cur["plugin_path"]
+    assert install_cursor(tmp_path, "context", manifest=man, dry_run=True)["hooks_merge"]["dry_run"]
+    assert install_claude(tmp_path, "context", manifest=man)["hooks_merge"]["harness"] == "claude"
+    cx = install_codex(tmp_path, "context", manifest=man)
+    assert cx["marketplace_merge"]["kind"] == "marketplace" and cx["gap"]
+    assert install_cursor(tmp_path, "context", force=True)["hooks_merge"]["harness"] == "cursor"
