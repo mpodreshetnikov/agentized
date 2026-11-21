@@ -56,13 +56,15 @@ def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> d
 
     created_files: list[str] = []
     ctx.mkdir(parents=True, exist_ok=True)
-    (ctx / "tasks").mkdir(parents=True, exist_ok=True)
-    (ctx / "leases").mkdir(parents=True, exist_ok=True)
+    tasks_dir = ctx / "tasks"
+    leases_dir = ctx / "leases"
+    tasks_dir.mkdir(exist_ok=True)
+    leases_dir.mkdir(exist_ok=True)
 
     targets = (
         (nav, MINIMAL_NAV_MD),
-        (ctx / "tasks" / "INDEX.md", rebuild_task_index(ctx / "tasks")),
-        (ctx / "leases" / "INDEX.md", rebuild_lease_index(ctx / "leases")),
+        (tasks_dir / "INDEX.md", rebuild_task_index(tasks_dir)),
+        (leases_dir / "INDEX.md", rebuild_lease_index(leases_dir)),
     )
     for path, body in targets:
         if path.exists():
