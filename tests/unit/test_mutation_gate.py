@@ -29,6 +29,7 @@ def test_mutmut_failure_fails_gate_even_with_cached_mutants(tmp_path: Path, monk
         "modules": [{"source": ["runtime/agentized"]}],
     })
     monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: ["runtime/agentized/quality.py"])
+    monkeypatch.setattr(mut, "_exclude_ast_equivalent", lambda root, base, paths: (paths, []))
     monkeypatch.setattr(mut, "_ensure_agentized_link", lambda root: False)
     monkeypatch.setattr(mut, "_write_setup", lambda root, only: None)
 

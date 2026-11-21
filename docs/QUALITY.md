@@ -15,8 +15,9 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | Field | Meaning |
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
-| `mutation.gate` | `hard` on **`mutationScoreCovered`** for changed `include_globs` (default **100**; never gate overall `mutationScore`) |
+| `mutation.gate` | `hard` on **`mutationScoreCovered`** for **whole changed files** matching `include_globs` (default **100**; never gate overall `mutationScore`; not hunk-only) |
 | `mutation.include_globs` | Which changed sources enter the mutation set. Default/dogfood: `runtime/agentized/*.py` (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested modules; a separate `**` glob is redundant) |
+| AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head blob (format/wrap/quote). Missing base, parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |
@@ -35,7 +36,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 
-Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base, skips cleanly when no relevant diff, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
+Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base on **whole changed files** (not format hunks only), drops AST-equivalent (noop) files, skips cleanly when no mutable files remain, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
 
 ## Connect
 

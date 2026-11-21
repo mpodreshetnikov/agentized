@@ -89,6 +89,7 @@ def test_run_mutation_include_globs_filter_reaches_mutmut(tmp_path: Path, monkey
             "tests/unit/test_x.py",
         ],
     )
+    monkeypatch.setattr(mut, "_exclude_ast_equivalent", lambda root, base, paths: (paths, []))
     captured: list[list[str]] = []
 
     def fake_write_setup(root, only):  # noqa: ARG001
