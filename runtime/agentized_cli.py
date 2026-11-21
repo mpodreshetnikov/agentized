@@ -874,6 +874,24 @@ def cmd_adr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_orbit(args: argparse.Namespace) -> int:
+    from agentized.orbit_import import format_report, import_orbit_tasks
+
+    root = find_repo_root()
+    ctx = _ctx(root, args)
+    source = Path(args.source)
+    if not source.is_absolute():
+        source = (root / source).resolve()
+    dry_run = not bool(args.write)
+    report = import_orbit_tasks(source, ctx / "tasks", dry_run=dry_run)
+    print(format_report(report), end="")
+    if args.json:
+        print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+    if report.errors:
+        return 1
+    return 0 if report.would_write else 1
+
+
 def cmd_digest(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx = _ctx(root, args)
@@ -1191,6 +1209,20 @@ def build_parser() -> argparse.ArgumentParser:
     adr.add_argument("--tasks", default="", help="comma-separated T-YYMMDD-xxxx ids")
     adr.add_argument("--context", default=None)
     adr.set_defaults(func=cmd_adr)
+
+    imp = sub.add_parser(
+        "import-orbit",
+        help="Import orbit-tasks fixtures (dry-run default)",
+    )
+    imp.add_argument("--source", required=True, help="fixture path")
+    imp.add_argument(
+        "--write",
+        action="store_true",
+        help="write task files",
+    )
+    imp.add_argument("--context", default=None)
+    imp.add_argument("--json", action="store_true")
+    imp.set_defaults(func=cmd_import_orbit)
 
     return p
 
