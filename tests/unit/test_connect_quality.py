@@ -3,10 +3,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import agentized.connect as connect_mod
 from agentized.connect import (
     QUALITY_MARKER,
     _safe_install_template,
-    connect,
     ensure_githooks_path,
     ensure_quality_config,
     pin_quality_templates,
@@ -123,16 +123,19 @@ def test_connect_pins_quality(tmp_path: Path, monkeypatch):
     for pkg in ("agentized-cursor", "agentized-claude", "agentized-codex"):
         (tmp_path / "packages" / pkg).mkdir(parents=True, exist_ok=True)
     (tmp_path / "CLAUDE.md").write_text("# Claude\n", encoding="utf-8")
-    # invalid existing claude settings should be replaced safely
+    # valid existing claude settings merge (broken JSON → refuse — see refuse test)
     (tmp_path / ".claude").mkdir()
-    (tmp_path / ".claude" / "settings.json").write_text("{not-json", encoding="utf-8")
+    (tmp_path / ".claude" / "settings.json").write_text(
+        '{"permissions":{"allow":["Bash"]}}\n', encoding="utf-8"
+    )
     monkeypatch.chdir(tmp_path)
-    result = connect(
+    result = connect_mod.connect(
         tmp_path,
         context_rel="context",
         harnesses=["cursor", "claude", "codex"],
         coverage_pct=80,
     )
+    assert result.get("ok") is True
     assert (tmp_path / "context" / "quality.json").exists()
     assert (tmp_path / "context" / "skills" / "quality-gates" / "SKILL.md").exists()
     assert (tmp_path / ".cursor" / "hooks.json").exists()
@@ -147,7 +150,7 @@ def test_connect_pins_quality(tmp_path: Path, monkeypatch):
         "skipped-user-file",
     }
     # second connect keeps a single AGENTIZED marker block
-    again = connect(tmp_path, context_rel="context", harnesses=["cursor"])
+    again = connect_mod.connect(tmp_path, context_rel="context", harnesses=["cursor"])
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert agents.count("AGENTIZED:BEGIN") == 1
     assert again["quality"]["path"].endswith("quality.json")
@@ -176,8 +179,27 @@ def test_ensure_githooks_path_preserves_user(tmp_path: Path):
 def test_connect_creates_skeleton_when_nav_missing(tmp_path: Path):
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     (tmp_path / "context").mkdir()
-    result = connect(tmp_path, context_rel="context", harnesses=[])
+    result = connect_mod.connect(tmp_path, context_rel="context", harnesses=[])
     assert result["skeleton"]["created"] is True
     assert (tmp_path / "context" / "NAV.md").is_file()
     assert (tmp_path / "context" / "tasks" / "INDEX.md").is_file()
     assert (tmp_path / "context" / "leases" / "INDEX.md").is_file()
+
+
+def test_connect_refuses_broken_claude_settings(tmp_path: Path, monkeypatch):
+    _skeleton(tmp_path)
+    qdir = tmp_path / "packages" / "shared" / "skills" / "quality-gates"
+    qdir.mkdir(parents=True)
+    (qdir / "SKILL.md").write_text("---\nname: quality-gates\n---\n", encoding="utf-8")
+    for pkg in ("agentized-cursor", "agentized-claude", "agentized-codex"):
+        (tmp_path / "packages" / pkg).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "CLAUDE.md").write_text("# Claude\n", encoding="utf-8")
+    (tmp_path / ".claude").mkdir()
+    settings = tmp_path / ".claude" / "settings.json"
+    broken = b"{not-json"
+    settings.write_bytes(broken)
+    monkeypatch.chdir(tmp_path)
+    result = connect_mod.connect(tmp_path, context_rel="context", harnesses=["claude"])
+    assert settings.read_bytes() == broken
+    assert result["ok"] is False
+    assert result["harnesses"]["claude"]["hooks_merge"]["action"] == "refuse"

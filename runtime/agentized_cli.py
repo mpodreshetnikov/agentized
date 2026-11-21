@@ -14,7 +14,7 @@ if str(ROOT_RUNTIME) not in sys.path:
     sys.path.insert(0, str(ROOT_RUNTIME))
 
 from agentized import __version__
-from agentized.connect import connect
+import agentized.connect as connect_mod
 from agentized.leases import (
     find_overlaps,
     list_leases,
@@ -49,15 +49,24 @@ def cmd_connect(args: argparse.Namespace) -> int:
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
-    result = connect(
+    dry_run = bool(getattr(args, "dry_run", False))
+    result = connect_mod.connect(
         root,
         context_rel=args.context,
         harnesses=harnesses,
         coverage_pct=args.coverage,
+        dry_run=dry_run,
     )
-    print("connect OK")
+    if "ok" not in result:
+        print("connect FAILED (missing ok)", file=sys.stderr)
+        return 1
+    ok = bool(result["ok"])
+    label = "connect DRY-RUN" if dry_run else "connect"
+    print(f"{label} OK" if ok else f"{label} FAILED (hooks refuse)")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
+    if dry_run:
+        print("  dry-run: planned hooks/marketplace only (no writes)")
     sk = result.get("skeleton") or {}
     if sk.get("created"):
         print(f"  context skeleton: created ({', '.join(sk.get('files') or [])})")
@@ -73,6 +82,21 @@ def cmd_connect(args: argparse.Namespace) -> int:
         print(f"  skipped_user ({len(skipped)}):")
         for path in skipped:
             print(f"    - {path}")
+    for name, harness in (result.get("harnesses") or {}).items():
+        if not isinstance(harness, dict):
+            continue
+        for key in ("hooks_merge", "marketplace_merge"):
+            merge = harness.get(key)
+            if isinstance(merge, dict):
+                print(
+                    f"  {key} {name}: {merge.get('action')} "
+                    f"wrote={merge.get('wrote')} path={merge.get('path')}"
+                )
+    for item in result.get("hooks_refused") or []:
+        print(
+            f"  hooks refuse {item.get('harness')}: {item.get('path')} "
+            f"({item.get('reason') or item.get('error')})"
+        )
     if result.get("quality"):
         cov = load_quality(root, args.context).get("coverage") or {}
         print(f"  quality.json: {result['quality']['path']} (lines/branches ≥{cov.get('lines')}%)")
@@ -81,7 +105,7 @@ def cmd_connect(args: argparse.Namespace) -> int:
         print(f"  quality templates: pre-push={qt.get('pre_push')} ci={qt.get('ci_workflow')}")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if ok else 1
 
 
 def cmd_env_check(args: argparse.Namespace) -> int:
@@ -785,6 +809,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="задать порог coverage lines+branches в context/quality.json (по умолчанию 80)",
     )
     c.add_argument("--json", action="store_true")
+    c.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="plan harness hooks/marketplace merges without writing anything",
+    )
     c.set_defaults(func=cmd_connect)
 
     ec = sub.add_parser("env-check", help="Fail-closed agent/cloud hook wiring check")
