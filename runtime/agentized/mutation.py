@@ -7,9 +7,7 @@ Self-contained under runtime/agentized for connected foreign repos.
 
 from __future__ import annotations
 
-import ast
 import fnmatch
-import re
 import json
 import os
 import shutil
@@ -115,173 +113,10 @@ def _write_setup(root: Path, only_mutate: list[str]) -> None:
     (root / "setup.cfg").write_text("\n".join(lines), encoding="utf-8")
 
 
-# pragma: no mutate start
-def _diff_added_lines(root: Path, base_ref: str, rel: str) -> set[int]:
-    proc = None
-    for spec in (f"{base_ref}...HEAD", base_ref):
-        proc = subprocess.run(
-            ["git", "diff", "-U0", spec, "--", rel],
-            cwd=root,
-            capture_output=True,
-            text=True,
-        )
-        if getattr(proc, "returncode", 1) == 0 or spec == base_ref:
-            break
-    out: set[int] = set()
-    for row in (getattr(proc, "stdout", None) or "").splitlines():
-        m = re.search(r"\+(\d+)(?:,(\d+))?", row) if row.startswith("@@") else None
-        if not m:
-            continue
-        start, n = int(m.group(1)), int(m.group(2) or "1")
-        if n > 0:
-            out.update(range(start, start + n))
-    return out
-
-
-def _touched_functions(source: Path, changed_lines: set[int]) -> set[str] | None:
-    if not changed_lines or not source.is_file():
-        return set()
-    try:
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-    except SyntaxError:
-        return None
-    ranges: list[tuple[str, int, int]] = []
-    skip = (
-        ast.Import,
-        ast.ImportFrom,
-        ast.FunctionDef,
-        ast.AsyncFunctionDef,
-        ast.ClassDef,
-        ast.Assign,
-        ast.AnnAssign,
-        ast.Expr,
-    )
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
-        elif isinstance(node, ast.ClassDef):
-            for child in node.body:
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    ranges.append((child.name, child.lineno, child.end_lineno or child.lineno))
-    touched: set[str] = set()
-    for lineno in changed_lines:
-        name = next((n for n, a, b in ranges if a <= lineno <= b), None)
-        if name:
-            touched.add(name)
-            continue
-        for node in tree.body:
-            end = getattr(node, "end_lineno", None) or node.lineno
-            if node.lineno <= lineno <= end:
-                if isinstance(node, skip):
-                    break
-                return None
-    return touched
-
-
-def _mutant_function_name(key: str) -> str | None:
-    m = re.search(r"\.x_([A-Za-z_][\w]*)__mutmut_(?:\d+|orig)\b", key)
-    return m.group(1) if m else None
-
-
-def _function_start_lines(source: Path) -> dict[str, int]:
-    try:
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-    except (SyntaxError, OSError):
-        return {}
-    out: dict[str, int] = {}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            out[node.name] = node.lineno
-        elif isinstance(node, ast.ClassDef):
-            for child in node.body:
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    out[child.name] = child.lineno
-    return out
-
-
-def _trampoline_func_bodies(trampoline: Path, fn: str) -> dict[str, list[str]]:
-    if not trampoline.is_file():
-        return {}
-    prefix = f"def x_{fn}__mutmut_"
-    rows = trampoline.read_text(encoding="utf-8").splitlines()
-    starts = [i for i, row in enumerate(rows) if row.startswith(prefix)]
-    if not starts:
-        return {}
-    starts.append(len(rows))
-    bodies: dict[str, list[str]] = {}
-    for a, b in zip(starts, starts[1:]):
-        name = rows[a][len("def ") :].split("(", 1)[0]
-        end = b
-        for j in range(a + 1, b):
-            if rows[j].startswith("def ") and not rows[j].startswith(prefix):
-                end = j
-                break
-        bodies[name] = rows[a:end]
-    return bodies
-
-
-def _mutant_hits_changed_lines(
-    trampoline: Path, fn: str, mutant_key: str, func_lineno: int, changed_lines: set[int]
-) -> bool:
-    short = mutant_key.rsplit(".", 1)[-1]
-    bodies = _trampoline_func_bodies(trampoline, fn)
-    orig, mut = bodies.get(f"x_{fn}__mutmut_orig"), bodies.get(short)
-    if not orig or not mut:
-        return True
-    for i, (o, m) in enumerate(zip(orig, mut)):
-        if o != m and (func_lineno + i) in changed_lines:
-            return True
-    if len(mut) != len(orig):
-        return any(
-            func_lineno <= ln <= func_lineno + max(len(orig), len(mut)) for ln in changed_lines
-        )
-    return False
-
-
-def _score_changed(
-    root: Path,
-    *,
-    base_ref: str | None,
-    changed_files: list[str] | None,
-    context: str,
-) -> dict:
+def _collect_stats(root: Path) -> dict:
     killed = survived = no_tests = timeout = other = 0
     files: list[str] = []
     mutants_dir = root / "mutants"
-    allow: dict[str, set[str] | None] = {}
-    changed_by: dict[str, set[int]] = {}
-    starts_by: dict[str, dict[str, int]] = {}
-    if base_ref is None and changed_files is None and (root / context / "quality.json").is_file():
-        try:
-            cfg = load_quality(root, context)
-            mut = cfg.get("mutation") or {}
-            base_ref = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or "origin/main"
-            prefixes = [
-                str(src).replace("\\", "/")
-                for module in cfg.get("modules") or []
-                for src in module.get("source") or []
-            ] or ["runtime/agentized"]
-            changed_files = _changed_py_files(root, base_ref, prefixes)
-            globs = list(mut.get("include_globs") or [])
-            if globs:
-                changed_files = [
-                    p for p in changed_files if any(fnmatch.fnmatch(p, g) for g in globs)
-                ]
-        except Exception:
-            base_ref = None
-            changed_files = None
-    if base_ref and changed_files:
-        for rel in changed_files:
-            key = rel.replace("\\", "/")
-            lines = _diff_added_lines(root, base_ref, rel)
-            allow[key] = _touched_functions(root / rel, lines)
-            changed_by[key] = lines
-            starts_by[key] = _function_start_lines(root / rel)
-            if key.startswith("runtime/agentized/"):
-                aka = "agentized/" + key[len("runtime/agentized/") :]
-                allow[aka] = allow[key]
-                changed_by[aka] = lines
-                starts_by[aka] = starts_by[key]
     for meta in mutants_dir.rglob("*.meta") if mutants_dir.exists() else []:
         try:
             data = json.loads(meta.read_text(encoding="utf-8"))
@@ -290,25 +125,8 @@ def _score_changed(
         exit_map = data.get("exit_code_by_key") or {}
         if not exit_map:
             continue
-        rel_meta = str(meta.relative_to(mutants_dir)).replace("\\", "/")
-        src_key = rel_meta[: -len(".meta")] if rel_meta.endswith(".meta") else rel_meta
-        if allow and src_key not in allow:
-            continue
-        allowed = allow.get(src_key)
-        changed_lines = changed_by.get(src_key) or set()
-        starts = starts_by.get(src_key) or {}
-        trampoline = meta.with_suffix("")
-        files.append(rel_meta)
-        for key, code in exit_map.items():
-            if allowed is not None:
-                fn = _mutant_function_name(key)
-                if fn is None or fn not in allowed:
-                    continue
-                if changed_lines and fn in starts:
-                    if not _mutant_hits_changed_lines(
-                        trampoline, fn, key, starts[fn], changed_lines
-                    ):
-                        continue
+        files.append(str(meta.relative_to(mutants_dir)))
+        for code in exit_map.values():
             if code in (1, 3):
                 killed += 1
             elif code == 0:
@@ -334,19 +152,6 @@ def _score_changed(
             round(10000 * (killed + timeout) / covered) / 100 if covered else None
         ),
     }
-
-
-# pragma: no mutate end
-
-
-def _collect_stats(  # pragma: no mutate
-    root: Path,
-    *,
-    base_ref: str | None = None,
-    changed_files: list[str] | None = None,
-    context: str = DEFAULT_CONTEXT,
-) -> dict:
-    return _score_changed(root, base_ref=base_ref, changed_files=changed_files, context=context)
 
 
 def run_mutation(

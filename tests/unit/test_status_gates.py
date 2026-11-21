@@ -698,3 +698,37 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     )
     assert any("T-261116-a.md" in e and "статус" in e for e in multi_res.errors)
     assert any("T-261116-b.md" in e and "Ценность" in e for e in multi_res.errors)
+
+
+def test_two_commit_open_to_done_vs_base(tmp_path: Path, monkeypatch):
+    import subprocess
+
+    root = tmp_path / "repo"
+    tasks = root / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "T-261116-ci.md").write_text(_task("open"), encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    (tasks / "T-261116-ci.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "bad"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("MUTATION_BASE", base)
+    prev = previous_task_texts_from_git(tasks, repo_root=root)
+    assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
+    result = validate_tasks_dir(tasks, previous_by_name=prev)
+    assert result.ok is False
+    assert any("illegal transition open → done" in e for e in result.errors)

@@ -178,7 +178,7 @@ def size_check(
         "base": base,
         "message": (
             f"process-control: PR size {insertions} insertions vs {base} "
-            f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over >{limit}). See {DOC}."
+            f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over ≥{limit}). See {DOC}."
         ),
     }
 
