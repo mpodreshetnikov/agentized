@@ -100,21 +100,14 @@ def test_smells_hard_pass_clean(tmp_path: Path, monkeypatch):
 
 
 def test_glob_match_variants():
-    cases = [
-        ("tests/unit/a.py", "tests/unit/**/*.py", True),
-        ("a/b/c.py", "**/c.py", True),
-        ("c.py", "**/c.py", True),
-        ("tests/unit/a.py", "tests/unit/*.py", True),
-        ("docs/x.md", "tests/**/*.py", False),
-        ("pkg/tests/test_a.py", "**/test_*.py", True),
-        ("src/a/b.py", "src/**/b.py", True),
-        ("x.py", "plain", False),
-        ("src/foo.test.ts", "**/*.{test,spec}.{js,ts}", True),
-        ("src/foo.spec.js", "**/*.{test,spec}.{js,ts}", True),
-        ("src/foo.ts", "**/*.{test,spec}.{js,ts}", False),
-        ("src/__tests__/x.ts", "**/__tests__/**/*.{js,ts}", True),
-    ]
-    assert [(rel, pat, smells._glob_match(rel, pat)) for rel, pat, _ in cases] == cases
+    assert smells._glob_match("tests/unit/a.py", "tests/unit/**/*.py")
+    assert smells._glob_match("a/b/c.py", "**/c.py")
+    assert smells._glob_match("c.py", "**/c.py")
+    assert smells._glob_match("tests/unit/a.py", "tests/unit/*.py")
+    assert not smells._glob_match("docs/x.md", "tests/**/*.py")
+    assert smells._glob_match("pkg/tests/test_a.py", "**/test_*.py")
+    assert smells._glob_match("src/a/b.py", "src/**/b.py")
+    assert not smells._glob_match("x.py", "plain")
 
 
 def test_call_name_and_weak_helpers():
@@ -229,33 +222,3 @@ def test_smells_main(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(smells, "run_test_smells", lambda root, context="context": 0)
     assert smells.main(["--context", "context"]) == 0
     assert smells.main([]) == 0
-
-
-def test_smells_js_ts_weak_oracle(tmp_path: Path, monkeypatch):
-    tests = tmp_path / "src"
-    tests.mkdir()
-    (tests / "foo.test.ts").write_text(
-        "test('x', () => { expect(value).toBeTruthy(); });\n",
-        encoding="utf-8",
-    )
-    (tests / "ok.spec.ts").write_text(
-        "test('x', () => { expect(value).toBe(2); });\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        smells,
-        "load_quality",
-        lambda *a, **k: {
-            "test_smells": {
-                "enabled": True,
-                "mode": "hard",
-                "include_globs": ["**/*.{test,spec}.{js,jsx,ts,tsx}"],
-            }
-        },
-    )
-    assert smells.run_test_smells(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
-    )
-    assert any(f["kind"] == "weak_primary_oracle" for f in summary["findings"])
-

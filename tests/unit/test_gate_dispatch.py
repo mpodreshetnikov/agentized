@@ -140,3 +140,64 @@ def test_detect_languages_skips_non_files(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "relative_to", boom)
     found = gd.detect_languages(tmp_path, exclude_globs=[])
     assert "python" in found
+
+
+def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
+    paths = [
+        "runtime/agentized/test_smells.py",
+        "runtime/agentized/test_smells_js.py",
+        "tests/unit/test_foo.py",
+        "src/foo.test.ts",
+        "src/__tests__/x.ts",
+        "src/util.ts",
+        "pkg/foo_test.py",
+        "pkg/foo-test.js",
+        "pkg/foo.spec.js",
+    ]
+    assert [gd.is_test_path(p) for p in paths] == [
+        False,
+        False,
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+    ]
+    monkeypatch.setattr(
+        gd,
+        "git_changed_names",
+        lambda root, base: [
+            "src/a.ts",
+            "src/a.test.ts",
+            "runtime/agentized/x.py",
+            "tests/unit/t.py",
+            "README.md",
+        ],
+    )
+    assert gd.changed_source_files(tmp_path, "origin/main", ["src", "runtime/agentized"]) == [
+        "runtime/agentized/x.py",
+        "src/a.ts",
+    ]
+
+
+def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
+    n = {"i": 0}
+
+    class R1:
+        returncode = 1
+        stdout = ""
+        stderr = "fail1"
+
+    class R2:
+        returncode = 0
+        stdout = "src/a.py\n"
+        stderr = ""
+
+    def fake_run(*a, **k):
+        n["i"] += 1
+        return R1() if n["i"] == 1 else R2()
+
+    monkeypatch.setattr(gd.subprocess, "run", fake_run)
+    assert gd.git_changed_names(tmp_path, "origin/main") == ["src/a.py"]

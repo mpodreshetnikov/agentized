@@ -1,8 +1,8 @@
 """Module-boundary architecture gate (hard by default).
 
 Python: prefer import-linter when installed; otherwise enforce simple
-forbidden-import edges from quality.json. JS/TS: dependency-cruiser or
-eslint-boundaries (error severity), dispatched per detected language.
+forbidden-import edges from quality.json. JS/TS: see templates/quality
+dependency-cruiser example.
 """
 
 from __future__ import annotations
@@ -14,11 +14,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .architecture_js import (
-    run_dependency_cruiser as _run_dependency_cruiser,
-    run_eslint_boundaries as _run_eslint_boundaries,
-)
-from .gate_dispatch import architecture_tool_for_language, detect_languages
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
 
@@ -111,14 +106,23 @@ def _run_import_linter(root: Path, config_path: Path) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def _run_python_architecture(root: Path, section: dict) -> tuple[list[dict], str, str]:
-    tool = str(
-        architecture_tool_for_language(section, "python")
-        or section.get("tool")
-        or "builtin"
-    )
+def run_architecture_gate(
+    root: Path | None = None,
+    *,
+    context: str = DEFAULT_CONTEXT,
+) -> int:
+    root = root or find_repo_root()
+    cfg = load_quality(root, context)
+    section = cfg.get("architecture") or {}
+    if not section.get("enabled", False):
+        print("[architecture] disabled — skip")
+        return 0
+
+    mode = str(section.get("mode") or "hard").lower()
+    tool = str(section.get("tool") or "builtin")
     findings: list[dict] = []
     tool_note = ""
+
     if tool == "import-linter":
         config = root / str(section.get("config") or ".importlinter")
         try:
@@ -142,98 +146,6 @@ def _run_python_architecture(root: Path, section: dict) -> tuple[list[dict], str
         source_roots = list(section.get("source_roots") or ["runtime/agentized"])
         forbidden = list(section.get("forbidden_edges") or [])
         findings.extend(_check_forbidden_edges(root, source_roots, forbidden))
-        tool = "builtin" if "not installed" in tool_note else tool
-    return findings, tool, tool_note
-
-
-def run_architecture_gate(
-    root: Path | None = None,
-    *,
-    context: str = DEFAULT_CONTEXT,
-) -> int:
-    root = root or find_repo_root()
-    cfg = load_quality(root, context)
-    section = cfg.get("architecture") or {}
-    if not section.get("enabled", False):
-        print("[architecture] disabled — skip")
-        return 0
-
-    mode = str(section.get("mode") or "hard").lower()
-    lang_section = cfg.get("languages") if isinstance(cfg.get("languages"), dict) else {}
-    exclude = list(lang_section.get("exclude_globs") or [])
-    detected = detect_languages(root, exclude_globs=exclude or None)
-
-    findings: list[dict] = []
-    tools_run: list[str] = []
-    tool_notes: list[str] = []
-
-    # Python paths (or empty repo / python-only defaults): always allow python tool
-    # when python detected OR no JS/TS (dogfood / legacy).
-    need_python = "python" in detected or not any(
-        lang in detected for lang in ("javascript", "typescript")
-    )
-    if need_python:
-        py_findings, py_tool, py_note = _run_python_architecture(root, section)
-        findings.extend(py_findings)
-        tools_run.append(py_tool)
-        if py_note:
-            tool_notes.append(py_note)
-
-    for lang in ("javascript", "typescript"):
-        if lang not in detected:
-            continue
-        tool = architecture_tool_for_language(section, lang)
-        if not tool:
-            findings.append(
-                {
-                    "file": "(architecture)",
-                    "kind": "no_architecture_runner",
-                    "detail": (
-                        f"No architecture tool for {lang}. Set architecture.tools.{lang} "
-                        "to dependency-cruiser or eslint-boundaries."
-                    ),
-                }
-            )
-            continue
-        if tool in tools_run:
-            continue  # already ran for sibling JS/TS
-        if tool == "dependency-cruiser":
-            rc, out = _run_dependency_cruiser(root, section)
-            tools_run.append(tool)
-            if out:
-                tool_notes.append(out)
-            if rc != 0:
-                findings.append(
-                    {
-                        "file": str(section.get("js_config") or ".dependency-cruiser.cjs"),
-                        "kind": "dependency_cruiser",
-                        "detail": out or f"dependency-cruiser exit {rc}",
-                    }
-                )
-        elif tool == "eslint-boundaries":
-            rc, out = _run_eslint_boundaries(root, section)
-            tools_run.append(tool)
-            if out:
-                tool_notes.append(out)
-            if rc != 0:
-                findings.append(
-                    {
-                        "file": str(section.get("eslint_config") or "eslint"),
-                        "kind": "eslint_boundaries",
-                        "detail": out or f"eslint-boundaries exit {rc}",
-                    }
-                )
-        else:
-            findings.append(
-                {
-                    "file": "(architecture)",
-                    "kind": "unknown_architecture_tool",
-                    "detail": f"Unsupported architecture tool {tool!r} for {lang}",
-                }
-            )
-
-    tool = "+".join(tools_run) if tools_run else str(section.get("tool") or "builtin")
-    tool_note = "\n".join(tool_notes)[:2000]
 
     out_dir = root / "reports" / "architecture"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -241,8 +153,6 @@ def run_architecture_gate(
         "schemaVersion": 1,
         "mode": mode,
         "tool": tool,
-        "toolsRun": tools_run,
-        "detectedLanguages": sorted(detected),
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "findings": findings,
         "passed": True if mode == "warn" else not findings,

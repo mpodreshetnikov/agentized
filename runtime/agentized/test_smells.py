@@ -15,12 +15,6 @@ from pathlib import Path
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
-from .test_smells_js import (
-    SKIP_DIR_PARTS,
-    TEST_FILE_SUFFIXES,
-    expand_brace_glob as _expand_brace_glob,
-    scan_js_ts_file as _scan_js_ts_file,
-)
 
 _WEAK_COMPARE_OPS = {ast.Is, ast.IsNot, ast.In, ast.NotIn}
 _MOCK_ASSERT_ATTRS = {
@@ -35,42 +29,30 @@ _MOCK_ASSERT_ATTRS = {
 
 
 def _glob_match(rel: str, pattern: str) -> bool:
-    """Match repo-relative paths; treat `**` as 'any directories'; expand `{a,b}`."""
-    for pat in _expand_brace_glob(pattern):
-        if fnmatch.fnmatch(rel, pat):
-            return True
-        if "**" not in pat:
-            continue
-        # tests/unit/**/*.py → under tests/unit/ and ends with .py
-        if pat.endswith("/**/*.py"):
-            prefix = pat[: -len("/**/*.py")]
-            if rel.startswith(prefix + "/") and rel.endswith(".py"):
-                return True
-            continue
-        if pat.startswith("**/"):
-            rest = pat[3:]
-            if fnmatch.fnmatch(rel, rest) or any(
-                fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
-            ):
-                return True
-        simplified = pat.replace("/**/", "/").replace("**/", "").replace("**", "*")
-        if fnmatch.fnmatch(rel, simplified) or any(
-            fnmatch.fnmatch(rel[i + 1 :], simplified) for i, ch in enumerate(rel) if ch == "/"
-        ):
-            return True
-    return False
+    """Match repo-relative paths; treat `**` as 'any directories'."""
+    if fnmatch.fnmatch(rel, pattern):
+        return True
+    if "**" not in pattern:
+        return False
+    # tests/unit/**/*.py → under tests/unit/ and ends with .py
+    if pattern.endswith("/**/*.py"):
+        prefix = pattern[: -len("/**/*.py")]
+        return rel.startswith(prefix + "/") and rel.endswith(".py")
+    if pattern.startswith("**/"):
+        rest = pattern[3:]
+        return fnmatch.fnmatch(rel, rest) or any(
+            fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
+        )
+    simplified = pattern.replace("/**/", "/").replace("**/", "").replace("**", "*")
+    return fnmatch.fnmatch(rel, simplified)
 
 
 def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
     out: list[Path] = []
-    for path in root.rglob("*"):
+    for path in root.rglob("*.py"):
         if not path.is_file():
             continue
-        if path.suffix.lower() not in TEST_FILE_SUFFIXES:
-            continue
         rel = path.relative_to(root).as_posix()
-        if any(part in SKIP_DIR_PARTS for part in rel.split("/")):
-            continue
         if any(_glob_match(rel, g) for g in globs):
             out.append(path)
     return sorted(out)
@@ -168,8 +150,6 @@ def _call_name(node: ast.AST) -> str:
 
 def _scan_file(path: Path, root: Path) -> list[dict]:
     rel = path.relative_to(root).as_posix()
-    if path.suffix.lower() in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-        return _scan_js_ts_file(path, root)
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
     except SyntaxError as exc:
