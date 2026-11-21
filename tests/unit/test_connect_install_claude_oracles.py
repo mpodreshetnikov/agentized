@@ -323,7 +323,7 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(Path, "mkdir", wrap)
     install_claude(tmp_path, "context")
-    assert {"parents": True, "exist_ok": True} in seen
+    assert seen[0] == {"parents": True, "exist_ok": True}
 
 
 def test_settings_get_hooks_key_and_preserve_other_fields(tmp_path: Path):
