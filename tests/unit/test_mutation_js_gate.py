@@ -101,7 +101,7 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
     assert seen["min_score"] == 88.0
     assert seen["changed"] == ["src/a.ts", "src/b.js"]
     assert seen["languages"] == ["javascript", "typescript"]
-    assert mutmuts[-1][0] is tmp_path
+    assert mutmuts[-1] == (tmp_path, gate.DEFAULT_CONTEXT)
     monkeypatch.setattr(gate, "run_stryker_gate", lambda *a, **k: 5)
     assert gate.run_mutation(tmp_path) == 5
     monkeypatch.setattr(
@@ -109,5 +109,5 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr(gate, "run_stryker_gate", fake_stryker)
     n = len(mutmuts)
-    assert gate.run_mutation(tmp_path) == 0
-    assert len(mutmuts) == n + 1
+    assert gate.run_mutation(tmp_path, context="ctx-final") == 0
+    assert mutmuts[n:] == [(tmp_path, "ctx-final")]

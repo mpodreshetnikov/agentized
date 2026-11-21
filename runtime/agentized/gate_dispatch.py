@@ -53,18 +53,20 @@ def _glob_excluded(rel: str, patterns: list[str]) -> bool:
     for pat in patterns:
         if fnmatch.fnmatch(rel, pat):
             return True
-        if pat.endswith("/**") and (rel == pat[:-3] or rel.startswith(pat[:-3] + "/")):
+        # Exact dir name for `foo/**` (fnmatch does not match bare `foo`).
+        if pat.endswith("/**") and rel == pat[:-3]:
             return True
         if pat.startswith("**/"):
             rest = pat[3:]
-            if fnmatch.fnmatch(rel, rest) or any(
-                fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
-            ):
+            if fnmatch.fnmatch(rel, rest):
                 return True
+            for i, ch in enumerate(rel):
+                if ch == "/" and fnmatch.fnmatch(rel[i + 1 :], rest):
+                    return True
     return False
 
 def language_for_path(rel: str) -> str | None:
-    name = Path(str(rel).replace("\\", "/")).name.lower()
+    name = Path(rel).name.lower()
     if name.endswith(".d.ts"):
         return None
     return _EXT_LANG.get(Path(name).suffix)

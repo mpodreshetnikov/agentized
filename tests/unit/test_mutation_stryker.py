@@ -95,6 +95,9 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
     assert body["reasons"] == ["no_stryker_runner"] and body["passed"] is False
     assert body["gate"] == "hard" and body["mode"] == "incremental"
     (tmp_path / "run-mutation-js.cjs").write_text("//\n")
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
+    monkeypatch.delenv("STRYKER_BASE", raising=False)
+    monkeypatch.delenv("MUTATION_MIN_SCORE_COVERED", raising=False)
 
     class R0:
         returncode = 0
@@ -111,7 +114,7 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
             tmp_path,
             changed=["src/a.ts"],
             mut={"x": 1},
-            base="origin/main",
+            base="unique-base-xyz",
             min_score=100.0,
             languages=["typescript"],
             write_summary=mut._write_summary,
@@ -120,10 +123,10 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
     )
     assert calls["cmd"] == ["node", str(tmp_path / "run-mutation-js.cjs")]
     assert calls["cwd"] == tmp_path
-    assert calls["env"]["MUTATION_BASE"] == "origin/main"
-    assert calls["env"]["STRYKER_BASE"] == "origin/main"
+    assert calls["env"]["MUTATION_BASE"] == "unique-base-xyz"
+    assert calls["env"]["STRYKER_BASE"] == "unique-base-xyz"
     assert calls["env"]["MUTATION_MIN_SCORE_COVERED"] == "100.0"
-    assert "MUTATION_BASE" in calls["env"] and "mutation_base" not in calls["env"]
+    assert "XXMUTATION_BASEXX" not in calls["env"]
 
     class R7:
         returncode = 7
