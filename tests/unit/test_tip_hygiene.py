@@ -435,9 +435,10 @@ def test_run_tip_hygiene_default_check_index(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-    assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is False
+    missing = run_tip_hygiene_gates(tmp_path, pr_number=1)
+    assert missing == GateResult(False, (MSG_INDEX_STALE,))
     _write_index(tmp_path)
-    assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is True
+    assert run_tip_hygiene_gates(tmp_path, pr_number=1) == GateResult(True)
 
 
 def test_empty_tasks_dir_index_match(tmp_path: Path):
