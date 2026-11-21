@@ -363,6 +363,23 @@ def set_field(text: str, field_name: str, value: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+_PROGRESS_BULLET_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC): (.+)$", re.MULTILINE)
+
+
+def last_progress_entry(text: str) -> str | None:
+    """Return the entry text of the last Progress bullet, or None."""
+    start = text.find(PROGRESS_MARKER)
+    if start < 0:
+        return None
+    after = text[start + len(PROGRESS_MARKER) :]
+    end = after.find("\n## ")
+    body = after if end < 0 else after[:end]
+    matches = _PROGRESS_BULLET_RE.findall(body)
+    if not matches:
+        return None
+    return matches[-1][1]
+
+
 def append_progress(text: str, entry: str) -> str:
     from . import tasks as _tasks
 
@@ -377,6 +394,18 @@ def append_progress(text: str, entry: str) -> str:
     rest = ("\n## " + parts[1]) if len(parts) > 1 else ""
     progress_body = progress_body.rstrip() + "\n" + line + "\n"
     return before + marker + progress_body + rest
+
+
+def append_status_progress(text: str, status: str) -> str:
+    """Append ``статус → {status}`` once; no-op if last Progress entry is already that transition.
+
+    AGE-73: dedupe status→done (and other status) Progress stamps via status CLI.
+    """
+    entry = f"статус → {status}"
+    last = last_progress_entry(text)
+    if last is not None and last.strip() in {entry, f"status → {status}"}:
+        return text
+    return append_progress(text, entry)
 
 
 def dependency_cycles_for_dir(tasks_dir: Path) -> list[list[str]]:
