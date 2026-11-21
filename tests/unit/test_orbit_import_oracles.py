@@ -804,3 +804,134 @@ def test_agentized_id_reimport_skip_exit_clean(tmp_path: Path):
     assert second.errors == []
     assert second.would_write == []
     assert str(src / "T-261116-keep.md") in second.skipped
+
+
+def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
+    """Kill remaining markdown/remap/import/format/orbit-map survivors."""
+    done = _draft(source=Path("T-d.md"), task_id="T-d", title="D", status="done", exit="shipped")
+    assert "acceptance_note: shipped" in agentized_markdown(done).splitlines()
+    open_md = agentized_markdown(_draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x"))
+    assert "acceptance_note:" not in open_md and "Ценность: V" in open_md
+    (tmp_path / "T-261116-uscr.md").write_text(
+        "# T-261116-uscr — U\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\n"
+        "claim: _(пусто)_\norbit_id: _(пусто)_\n",
+        encoding="utf-8",
+    )
+    assert existing_orbit_id_map(tmp_path) == {}
+    assert existing_orbit_id_map(tmp_path / "missing") == {}
+    assert oi_mod._remap_id("T-1", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
+    assert oi_mod._remap_id("T-261116-aaa", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
+    assert oi_mod._remap_id("T-miss", {"T-1": "T-261116-aaa"}) is None
+    d = _draft(source=Path("a.md"), task_id="T-261116-aaa", title="A", depends_on=["T-1"], body="B")
+    fr = oi_mod.ImportReport(
+        dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
+    )
+    text = format_report(fr)
+    assert f"  depends_on T-261116-aaa: {oi_mod.format_id_list(['T-1'])}" in text.splitlines()
+    assert "DRY-RUN" in text
+    real_parse = parse_yaml_front_matter
+
+    def value_cyr(raw):
+        meta, body = real_parse(raw)
+        meta = dict(meta)
+        meta.pop("value", None)
+        meta["Ценность"] = "Only Cyrillic"
+        return meta, body
+
+    monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", value_cyr)
+    d_val = draft_from_orbit_file(
+        _fm(
+            tmp_path / "T-val.md",
+            "---\nid: T-0700\ntitle: V\nstatus: open\nkind: chore\npriority: p2\n---\nB\n",
+        )
+    )
+    assert d_val is not None and d_val.value == "Only Cyrillic"
+    monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", real_parse)
+    src, dest = tmp_path / "src", tmp_path / "dest"
+    src.mkdir()
+    dest.mkdir()
+    alloc_args: list = []
+    real_alloc = oi_mod.allocate_task_id
+    ids = iter(["T-261121-aa01", "T-261121-aa02"])
+
+    def spy_alloc(dest_arg, **_k):
+        alloc_args.append(dest_arg)
+        try:
+            return next(ids)
+        except StopIteration:
+            return real_alloc(dest_arg)
+
+    monkeypatch.setattr(oi_mod, "allocate_task_id", spy_alloc)
+    _fm(
+        src / "T-0024.md",
+        "---\nid: T-0024\ntitle: Dep\nstatus: open\nkind: feature\npriority: p3\n---\nB\n",
+    )
+    _fm(
+        src / "T-0023.md",
+        "---\nid: T-0023\ntitle: Live\nstatus: open\nkind: feature\npriority: p3\ndepends_on: [T-0024]\n---\nB\n",
+    )
+    enc: list = []
+    real_write = Path.write_text
+
+    def spy_write(self, data, encoding=None, errors=None, newline=None):
+        enc.append((self.name, encoding))
+        return real_write(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", spy_write)
+    report = import_orbit_tasks(src, dest, dry_run=False)
+    assert report.errors == [] and alloc_args and all(a == dest for a in alloc_args)
+    live = next(x for x in report.drafts if x.orbit_id == "T-0023")
+    dep = next(x for x in report.drafts if x.orbit_id == "T-0024")
+    assert live.depends_on == [dep.task_id]
+    assert ("INDEX.md", "utf-8") in enc and {e for _, e in enc} == {"utf-8"}
+    src_e, dest_e = tmp_path / "srcE", tmp_path / "destE"
+    src_e.mkdir()
+    dest_e.mkdir()
+    mk: list = []
+    real_mkdir = Path.mkdir
+
+    def spy_mkdir(self, parents=False, exist_ok=False):
+        mk.append(self)
+        return real_mkdir(self, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", spy_mkdir)
+    empty = import_orbit_tasks(src_e, dest_e, dry_run=False)
+    assert empty.errors and "no Orbit task files" in empty.errors[0] and mk == []
+    src2, dest2 = tmp_path / "src2", tmp_path / "dest2"
+    src2.mkdir()
+    dest2.mkdir()
+    _fm(
+        src2 / "T-dep.md",
+        "---\nid: T-261116-dep1\ntitle: Dep\nstatus: open\nkind: feature\n"
+        "priority: p2\norbit_id: T-0880\nvalue: HasValue\n---\nB\n",
+    )
+    _fm(
+        src2 / "T-live.md",
+        "---\nid: T-261116-liv1\ntitle: Live\nstatus: open\nkind: feature\n"
+        "priority: p2\ndepends_on: [T-261116-dep1, T-0880]\n---\nB\n",
+    )
+    r2 = import_orbit_tasks(src2, dest2, dry_run=True)
+    assert r2.errors == []
+    live2 = next(x for x in r2.drafts if x.task_id == "T-261116-liv1")
+    assert live2.depends_on == ["T-261116-dep1", "T-261116-dep1"]
+    assert sum(1 for w in r2.warnings if "no Orbit value" in w and "T-261116-liv1" in w) == 1
+    assert "None:" not in "".join(r2.warnings)
+    src3, dest3 = tmp_path / "src3", tmp_path / "dest3"
+    src3.mkdir()
+    dest3.mkdir()
+    _fm(
+        src3 / "T-bad.md",
+        "---\nid: T-261116-bad1\ntitle: Bad\nstatus: open\nkind: feature\n"
+        "priority: p2\ndepends_on: [T-261116-miss]\n---\nB\n",
+    )
+    bad = import_orbit_tasks(src3, dest3, dry_run=True)
+    assert bad.errors and None not in bad.warnings
+    assert any("T-261116-bad1" in w and "unresolved id" in w for w in bad.warnings)
+    d7 = draft_from_orbit_file(
+        _fm(
+            tmp_path / "T-blk2.md",
+            "---\nid: T-blk2\ntitle: B\nstatus: blocked\nblocked_by: x\nblocked_reason: why\n"
+            "blocked_deadline: 2026-11-21\nreview_note: rn\npr: #26\nvalue: Ценность Orbit\n---\nB\n",
+        )
+    )
+    assert d7.blocked_reason == "why" and d7.pr == "#26" and d7.value == "Ценность Orbit"
