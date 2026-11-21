@@ -780,6 +780,7 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     with pytest.raises(ValueError, match="missing or not a directory"):
         ensure_external_registry_skeleton(resolve_layout(bad))
 
+
 def test_bridge_link_target_cwd_independent(tmp_path: Path, monkeypatch):
     import os
 

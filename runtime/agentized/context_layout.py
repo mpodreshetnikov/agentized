@@ -264,6 +264,7 @@ def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
         created.append(str(path))
     return created
 
+
 def preflight_bridge_conflicts(layout: ContextLayout) -> None:
     """Raise if any bridge path would conflict — no filesystem writes."""
     if not layout.is_external:
