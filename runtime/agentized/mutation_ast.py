@@ -3,11 +3,13 @@
 Files whose ``ast.dump(ast.parse(x), include_attributes=False)`` matches the
 base blob are dropped from the mutation set (format/wrap/quote noops). Missing
 base, parse errors, and git/read errors stay in scope (fail-closed).
+
+Wired from ``agentized quality check`` so ``mutation.py`` stays untouched
+(whole-file mutation would otherwise re-open the full gate surface).
 """
 from __future__ import annotations
 
 import ast
-import fnmatch
 import subprocess
 import sys
 from pathlib import Path
@@ -71,23 +73,11 @@ def exclude_ast_equivalent(
     return kept, excluded
 
 
-def _apply_include_globs(paths: list[str], include_globs: list[str]) -> list[str]:
-    if not include_globs:
-        return paths
-    return [
-        path
-        for path in paths
-        if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
-    ]
-
-
 def run_mutation(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
     """Run the mutation gate with AST-equivalent files excluded."""
     from . import mutation as m
 
-    root = root or m.find_repo_root()
-    cfg = m.load_quality(root, context)
-    include_globs = list((cfg.get("mutation") or {}).get("include_globs") or [])
+    resolved = root if root is not None else m.find_repo_root()
     excluded_holder: list[str] = []
 
     orig_changed = m._changed_py_files
@@ -95,8 +85,8 @@ def run_mutation(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
 
     def changed_with_ast(root_: Path, base_ref: str, prefixes: list[str]) -> list[str]:
         paths = orig_changed(root_, base_ref, prefixes)
-        paths = _apply_include_globs(paths, include_globs)
-        kept, excluded = exclude_ast_equivalent(root_, base_ref, paths)
+        # include_globs still applied inside mutation.run_mutation after this.
+        kept, excluded = exclude_ast_equivalent(resolved, base_ref, paths)
         excluded_holder.clear()
         excluded_holder.extend(excluded)
         if excluded:
@@ -112,14 +102,14 @@ def run_mutation(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
     m._changed_py_files = changed_with_ast
     m._write_summary = write_summary_with_ast
     try:
-        return m.run_mutation(root, context=context)
+        return m.run_mutation(resolved, context=context)
     finally:
         m._changed_py_files = orig_changed
         m._write_summary = orig_summary
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(argv or sys.argv[1:])
+    args = list(argv if argv is not None else sys.argv[1:])
     context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
     return run_mutation(context=context)
 
