@@ -621,7 +621,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("boom"))
     )
     with pytest.raises(RuntimeError) as excinfo:
-        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
+        previous_task_texts_from_git(tasks, repo_root=None, ref="HEAD")
     assert str(excinfo.value) == MSG_GIT_ERROR.format(
         rel="context/tasks", ref="HEAD", detail="boom"
     )
@@ -680,6 +680,24 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         detail="fatal: bad object",
     )
 
+    def show_os(argv, **kwargs):
+        if "ls-tree" in argv:
+            return SimpleNamespace(returncode=0, stdout="T-261116-os.md\n", stderr="")
+        raise OSError("show-boom")
+
+    monkeypatch.setattr(subprocess, "run", show_os)
+    with pytest.raises(RuntimeError) as show_exc:
+        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
+    assert str(show_exc.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks/T-261116-os.md", ref="HEAD", detail="show-boom"
+    )
+    other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    other.mkdir(exist_ok=True)
+    (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
+    with pytest.raises(RuntimeError) as e5:
+        previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
+    assert other.name in str(e5.value)
+
 
 def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     import agentized.status_gates as sg
@@ -710,19 +728,7 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     assert ref == "CUSTOM-REF" and result.ok is False
     assert calls["resolve"] == (tmp_path, "B")
     assert calls["prev"] == (tasks, tmp_path, "CUSTOM-REF")
-    roots: list = []
-    monkeypatch.setattr(
-        sg, "resolve_validate_base_ref", lambda root, *, explicit=None: roots.append(root) or "HEAD"
-    )
-    monkeypatch.setattr(
-        sg,
-        "_run_git",
-        lambda root, args: SimpleNamespace(
-            returncode=128, stdout="", stderr="does not exist"
-        ),
-    )
-    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD") == {}
-    assert roots == [tmp_path]
+    assert calls["validate"] == {"T-261116-rv.md": _task("open")}
     multi = tmp_path / "multi"
     multi.mkdir()
     (multi / "T-261116-a.md").write_text(_task("open"), encoding="utf-8")

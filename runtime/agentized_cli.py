@@ -366,7 +366,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
     return 0
 
-
 def cmd_tasks_validate(args: argparse.Namespace) -> int:
     root = find_repo_root()
     try:
@@ -380,8 +379,7 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
         return 1
     if not result.ok:
         print("tasks-validate FAIL", file=sys.stderr)
-        for err in result.errors:
-            print(f"  ERROR: {err}", file=sys.stderr)
+        print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
         return 1
     print(f"tasks-validate OK (base={ref})")
     return 0

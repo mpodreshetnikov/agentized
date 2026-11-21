@@ -312,12 +312,15 @@ def _score_changed(
 # pragma: no mutate end
 
 
-def _collect_stats(root: Path, **kwargs) -> dict:
+def _collect_stats(  # pragma: no mutate
+    root: Path,
+    *,
+    base_ref: str | None = None,
+    changed_files: list[str] | None = None,
+    context: str = DEFAULT_CONTEXT,
+) -> dict:
     return _score_changed(
-        root,
-        base_ref=kwargs.get("base_ref"),
-        changed_files=kwargs.get("changed_files"),
-        context=kwargs.get("context", DEFAULT_CONTEXT),
+        root, base_ref=base_ref, changed_files=changed_files, context=context
     )
 
 

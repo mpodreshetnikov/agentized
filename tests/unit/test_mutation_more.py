@@ -55,9 +55,7 @@ def test_touched_functions_and_filtered_stats(tmp_path: Path, monkeypatch):
     assert mut._mutant_function_name("agentized.sample.x_keep__mutmut_3") == "keep"
     assert mut._mutant_function_name("nope") is None
     class R:
-        returncode = 0
-        stdout = "@@ -1 +10,2 @@\n"
-        stderr = ""
+        returncode = 0; stdout = "@@ -1 +10,2 @@\n"; stderr = ""
     monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
     assert mut._diff_added_lines(tmp_path, "origin/main", "x.py") == {10, 11}
     monkeypatch.setattr(mut, "_diff_added_lines", lambda *a, **k: {5, 6})

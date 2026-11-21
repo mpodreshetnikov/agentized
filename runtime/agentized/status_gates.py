@@ -75,9 +75,7 @@ class GateResult:
 
     @property
     def message(self) -> str:
-        if self.ok:
-            return ""
-        return "; ".join(self.errors)
+        return "" if self.ok else "; ".join(self.errors)
 
 
 def normalize_status(raw: str | None) -> str:
@@ -181,7 +179,6 @@ def _has_review_evidence(fields: dict[str, str]) -> bool:
 
 
 def _new_path_status_ok(text: str, st: str) -> bool:
-    """New files: idea|open|queue|in-progress, or self-review with pr+review_note."""
     if st in NEW_PATH_ALLOWED_STATUSES:
         return True
     if st != "self-review":
