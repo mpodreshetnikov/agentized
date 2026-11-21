@@ -7,7 +7,6 @@ Tests-only; no runtime change. Target survivors on:
 from __future__ import annotations
 
 import os
-import stat
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -104,8 +103,6 @@ def test_pin_return_paths_are_str_not_none(tmp_path: Path):
     copied = _pin_hook_scripts(tmp_path, "context", dest)
     assert len(copied) == 1
     assert copied[0] == str(dest / "session_start.py")
-    assert all(isinstance(p, str) for p in copied)
-    assert "None" not in copied[0]
 
 
 def test_pin_only_copies_py_sorted(tmp_path: Path):
@@ -168,7 +165,6 @@ def test_safe_create_pre_push_chmod_execute_bits(tmp_path: Path):
     assert _safe_install_template(src, dst) == "created"
     mode = dst.stat().st_mode
     assert mode & 0o111 == 0o111
-    assert stat.S_IMODE(mode) & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def test_safe_create_non_pre_push_skips_chmod_branch(
@@ -385,7 +381,6 @@ def test_githooks_set_failure_returns_failed_prefix(
     monkeypatch.setattr(subprocess, "run", wrap)
     result = ensure_githooks_path(tmp_path)
     assert result == "failed:boom"
-    assert result.startswith("failed:")
 
 
 def test_githooks_relative_unchanged_literal(tmp_path: Path):
