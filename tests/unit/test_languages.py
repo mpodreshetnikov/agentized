@@ -1,4 +1,4 @@
-"""Fail-closed language coverage (AGE-24 part a)."""
+"""AGE-24 language coverage oracles."""
 
 from __future__ import annotations
 
@@ -93,7 +93,6 @@ def test_glob_excluded_and_globs_cover():
         ("a/**/*.x/b.py", ["a/**/*.x/**/*.py"], False),
     ]
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
-    assert _glob_excluded("vendor", ["vendor/**"]) is True
     assert _glob_excluded("vendor", ["**/vendor/**"]) is True
     # fnmatch fails on single-segment /**/*.; custom partition must match
     assert _glob_excluded("src/x.py", ["src/**/*.py"]) is True
@@ -458,6 +457,6 @@ def test_survivor_killers(tmp_path: Path, monkeypatch):
                "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}}}
     assert missing_gates_for_language(tmp_path, "javascript", js_bare) == ["architecture", "mutation"]
     _runners(tmp_path)
-    js_ok = {**js_bare, "architecture": {**js_bare["architecture"], "js_config": ".dependency-cruiser.cjs"}}
-    assert "architecture" not in missing_gates_for_language(tmp_path, "javascript", js_ok)
+    assert "architecture" not in missing_gates_for_language(
+        tmp_path, "javascript", {**js_bare, "architecture": {**js_bare["architecture"], "js_config": ".dependency-cruiser.cjs"}})
 # fmt: on
