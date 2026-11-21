@@ -172,10 +172,7 @@ def test_connect_external_skips_local_skeleton(tmp_path: Path):
     ctx = code / "context"
     ctx.mkdir()
     (ctx / "context.json").write_text(
-        json.dumps(
-            {"placement": "external", "external": {"path": str(ext), "remote": "r"}}
-        )
-        + "\n",
+        json.dumps({"placement": "external", "external": {"path": str(ext), "remote": "r"}}) + "\n",
         encoding="utf-8",
     )
     result = connect(code, context_rel="context", harnesses=["cursor"])
