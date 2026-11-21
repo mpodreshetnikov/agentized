@@ -16,14 +16,18 @@ from agentized.spec_approval_io import (
 )
 from agentized.tasks import render_task_file
 
+SPEC_OK = "## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob@example.com\n"
+SPEC_DONE = "## Spec\n\nDone plan.\n\n## Approval\n\napproved-by: bob@example.com\n"
+SPEC_BLK = "## Spec\n\nBlocked plan.\n\n## Approval\n\napproved-by: bob@example.com\n"
+SPEC_OWN = "## Spec\n\nReal.\n\n## Approval\n\napproved-by: alice\n"
+SPEC_SO = "## Spec\n\nPlan.\n\n## Signoff\n\napproved-by: bob@example.com\n"
 
-def _write_task(
-    tasks: Path, task_id: str, *, status: str, tags: str, claim: str, extra: str = ""
-) -> None:
-    body = render_task_file(task_id, "t", status=status, tags=tags, claim=claim)
+
+def _wt(tasks: Path, tid: str, st="in-progress", tags="complex", claim="alice", extra="") -> None:
+    body = render_task_file(tid, "t", status=st, tags=tags, claim=claim)
     if extra:
         body = body.rstrip() + "\n\n" + extra + "\n"
-    (tasks / f"{task_id}.md").write_text(body, encoding="utf-8")
+    (tasks / f"{tid}.md").write_text(body, encoding="utf-8")
 
 
 def test_resolve_and_participants(tmp_path: Path):
@@ -137,10 +141,7 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
         "agentized.spec_approval_io._git_blame_emails",
         lambda r, p, n: lines.append(n) or {"bob@example.com"},
     )
-    assert (
-        approval_committed_by_non_owner(tmp_path, custom, "alice", approval_heading="## Signoff")
-        is True
-    )
+    assert approval_committed_by_non_owner(tmp_path, custom, "alice", "## Signoff") is True
     assert lines == [4]
     assert approval_committed_by_non_owner(tmp_path, custom, "alice") is False
     missing = tmp_path / "missing.md"
@@ -171,8 +172,8 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     )
     assert approval_committed_by_non_owner(tmp_path, tight, "alice") is True
     assert lines == [3]
-    assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading="") is True
-    assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading=None) is True  # type: ignore[arg-type]
+    assert approval_committed_by_non_owner(tmp_path, tight, "alice", "") is True
+    assert approval_committed_by_non_owner(tmp_path, tight, "alice", None) is True  # type: ignore[arg-type]
 
 
 def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
@@ -185,7 +186,7 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
-    _write_task(tasks, "T-260101-aaaa", status="in-progress", tags="complex", claim="alice")
+    _wt(tasks, "T-260101-aaaa")
     assert spec_approval_check(root) == {
         "ok": True,
         "mode": "disabled",
@@ -201,39 +202,18 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     refused = spec_approval_check(root, policy=policy)
     assert refused["ok"] is False and refused["mode"] == "refuse" and refused["checked"] == 1
 
-    _write_task(
-        tasks,
-        "T-260101-bbbb",
-        status="in-progress",
-        tags="complex",
-        claim="alice",
-        extra="## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob@example.com\n",
-    )
-    _write_task(
-        tasks,
-        "T-260101-eeee",
-        status="done",
-        tags="complex",
-        claim="alice",
-        extra="## Spec\n\nDone plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
-    )
-    _write_task(tasks, "T-260101-cccc", status="open", tags="complex", claim="alice")
-    _write_task(tasks, "T-260101-dddd", status="in-progress", tags="simple", claim="alice")
+    _wt(tasks, "T-260101-bbbb", extra=SPEC_OK)
+    _wt(tasks, "T-260101-eeee", st="done", extra=SPEC_DONE)
+    _wt(tasks, "T-260101-cccc", st="open")
+    _wt(tasks, "T-260101-dddd", tags="simple")
     still = spec_approval_check(root, policy=policy)
     assert still["ok"] is False and still["checked"] == 2
-    _write_task(tasks, "T-260101-gggg", status="in-progress", tags="complex", claim="alice")
+    _wt(tasks, "T-260101-gggg")
     multi = spec_approval_check(root, policy=policy)
     assert multi["ok"] is False and "; " in multi["message"] and "None" not in multi["message"]
-    (tasks / "T-260101-gggg.md").unlink()
-    (tasks / "T-260101-aaaa.md").unlink()
-    _write_task(
-        tasks,
-        "T-260101-ffff",
-        status="blocked",
-        tags="complex",
-        claim="alice",
-        extra="## Spec\n\nBlocked plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
-    )
+    (tasks / "T-gggg.md").unlink()
+    (tasks / "T-aaaa.md").unlink()
+    _wt(tasks, "T-260101-ffff", st="blocked", extra=SPEC_BLK)
     ok = spec_approval_check(root, policy=policy)
     assert ok == {
         "ok": True,
@@ -255,14 +235,7 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     assert _human_participants(root, "altctx") == ["carol@alt.example"]
     assert spec_approval_check(root, context_rel="altctx")["mode"] != "disabled"
 
-    _write_task(
-        tasks,
-        "T-260101-ffff",
-        status="blocked",
-        tags="complex",
-        claim="alice",
-        extra="## Spec\n\nReal.\n\n## Approval\n\napproved-by: alice\n",
-    )
+    _wt(tasks, "T-260101-ffff", st="blocked", extra=SPEC_OWN)
     non_owner_calls: list = []
     eval_claims: list = []
     real_eval = __import__(
@@ -299,11 +272,11 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
-    for leftover in ("T-260101-bbbb.md", "T-260101-dddd.md", "T-260101-eeee.md"):
+    for leftover in ("T-bbbb.md", "T-dddd.md", "T-eeee.md"):
         p = tasks / leftover
         if p.exists():
             p.unlink()
-    _write_task(tasks, "T-260101-ffff", status="blocked", tags="complex", claim="alice")
+    _wt(tasks, "T-260101-ffff", st="blocked")
     monkeypatch.setattr(
         "agentized.spec_approval_io.approval_committed_by_non_owner", lambda *a, **k: False
     )
@@ -316,15 +289,8 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
-    (tasks / "T-260101-ffff.md").unlink()
-    _write_task(
-        tasks,
-        "T-260101-hhhh",
-        status="in-progress",
-        tags="complex",
-        claim="alice",
-        extra="## Spec\n\nPlan.\n\n## Signoff\n\napproved-by: bob@example.com\n",
-    )
+    (tasks / "T-ffff.md").unlink()
+    _wt(tasks, "T-260101-hhhh", extra=SPEC_SO)
     seen: list[str] = []
 
     def spy_heading(r, p, c, approval_heading=None):

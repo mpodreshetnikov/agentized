@@ -27,9 +27,6 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 ./bin/agentized process size --base origin/main --json
 ```
 
-## Spec approval gate (AGE-28)
-
-Optional fail-closed Spec+Approval (`runtime/agentized/spec_approval*.py`).
 
 ## Spec / decision hygiene
 
