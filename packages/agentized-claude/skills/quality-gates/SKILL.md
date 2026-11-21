@@ -15,7 +15,7 @@ description: High-signal testing strategy and Agentized coverage/mutation/e2e/DB
 
 ## E2E / DB layer gates (when present)
 
-Auto-detect Playwright/Cypress (configs/deps/`e2e/`) or DB (migrations/ORM/pgTAP/`db/tests`). When present, gate is **hard**: suite must **exist and run** (`test_command` or autodetect `npx playwright test` / `supabase test db` / `pg_prove`); source changes need some `test_globs` path in the same diff (**limitation:** any matching test file counts — not per-source). `enabled=false` only with human `disable_decision` `{reason, approved_by, expires≤14d}`. Absent layer → skip pass.
+Auto-detect Playwright/Cypress or DB (migrations/ORM/pgTAP). When present, gate is **hard**: suite must exist and run (`test_command` or autodetect); source changes need some `test_globs` path in the same diff (any matching test file counts). `enabled=false` needs `disable_decision` `{reason, approved_by, expires≤14d}`. Absent layer → skip pass.
 
 Write e2e for key user journeys (visible outcomes; no pixels/snapshots). Write DB tests for migration contracts (real DB/pgTAP; same PR as migration).
 

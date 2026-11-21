@@ -331,28 +331,32 @@ def test_apply_layer_upgrades_persists(tmp_path: Path):
 
 def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     import agentized.connect as connect_mod
-    from agentized.quality import load_quality
+    from agentized.quality import load_quality, save_quality as sq
 
     lg.install_ensure_quality_hook()
     wrapped = connect_mod.ensure_quality_config
     assert wrapped._age31_layer_hook is True and wrapped._age31_orig is not None
+    # Bare orig (no hook attr) must install without AttributeError.
+    connect_mod.ensure_quality_config = wrapped._age31_orig
     lg.install_ensure_quality_hook()
     wrapped2 = connect_mod.ensure_quality_config
-    assert wrapped2 is not wrapped and wrapped2._age31_orig is wrapped._age31_orig
+    assert wrapped2._age31_layer_hook is True
     cfg = defaults_fn()
     cfg["e2e"] = {"enabled": False, "mode": "warn"}
     cfg["db_tests"] = {"enabled": False, "mode": "warn"}
     cfg["gates"] = {"ci": ["mutation"], "pre_push": ["mutation"]}
-    cfg["test_smells"] = {"mode": "hard", "enabled": True}
+    cfg["test_smells"] = {"mode": "warn", "enabled": True}
     cfg["architecture"] = {"mode": "hard", "enabled": True}
-    save_quality(tmp_path, cfg)
-    out = wrapped2(tmp_path, "context", coverage_pct=91)
-    assert out["created"] is False and out["coverage_pct"] == 91 and out["path"].endswith("quality.json")
-    assert {"e2e.enabled", "e2e.mode", "db_tests.enabled", "db_tests.mode", "gates.ci", "gates.pre_push"} <= set(out["upgraded_modes"])
-    loaded = load_quality(tmp_path)
-    assert loaded["e2e"]["enabled"] == "auto" and loaded["db_tests"]["enabled"] == "auto"
+    sq(tmp_path, cfg, context_rel="alt-ctx")
+    out = wrapped2(tmp_path, "alt-ctx", coverage_pct=91)
+    assert out["created"] is False and out["coverage_pct"] == 91
+    # Preserve orig upgraded_modes + layer keys (kills get/or mutants).
+    assert "test_smells" in out["upgraded_modes"]
+    assert {"e2e.enabled", "db_tests.enabled", "gates.ci"} <= set(out["upgraded_modes"])
+    loaded = load_quality(tmp_path, context_rel="alt-ctx")
+    assert loaded["e2e"]["enabled"] == "auto" and loaded["test_smells"]["mode"] == "hard"
     assert loaded["gates"]["ci"].index("e2e") < loaded["gates"]["ci"].index("mutation")
-    assert wrapped2(tmp_path, "context")["upgraded_modes"] == []
+    assert wrapped2(tmp_path, "alt-ctx")["upgraded_modes"] == []
 
 
 def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):

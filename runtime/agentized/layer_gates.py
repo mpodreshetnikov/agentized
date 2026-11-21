@@ -58,10 +58,8 @@ DISABLE_DECISION_MAX_DAYS = 14
 _JSON_ENCODING = "utf-8"
 _CMD_OUTPUT_LIMIT = 4000
 
-
 class GitDiffError(RuntimeError):
     """Raised when git diff cannot be resolved for a present layer."""
-
 
 def _glob_match(rel: str, pattern: str) -> bool:
     rel, pattern = rel.replace("\\", "/"), pattern.replace("\\", "/")
@@ -81,10 +79,8 @@ def _glob_match(rel: str, pattern: str) -> bool:
         rel, pattern.replace("/**/", "/").replace("**/", "").replace("**", "*")
     )
 
-
 def _matches_any(rel: str, patterns: list[str] | tuple[str, ...]) -> bool:
     return any(_glob_match(rel, p) for p in patterns)
-
 
 def _iter_files(root: Path) -> list[Path]:
     out: list[Path] = []
@@ -94,15 +90,12 @@ def _iter_files(root: Path) -> list[Path]:
         out.extend(base / name for name in filenames)
     return out
 
-
 def _rel(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
-
 
 def is_agentized_repo(root: Path) -> bool:
     has_pkg = (root / "runtime" / "agentized").is_dir() or (root / "agentized").is_dir()
     return has_pkg and (root / "templates" / "quality").is_dir()
-
 
 def skip_rel_prefixes(root: Path, section: dict[str, Any] | None = None) -> tuple[str, ...]:
     section = section or {}
@@ -111,11 +104,9 @@ def skip_rel_prefixes(root: Path, section: dict[str, Any] | None = None) -> tupl
         return tuple(str(p) for p in configured)
     return _AGENTIZED_SKIP_REL_PREFIXES if is_agentized_repo(root) else ()
 
-
 def _is_skipped_rel(rel: str, prefixes: tuple[str, ...]) -> bool:
     rel = rel.replace("\\", "/")
     return any(rel == p.rstrip("/") or rel.startswith(p) for p in prefixes)
-
 
 def _changed_files(root: Path, base_ref: str) -> list[str]:
     filters = "ACMRD"
@@ -136,7 +127,6 @@ def _changed_files(root: Path, base_ref: str) -> list[str]:
         for line in proc.stdout.splitlines() if line.strip()
     })
 
-
 def _read_package_deps(path: Path) -> set[str]:
     try:
         data = json.loads(path.read_bytes().decode(_JSON_ENCODING))
@@ -150,7 +140,6 @@ def _read_package_deps(path: Path) -> set[str]:
         if isinstance(block, dict):
             names.update(str(k) for k in block)
     return names
-
 
 def _read_python_deps(root: Path, prefixes: tuple[str, ...]) -> list[tuple[str, set[str]]]:
     found: list[tuple[str, set[str]]] = []
@@ -172,7 +161,6 @@ def _read_python_deps(root: Path, prefixes: tuple[str, ...]) -> list[tuple[str, 
         if names:
             found.append((rel, names))
     return found
-
 
 def _dir_has_real_files(root: Path, rel_dir: str, prefixes: tuple[str, ...]) -> bool:
     base = root / rel_dir
@@ -196,10 +184,8 @@ def _dir_has_real_files(root: Path, rel_dir: str, prefixes: tuple[str, ...]) -> 
         return True
     return False
 
-
 def _normalize_rel(rel: str) -> str:
     return rel.replace("\\", "/").rstrip("/")
-
 
 def _looks_like_db_dir(rel: str) -> str | None:
     rel = _normalize_rel(rel)
@@ -211,7 +197,6 @@ def _looks_like_db_dir(rel: str) -> str | None:
         return "db_tests_dir"
     return "migrations_dir"
 
-
 def _uniq_evidence(evidence: list[dict[str, str]]) -> list[dict[str, str]]:
     seen: set[tuple[str, str]] = set()
     uniq: list[dict[str, str]] = []
@@ -222,7 +207,6 @@ def _uniq_evidence(evidence: list[dict[str, str]]) -> list[dict[str, str]]:
         seen.add(key)
         uniq.append(item)
     return uniq
-
 
 def detect_e2e(root: Path, *, skip_prefixes: tuple[str, ...] | None = None) -> dict[str, Any]:
     prefixes = skip_rel_prefixes(root) if skip_prefixes is None else skip_prefixes
@@ -248,7 +232,6 @@ def detect_e2e(root: Path, *, skip_prefixes: tuple[str, ...] | None = None) -> d
             evidence.append({"kind": "tests_dir", "path": dir_rel})
     uniq = _uniq_evidence(evidence)
     return {"present": bool(uniq), "evidence": uniq, "framework": _e2e_framework(uniq)}
-
 
 def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None) -> dict[str, Any]:
     prefixes = skip_rel_prefixes(root) if skip_prefixes is None else skip_prefixes
@@ -300,7 +283,6 @@ def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None)
     uniq = _uniq_evidence(evidence)
     return {"present": bool(uniq), "evidence": uniq, "framework": _db_framework(uniq)}
 
-
 def _e2e_framework(evidence: list[dict[str, str]]) -> str | None:
     blob = " ".join(f"{e.get('path', '')} {e.get('detail', '')}" for e in evidence).lower()
     if "playwright" in blob:
@@ -308,7 +290,6 @@ def _e2e_framework(evidence: list[dict[str, str]]) -> str | None:
     if "cypress" in blob:
         return "cypress"
     return None
-
 
 def _db_framework(evidence: list[dict[str, str]]) -> str | None:
     kinds = {e.get("kind") for e in evidence}
@@ -327,10 +308,8 @@ def _db_framework(evidence: list[dict[str, str]]) -> str | None:
         return "sql"
     return None
 
-
 def _has_supabase(root: Path) -> bool:
     return (root / "supabase" / "config.toml").is_file()
-
 
 def default_test_command(
     gate_name: str, detection: dict[str, Any], *, root: Path | None = None
@@ -350,14 +329,12 @@ def default_test_command(
         return None
     return None
 
-
 def _enabled_mode(raw: Any) -> str:
     if raw is True or str(raw).lower() == "true":
         return "true"
     if raw is False or str(raw).lower() == "false":
         return "false"
     return "auto"
-
 
 def disable_decision_valid(
     section: dict[str, Any],
@@ -390,7 +367,6 @@ def disable_decision_valid(
         return False
     return remaining <= timedelta(days=max_days).total_seconds()
 
-
 def _is_real_test_file(path: Path) -> bool:
     if path.name in PLACEHOLDER_NAMES:
         return False
@@ -400,7 +376,6 @@ def _is_real_test_file(path: Path) -> bool:
         return bool(path.read_text(encoding="utf-8", errors="ignore").strip())
     except OSError:
         return False
-
 
 def _collect_real_tests(
     root: Path, patterns: list[str] | tuple[str, ...], prefixes: tuple[str, ...]
@@ -413,7 +388,6 @@ def _collect_real_tests(
         and _is_real_test_file(path)
     )
 
-
 def _run_command(root: Path, command: str) -> tuple[int, str]:
     proc = subprocess.run(
         ["bash", "-lc", command],
@@ -425,14 +399,12 @@ def _run_command(root: Path, command: str) -> tuple[int, str]:
     )
     return int(proc.returncode), str(proc.stdout or "").strip()[:_CMD_OUTPUT_LIMIT]
 
-
 def _write_report(root: Path, kind: str, payload: dict[str, Any]) -> Path:
     out_dir = root / "reports" / kind
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{kind}-summary.json"
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
-
 
 def _finalize(
     root: Path,
@@ -459,12 +431,10 @@ def _finalize(
         return 0
     return 0 if not findings else 1
 
-
 def _payload(gate_name: str, enabled: str, mode: str, **extra: Any) -> dict[str, Any]:
     base = {"schemaVersion": 1, "gate": gate_name, "enabled": enabled, "mode": mode}
     base.update(extra)
     return base
-
 
 def _evaluate_layer(
     root: Path,
@@ -624,7 +594,6 @@ def _evaluate_layer(
         findings,
     )
 
-
 def _ensure_gate_list(gates: list[Any], name: str) -> bool:
     as_str = [str(g) for g in gates]
     if name in as_str:
@@ -634,7 +603,6 @@ def _ensure_gate_list(gates: list[Any], name: str) -> bool:
     else:
         gates.append(name)
     return True
-
 
 def upgrade_layer_gate_config(data: dict[str, Any]) -> list[str]:
     upgraded: list[str] = []
@@ -669,13 +637,11 @@ def upgrade_layer_gate_config(data: dict[str, Any]) -> list[str]:
             upgraded.append(f"gates.{list_name}")
     return upgraded
 
-
 def _section_or_default(cfg: dict[str, Any], name: str) -> dict[str, Any]:
     section = cfg.get(name)
     if isinstance(section, dict):
         return section
     return {"enabled": "auto", "mode": "hard", "require_tests_for_changed": True}
-
 
 def apply_layer_upgrades_to_repo(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
     """Persist AGE-31 layer upgrades into quality.json when needed."""
@@ -687,13 +653,12 @@ def apply_layer_upgrades_to_repo(root: Path, context_rel: str = DEFAULT_CONTEXT)
         quality_mod.save_quality(root, data, context_rel)
     return upgrades
 
-
 def install_ensure_quality_hook() -> None:
     """Wrap connect.ensure_quality_config; quality import installs (connect.py untouched)."""
     from . import connect as connect_mod
 
     current = connect_mod.ensure_quality_config
-    if getattr(current, "_age31_layer_hook", False) is True:
+    if hasattr(current, "_age31_layer_hook") and current._age31_layer_hook is True:
         current = current._age31_orig  # type: ignore[attr-defined]
 
     def ensure_quality_config(
@@ -705,7 +670,8 @@ def install_ensure_quality_hook() -> None:
         upgrades = apply_layer_upgrades_to_repo(root, context_rel)
         if not upgrades:
             return result
-        modes = list(result.get("upgraded_modes") or [])
+        prior = result["upgraded_modes"] if "upgraded_modes" in result else []
+        modes = list(prior)
         modes.extend(upgrades)
         out = dict(result)
         out["upgraded_modes"] = modes
@@ -714,7 +680,6 @@ def install_ensure_quality_hook() -> None:
     ensure_quality_config._age31_layer_hook = True  # type: ignore[attr-defined]
     ensure_quality_config._age31_orig = current  # type: ignore[attr-defined]
     connect_mod.ensure_quality_config = ensure_quality_config  # type: ignore[assignment]
-
 
 def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
     from .quality import load_quality
@@ -725,7 +690,6 @@ def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
         root, gate_name="e2e", section=section,
         detection=detect_e2e(root, skip_prefixes=skip_rel_prefixes(root, section)),
     )
-
 
 def run_db_tests_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
     from .quality import load_quality
