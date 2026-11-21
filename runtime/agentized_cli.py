@@ -194,13 +194,14 @@ def cmd_reporting(args: argparse.Namespace) -> int:
 
 
 def cmd_process(args: argparse.Namespace) -> int:
-    from agentized.process_control import claim_check, size_check
+    from agentized.process_control import claim_check
+    from agentized.process_size import size_check
 
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
     if args.process_cmd == "size":
         result = size_check(root, context_rel=ctx_rel, base_ref=args.base)
-        stream = sys.stdout if result["level"] != "over" else sys.stderr
+        stream = sys.stdout if result["ok"] else sys.stderr
         stream.write(result["message"] + "\n")
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))

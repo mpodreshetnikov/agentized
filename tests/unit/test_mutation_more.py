@@ -34,13 +34,27 @@ def test_ensure_link_and_collect(tmp_path: Path):
     meta = tmp_path / "mutants" / "x.meta"
     meta.parent.mkdir(parents=True)
     meta.write_text(
-        json.dumps({"exit_code_by_key": {"a": 1, "b": 0, "c": 5, "d": 36}}), encoding="utf-8"
+        json.dumps(
+            {
+                "exit_code_by_key": {
+                    "agentized.process_control.x_size_check__mutmut_1": 1,
+                    "agentized.process_control.x_claim_check__mutmut_1": 0,
+                    "agentized.process_control.x_size_check__mutmut_2": 5,
+                    "agentized.process_control.x_size_check__mutmut_3": 36,
+                    "agentized.process_control.x_size_check__mutmut_4": None,
+                }
+            }
+        ),
+        encoding="utf-8",
     )
     stats = mut._collect_stats(tmp_path)
     assert stats["killed"] == 1
     assert stats["survived"] == 1
     assert stats["no_tests"] == 1
     assert stats["timeout"] == 1
+    # None exit codes fall into other (whole-file gate; no line scoping).
+    assert stats["other"] == 1
+    assert stats["totalMutants"] == 4
 
 
 def test_changed_py_files_filters(tmp_path: Path, monkeypatch):

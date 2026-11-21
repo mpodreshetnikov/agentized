@@ -104,7 +104,13 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     assert "over ≥100" not in result["message"]
     assert DOC == SIZE_DOC == "docs/process-control.md"
 
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
+    # ≤limit OK (AGE-40 classify uses >; process_control.size_check shares classify_size).
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 100)
+    at_limit = size_check(tmp_path)
+    assert at_limit["level"] == "warn"
+    assert at_limit["ok"] is True
+
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 101)
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False

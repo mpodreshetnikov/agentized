@@ -1,6 +1,6 @@
 # Process control (Agentized)
 
-AGE-9: claim before code edits + reviewable PR size. Config: [`context/process-control.json`](../context/process-control.json).
+AGE-9 / AGE-35 / AGE-40: claim before code edits + reviewable PR size. Config: [`context/process-control.json`](../context/process-control.json).
 
 ## Claim before edits
 
@@ -16,16 +16,21 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 | `claim_mode_agent=refuse` | Cursor/Claude/Codex cloud (or labeled agent) | Hook/CLI **deny** without claim |
 | `claim_mode_local=warn` | Local interactive | Warn only |
 
-`process_guard` hook runs on Write/Edit (and Codex `apply_patch`) before lease-warn.
+`process_guard` runs on Write/Edit (and Codex `apply_patch`) before lease-warn. Cursor hooks use `failClosed: true`. Broken `process-control.json` → deny + exit **2**. Import failures still allow.
 
-## Reviewable PR size (AGE-32 / AGE-35)
+## Reviewable PR size (AGE-32 / AGE-35 / AGE-40)
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Limit is **inclusive**: warn at **≥** `warn_at` (`warn_at_pct`, default 75%); hard-fail only when insertions **>** limit (`over >{limit}`). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
+Hard gate: **≤1500** insertions OK (**inclusive**); hard-fail only when insertions **>** limit (`over >{limit}`; exit 1). Warn at **≥** `warn_at` (`warn_at_pct`, default 75%). No silent defaults for bad fields: `reviewable_lines` int **1..1500** (not bool); `warn_at_pct` number **1..100**. Bad `0`/`null`/`[]`/`"abc"`/`{}` → clean exit 1. Missing file → defaults `1500`/`75` then validated. Limit cannot self-raise: read `reviewable_lines` from **base ref** config when present; always cap **1500**.
+
+Base default `origin/main` (`PROCESS_BASE` / `--base`). **Refuse** `HEAD`/`@` and bases that are not ancestors of `origin/main`. CI sets `PROCESS_BASE` to the PR base sha. Hook/`|| true` removal and size helpers live in `process_size`.
 
 ```bash
 ./bin/agentized process size
 ./bin/agentized process size --base origin/main --json
+PROCESS_BASE=<pr-base-sha> ./bin/agentized process size
 ```
+
+Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` is false (not only `level == over`).
 
 ## Spec approval gate (AGE-28) — core
 
@@ -56,4 +61,4 @@ Create with `agentized adr --title "…" [--status proposed|accepted|superseded|
 
 ## Connect
 
-`agentized connect` pins `process-control.json` (no clobber) and wires `process_guard.py` into Cursor / Claude / Codex hooks. External repos without local `packages/` or `templates/quality` use the **installed Agentized root**.
+`agentized connect` pins `process-control.json` (no clobber) and wires `process_guard.py` into Cursor / Claude / Codex hooks. Keep Cursor `failClosed: true` when editing hooks. External repos without local `packages/` or `templates/quality` use the **installed Agentized root**.
