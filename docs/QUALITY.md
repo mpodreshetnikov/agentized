@@ -45,7 +45,7 @@ Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows
 
 On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
-New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, `mutationScoreCovered=100`, coverage=80.
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80.
 
 ## Strong reviewer (AGE-11)
 

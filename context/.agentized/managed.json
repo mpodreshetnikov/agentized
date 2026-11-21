@@ -36,6 +36,7 @@
     "context/skills/navigate/SKILL.md": "b8c6f4d8629c0f215b44a5a5933790951203410d65ac95dbe6c4080973d1dcb8",
     "context/skills/quality-gates/SKILL.md": "a4533e67c50a43ff47aacba3736b23d3f74488eb13672bd486918b4fb67400d8",
     "context/skills/registry/SKILL.md": "55fb08d1b97cb325ec03b05005f86b8af28829b04d447f5e0b4457f377234ee8",
-    "context/skills/strong-reviewer/SKILL.md": "f87b72c70b4a226322cbfff2d8c066825738ae71d321346e7e23f4b210adbd08"
+    "context/skills/strong-reviewer/SKILL.md": "f87b72c70b4a226322cbfff2d8c066825738ae71d321346e7e23f4b210adbd08",
+    ".gitleaks.toml": "2b081bb3af1abb59b8c3962686a7585b2da6ab32ae4e411b70a8f954556c65cb"
   }
 }

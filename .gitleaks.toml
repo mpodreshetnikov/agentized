@@ -1,0 +1,11 @@
+# AGENTIZED:QUALITY — default gitleaks config (AGE-29). Connect may pin a copy.
+title = "Agentized"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Agentized generated/report paths (root-anchored)"
+paths = [
+  '''^(coverage|reports|mutants|\.venv)/''',
+]

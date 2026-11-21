@@ -53,6 +53,13 @@ def cmd_connect(args: argparse.Namespace) -> int:
         harnesses=harnesses,
         coverage_pct=args.coverage,
     )
+    # AGE-29: secrets policy + gitleaks pin live outside connect.py (full-cover mut).
+    from agentized.secrets_gate import apply_secrets_connect
+
+    secrets_connect = apply_secrets_connect(root, args.context)
+    result["secrets"] = secrets_connect
+    if result.get("quality_templates") is not None:
+        result["quality_templates"]["gitleaks_config"] = secrets_connect.get("gitleaks_config")
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
@@ -236,12 +243,14 @@ def cmd_quality(args: argparse.Namespace) -> int:
         from agentized.coverage_check import run_coverage_check
         from agentized.mutation_ast import run_mutation
         from agentized.quality import load_quality
+        from agentized.secrets_gate import run_secrets_gate
         from agentized.test_smells import run_test_smells
 
         cfg = load_quality(root, ctx_rel)
         gate_names = list((cfg.get("gates") or {}).get("ci") or [])
         # Always run coverage (module tests + thresholds) then optional warn gates, then mutation.
         ordered = gate_names or [
+            "secrets",
             "module_tests",
             "coverage",
             "test_smells",
@@ -252,6 +261,11 @@ def cmd_quality(args: argparse.Namespace) -> int:
         ran_coverage = False
         for name in ordered:
             if name in {"mechanical"}:
+                continue
+            if name == "secrets":
+                secrets_rc = run_secrets_gate(root, context=ctx_rel)
+                if secrets_rc != 0:
+                    return secrets_rc
                 continue
             if name in {"module_tests", "coverage"}:
                 if ran_coverage:

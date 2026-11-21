@@ -64,6 +64,13 @@ def test_default_quality_config_full_cover_globs_and_structure():
         "source_roots": ["runtime/agentized"],
         "forbidden_edges": [],
     }
+    assert cfg["secrets"] == {
+        "enabled": True,
+        "mode": "hard",
+        "tool": "gitleaks",
+        "config": ".gitleaks.toml",
+        "report_dir": "reports/secrets",
+    }
     assert cfg["property_based"] == {
         "enabled": False,
         "tools": {"python": "hypothesis", "javascript": "fast-check"},
@@ -83,6 +90,7 @@ def test_default_quality_config_full_cover_globs_and_structure():
     assert cfg["gates"] == {
         "pre_push": [
             "mechanical",
+            "secrets",
             "module_tests",
             "coverage",
             "test_smells",
@@ -91,6 +99,7 @@ def test_default_quality_config_full_cover_globs_and_structure():
         ],
         "ci": [
             "mechanical",
+            "secrets",
             "module_tests",
             "coverage",
             "test_smells",

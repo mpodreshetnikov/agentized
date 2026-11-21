@@ -91,7 +91,6 @@ def test_ensure_quality_upgrades_warn_modes(tmp_path: Path):
     assert cfg["architecture"]["mode"] == "hard"
     assert cfg["coverage"]["lines"] == 85.0
     assert cfg["modules"] == [{"id": "keep", "source": ["src"]}]
-    # Second pass: already hard → no upgrade list.
     again = ensure_quality_config(tmp_path, "context")
     assert again["upgraded_modes"] == []
 

@@ -56,6 +56,13 @@
       }
     ]
   },
+  "secrets": {
+    "enabled": true,
+    "mode": "hard",
+    "tool": "gitleaks",
+    "config": ".gitleaks.toml",
+    "report_dir": "reports/secrets"
+  },
   "property_based": {
     "enabled": true,
     "tools": {
@@ -89,6 +96,7 @@
   "gates": {
     "pre_push": [
       "mechanical",
+      "secrets",
       "module_tests",
       "coverage",
       "test_smells",
@@ -97,6 +105,7 @@
     ],
     "ci": [
       "mechanical",
+      "secrets",
       "module_tests",
       "coverage",
       "test_smells",
