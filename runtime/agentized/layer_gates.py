@@ -136,7 +136,7 @@ def _read_python_deps(root: Path, prefixes: tuple[str, ...]) -> list[tuple[str, 
         if _is_skipped_rel(rel, prefixes):
             continue
         try:
-            lower = path.read_bytes().decode(_JSON_ENCODING, errors="ignore").lower()
+            lower = path.read_bytes().decode(_JSON_ENCODING, "ignore").lower()
         except OSError:
             continue
         names = {
