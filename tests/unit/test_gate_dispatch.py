@@ -1,8 +1,6 @@
 """AGE-34 gate_dispatch helpers — pin constants + branch oracles."""
 from __future__ import annotations
-
 from pathlib import Path
-
 from agentized import gate_dispatch as gd
 
 def test_ext_lang_and_tool_maps_pinned():
@@ -115,33 +113,27 @@ def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
 
 def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
     calls: list = []
-
     class R1:
         returncode = 1
         stdout = ""
         stderr = "fail1"
-
     class R2:
         returncode = 0
         stdout = r"src\a.py" + "\n"
         stderr = ""
-
     def fake_run(cmd, **k):
         calls.append((list(cmd), k.get("cwd"), k.get("capture_output"), k.get("text")))
         return R1() if len(calls) == 1 else R2()
-
     monkeypatch.setattr(gd.subprocess, "run", fake_run)
     assert gd.git_changed_names(tmp_path, "origin/main") == ["src/a.py"]
     assert calls == [
         (["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main...HEAD"], tmp_path, True, True),
         (["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main"], tmp_path, True, True),
     ]
-
     class RFail:
         returncode = 2
         stdout = ""
         stderr = "boom"
-
     monkeypatch.setattr(gd.subprocess, "run", lambda *a, **k: RFail())
     try:
         gd.git_changed_names(tmp_path, "origin/main")

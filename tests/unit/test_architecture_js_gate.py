@@ -1,10 +1,8 @@
 """Direct architecture_js_gate coverage (mutmut dependency map)."""
 from __future__ import annotations
-
 import json
 from datetime import datetime
 from pathlib import Path
-
 from agentized import architecture_js_gate as gate
 
 def test_run_js_architecture_branches(tmp_path: Path, monkeypatch):
@@ -88,15 +86,12 @@ def test_architecture_gate_payload_and_args(tmp_path: Path, monkeypatch):
     fixed = datetime(2020, 1, 2)
     loads: list = []
     pys: list = []
-
     def load(root, ctx):
         loads.append((root, ctx))
         return {"architecture": {}}
-
     def py(root, **k):
         pys.append((root, k.get("context")))
         return 0
-
     monkeypatch.setattr(gate, "find_repo_root", lambda: Path("/not-used"))
     monkeypatch.setattr(gate, "load_quality", load)
     monkeypatch.setattr(gate, "run_python_architecture", py)
@@ -105,7 +100,6 @@ def test_architecture_gate_payload_and_args(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(gate, "find_repo_root", lambda: tmp_path)
     assert gate.run_architecture_gate(None, context="c") == 0
     assert loads[-1][0] is tmp_path
-
     def load_on(root, ctx):
         assert root is tmp_path and ctx == "c"
         return {
@@ -115,19 +109,15 @@ def test_architecture_gate_payload_and_args(tmp_path: Path, monkeypatch):
                 "tools": {"typescript": "dependency-cruiser"},
             }
         }
-
     def py_on(root, **k):
         assert root is tmp_path and k.get("context") == "c"
         return 0
-
     def detect(root, **k):
         assert root is tmp_path
         return {"typescript": ["a.ts"]}
-
     def dc(root, s):
         assert root is tmp_path
         return (0, "ok")
-
     monkeypatch.setattr(gate, "load_quality", load_on)
     monkeypatch.setattr(gate, "run_python_architecture", py_on)
     monkeypatch.setattr(gate, "detect_languages", detect)
@@ -142,15 +132,12 @@ def test_architecture_gate_payload_and_args(tmp_path: Path, monkeypatch):
     assert gate.run_architecture_gate(tmp_path, context="c", now=lambda: fixed) == 0
     warn_fail = json.loads((tmp_path / "reports/architecture/architecture-js-summary.json").read_text())
     assert warn_fail["passed"] is True and warn_fail["findings"]
-
     def dc_fail(root, s):
         assert root is tmp_path
         return (1, "x")
-
     def py_fail(root, **k):
         assert root is tmp_path
         return 0
-
     monkeypatch.setattr(
         gate,
         "load_quality",

@@ -14,7 +14,6 @@ _WRAPPER_CANDIDATES = (
     ("scripts", "quality", "run-mutation-js.cjs"),
     ("run-mutation-js.cjs",),
     ("templates", "quality", "run-mutation-js.cjs"),
-    ("templates", "quality", "run-mutation-js.cjs.example"),
 )
 _REPORT_NAMES = ("mutation.json", "mutation-result.json")
 _STATUS_MAP = {
@@ -81,25 +80,21 @@ def run_stryker_gate(
     languages: list[str],
     write_summary: WriteSummary,
 ) -> int:
-    """Fail closed unless project/template wrapper exists; wrapper owns the score gate."""
-    del mut  # API symmetry; wrapper reads quality.json
+    """Fail closed: real wrapper required; Python re-checks covered score."""
+    del mut
     wrapper = find_stryker_wrapper(root)
+    base_payload = {
+        "schemaVersion": 1,
+        "mode": "incremental",
+        "base": base,
+        "gate": "hard",
+        "tool": "stryker",
+        "changedFiles": list(changed),
+        "languages": list(languages),
+        "minScoreCovered": min_score,
+    }
     if wrapper is None:
-        write_summary(
-            root,
-            {
-                "schemaVersion": 1,
-                "mode": "incremental",
-                "base": base,
-                "gate": "hard",
-                "tool": "stryker",
-                "passed": False,
-                "reasons": ["no_stryker_runner"],
-                "changedFiles": list(changed),
-                "languages": list(languages),
-                "minScoreCovered": min_score,
-            },
-        )
+        write_summary(root, {**base_payload, "passed": False, "reasons": ["no_stryker_runner"]})
         return 1
     env = {
         **os.environ,
@@ -108,4 +103,27 @@ def run_stryker_gate(
         "MUTATION_MIN_SCORE_COVERED": str(min_score),
     }
     run = subprocess.run(["node", str(wrapper)], cwd=root, env=env)
-    return int(run.returncode)
+    if int(run.returncode) != 0:
+        return int(run.returncode)
+    stats = read_stryker_covered(root)
+    if stats is None:
+        write_summary(root, {**base_payload, "passed": False, "reasons": ["no_stryker_report"]})
+        return 1
+    score = stats["mutationScoreCovered"]
+    survived = stats["survived"]
+    reasons: list[str] = []
+    if score is None or float(score) < min_score:
+        reasons.append(f"score_covered={score}<{min_score}")
+    if survived != 0:
+        reasons.append(f"survived={survived}")
+    passed = reasons == []
+    write_summary(
+        root,
+        {
+            **base_payload,
+            "passed": passed,
+            "reasons": reasons,
+            "stats": stats,
+        },
+    )
+    return 0 if passed else 1

@@ -106,6 +106,23 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
         lambda cmd, **kw: calls.update(cmd=cmd, cwd=kw.get("cwd"), env=kw.get("env") or {})
         or R0(),
     )
+    # wrapper exit 0 is not enough — covered score must meet min_score
+    assert (
+        ms.run_stryker_gate(
+            tmp_path,
+            changed=["src/a.ts"],
+            mut={"x": 1},
+            base="unique-base-xyz",
+            min_score=100.0,
+            languages=["typescript"],
+            write_summary=mut._write_summary,
+        )
+        == 1
+    )
+    no_rep = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert no_rep["passed"] is False and no_rep["reasons"] == ["no_stryker_report"]
+    assert "passed" in no_rep and "PASSED" not in no_rep and "XXpassedXX" not in no_rep
+    _report(tmp_path, {"files": {"a.ts": {"mutants": [{"status": "Killed"}]}}})
     assert (
         ms.run_stryker_gate(
             tmp_path,
@@ -118,6 +135,14 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
         )
         == 0
     )
+    ok = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert ok == {**ok, "passed": True, "reasons": [], "stats": ok["stats"]}
+    assert ok["stats"]["survived"] == 0 and "passed" in ok and "stats" in ok
+    _report(tmp_path, {"files": {"a.ts": {"mutants": [{"status": "Killed"}, {"status": "Survived"}]}}})
+    assert ms.run_stryker_gate(tmp_path, changed=["src/a.ts"], mut={}, base="unique-base-xyz", min_score=100.0, languages=["typescript"], write_summary=mut._write_summary) == 1
+    bad = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert bad["passed"] is False and bad["reasons"] == ["score_covered=50.0<100.0", "survived=1"]
+    assert bad["stats"]["survived"] == 1
     assert calls["cmd"] == ["node", str(tmp_path / "run-mutation-js.cjs")]
     assert calls["cwd"] == tmp_path
     assert calls["env"]["MUTATION_BASE"] == "unique-base-xyz"

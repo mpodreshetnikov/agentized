@@ -1,20 +1,15 @@
 """JS/TS architecture runners (AGE-34)."""
 from __future__ import annotations
-
 from pathlib import Path
-
 from agentized import architecture_js as ajs
-
 
 def test_runners_pin_cmd_and_errors(tmp_path: Path, monkeypatch):
     (tmp_path / ".dependency-cruiser.cjs").write_text("module.exports={}\n")
     (tmp_path / "custom.cjs").write_text("x\n")
-
     class R:
         returncode = 0
         stdout = "ok"
         stderr = ""
-
     seen: dict = {}
     monkeypatch.setattr(ajs.shutil, "which", lambda n: "/bin/npx" if n == "npx" else None)
     monkeypatch.setattr(
@@ -48,12 +43,10 @@ def test_runners_pin_cmd_and_errors(tmp_path: Path, monkeypatch):
     assert ajs.run_dependency_cruiser(tmp_path, {}) == (1, "npx-missing")
     assert ajs.run_eslint_boundaries(tmp_path, {}) == (1, "npx-missing")
     monkeypatch.setattr(ajs.shutil, "which", lambda n: "/bin/npx")
-
     class R3:
         returncode = 3
         stdout = "a"
         stderr = "b"
-
     monkeypatch.setattr(
         ajs.subprocess,
         "run",
@@ -78,7 +71,6 @@ def test_runners_pin_cmd_and_errors(tmp_path: Path, monkeypatch):
         returncode = 0
         stdout = None
         stderr = None
-
     monkeypatch.setattr(ajs.subprocess, "run", lambda *a, **k: R0())
     assert ajs._run(["x"], tmp_path) == (0, "")
     class Rlong:

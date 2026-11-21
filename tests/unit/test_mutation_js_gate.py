@@ -1,11 +1,8 @@
 """Dedicated mutation_js_gate coverage (mutmut maps by import)."""
 from __future__ import annotations
-
 import json
 from pathlib import Path
-
 from agentized import mutation_js_gate as gate
-
 
 def test_run_mutation_paths(tmp_path: Path, monkeypatch):
     (tmp_path / "context").mkdir()
@@ -26,14 +23,11 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(gate, "find_repo_root", lambda: tmp_path)
     assert gate.run_mutation(None, context="ctx-a") == 0
     assert loads[-1][0] is tmp_path
-
     monkeypatch.delenv("MUTATION_BASE", raising=False)
     bases: list = []
-
     def changed(root, base, prefixes):
         bases.append((root, base, list(prefixes)))
         return ["src/a.ts", "src/b.go", "outside/x.ts"]
-
     monkeypatch.setattr(
         gate,
         "load_quality",
@@ -61,7 +55,6 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
         "missingRunners": ["typescript:1", "unknown:1"],
         "changedFiles": ["src/a.ts", "src/b.go"],
     }
-
     monkeypatch.setenv("MUTATION_BASE", "origin/feature")
     monkeypatch.setattr(
         gate,
@@ -86,14 +79,12 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
         ),
     )
     seen: dict = {}
-
     def fake_stryker(root, **kw):
         assert root is tmp_path
         assert kw.get("mut") is not None
         assert callable(kw.get("write_summary"))
         seen.update(kw)
         return 0
-
     monkeypatch.setattr(gate, "run_stryker_gate", fake_stryker)
     mutmuts.clear()
     assert gate.run_mutation(tmp_path) == 0
