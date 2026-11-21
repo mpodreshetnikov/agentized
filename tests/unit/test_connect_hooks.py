@@ -53,3 +53,54 @@ def test_connect_wrapper_sets_ok_flags(tmp_path: Path, monkeypatch):
     )
     assert calls["coverage_pct"] == 80
     assert out["ok"] is True and out["dry_run"] is False and out["hooks_refused"] == []
+
+
+def test_install_preserves_foreign_after_orig(tmp_path: Path, monkeypatch):
+    import json
+    import subprocess
+    from agentized.connect_hooks import install_claude, install_codex, install_cursor
+
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    monkeypatch.chdir(tmp_path)
+    for rel in (
+        "context/skills",
+        "context/hooks/scripts",
+        "packages/shared/hooks/scripts",
+        "packages/shared/skills/navigate",
+        "templates/quality",
+    ):
+        (tmp_path / rel).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "context/NAV.md").write_text("# NAV\n", encoding="utf-8")
+    (tmp_path / "packages/shared/skills/navigate/SKILL.md").write_text(
+        "---\nname: navigate\n---\n", encoding="utf-8"
+    )
+    for name in ("session_start.py", "process_guard.py", "lease_warn.py", "ensure_agent_hooks.py"):
+        for base in ("context/hooks/scripts", "packages/shared/hooks/scripts"):
+            (tmp_path / base / name).write_text("print(1)\n", encoding="utf-8")
+    from agentized.hooks_install import _desired_bundle_path
+
+    (tmp_path / "packages/shared/hooks/harness_desired.json").write_bytes(
+        _desired_bundle_path().read_bytes()
+    )
+    for pkg in ("agentized-cursor", "agentized-claude", "agentized-codex"):
+        (tmp_path / "packages" / pkg).mkdir(parents=True, exist_ok=True)
+    cursor = tmp_path / ".cursor/hooks.json"
+    cursor.parent.mkdir(parents=True)
+    cursor.write_text(
+        json.dumps(
+            {"version": 1, "hooks": {"sessionStart": [{"command": "echo foreign"}]}},
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    man: dict = {"files": {}}
+    out = install_cursor(tmp_path, "context", manifest=man)
+    assert out["hooks_merge"]["wrote"] is True
+    body = json.loads(cursor.read_text(encoding="utf-8"))
+    assert any(e.get("command") == "echo foreign" for e in body["hooks"]["sessionStart"])
+    dry = install_cursor(tmp_path, "context", manifest=man, dry_run=True)
+    assert dry["hooks_merge"]["dry_run"] is True and dry["hooks_merge"]["wrote"] is False
+    assert install_claude(tmp_path, "context", manifest=man)["hooks_merge"]["harness"] == "claude"
+    cx = install_codex(tmp_path, "context", manifest=man)
+    assert cx["marketplace_merge"]["kind"] == "marketplace"
