@@ -12,7 +12,6 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
 
 ## blocked
 
