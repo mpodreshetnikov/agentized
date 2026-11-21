@@ -770,6 +770,47 @@ def test_atomic_write_text_utf8_under_c_locale(tmp_path: Path, monkeypatch: pyte
     assert not (tmp_path / "NAV.md.tmp").exists()
 
 
+def test_external_seed_index_scans_registry_tasks_leases(tmp_path: Path):
+    """INDEX seed must rebuild from registry tasks/leases dirs (kill XX/TASKS path muts)."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    (ext / "tasks").mkdir()
+    (ext / "leases").mkdir()
+    (ext / "tasks" / "T-261121-seed.md").write_text(
+        render_task_file("T-261121-seed", "Seed sentinel", status="open"),
+        encoding="utf-8",
+    )
+    (ext / "leases" / "T-261121-seed.md").write_text(
+        render_lease_file(
+            "T-261121-seed",
+            "mut-kill",
+            ["runtime/sentinel.py"],
+            expires="2099-01-01T00:00:00Z",
+        ),
+        encoding="utf-8",
+    )
+    _write_layout(
+        code,
+        {"placement": "external", "external": {"path": str(ext), "remote": "r"}},
+    )
+    from agentized.leases import rebuild_lease_index
+    from agentized.task_schema import rebuild_task_index
+
+    created = ensure_external_registry_skeleton(resolve_layout(code))
+    assert str(ext / "tasks" / "INDEX.md") in created
+    assert str(ext / "leases" / "INDEX.md") in created
+    tasks_idx = (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8")
+    leases_idx = (ext / "leases" / "INDEX.md").read_text(encoding="utf-8")
+    assert "T-261121-seed" in tasks_idx
+    assert "Seed sentinel" in tasks_idx
+    assert "T-261121-seed" in leases_idx
+    assert "`runtime/sentinel.py`" in leases_idx
+    assert tasks_idx == rebuild_task_index(ext / "tasks")
+    assert leases_idx == rebuild_lease_index(ext / "leases")
+
+
 def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     """Seed empty external clone; preflight conflicts before bridges."""
     code, ext = tmp_path / "code", tmp_path / "ext"
