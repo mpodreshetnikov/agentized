@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-4799](T-261121-4799.md) — AGE-76 PR tip hygiene gate (родитель: T-261115-918b) · claim: tip-hygiene-worker
+_(пусто)_
 
 ## blocked
 
