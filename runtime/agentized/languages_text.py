@@ -1,7 +1,6 @@
-"""Human-facing language-coverage messages/results (outside mutation include_globs).
+"""Human-facing language-coverage messages/results (under full-cover globs).
 
-Literal strings and result-dict keys create uninformative mutmut survivors;
-logic stays in languages.py.
+Kill string/case mutants with exact oracles in tests/unit/test_languages_text.py.
 """
 from __future__ import annotations
 

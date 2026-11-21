@@ -1,6 +1,6 @@
-"""Connect-time language refuse + dogfood excludes (outside mutation include_globs).
+"""Connect-time language refuse + dogfood excludes (under full-cover globs).
 
-Keep runtime/agentized/connect.py identical to main under full-cover globs.
+Leaves connect.py identical to main; this module is mutated at 100%.
 """
 from __future__ import annotations
 

@@ -2,28 +2,13 @@
 from __future__ import annotations
 
 import fnmatch
-import importlib.util
 import re
 from pathlib import Path
 from typing import Any
 
+from . import languages_text as _text
 from .paths import DEFAULT_CONTEXT
 from .quality import load_quality
-
-# Messages in context/ (mutmut also_copy) — outside include_globs; load at
-# import time (no helper fn — those mutants never re-execute after import).
-_here = Path(__file__).resolve().parent
-for _cand in (
-    _here.parent.parent / "context" / "languages_text.py",
-    _here.parent / "context" / "languages_text.py",
-):
-    if _cand.is_file():
-        _spec = importlib.util.spec_from_file_location("languages_text", _cand)
-        _text = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_text)  # type: ignore[union-attr]
-        break
-else:
-    raise ImportError("languages_text")
 
 # Wide map: anything not in DEFAULT_SUPPORTED is unsupported → refuse.
 _EXT_LANG: dict[str, str] = {

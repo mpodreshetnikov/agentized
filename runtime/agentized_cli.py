@@ -43,7 +43,7 @@ def _ctx(root: Path, args) -> Path:
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
-    from connect_languages import (
+    from agentized.connect_languages import (
         ConnectRefused,
         merge_managed_language_excludes,
         refuse_incomplete_languages,
