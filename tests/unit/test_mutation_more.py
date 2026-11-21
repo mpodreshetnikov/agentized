@@ -54,19 +54,27 @@ def test_touched_functions_and_filtered_stats(tmp_path: Path, monkeypatch):
     assert mut._touched_functions(src, {1}) == mut._touched_functions(src, {3}) == set()
     assert mut._mutant_function_name("agentized.sample.x_keep__mutmut_3") == "keep"
     assert mut._mutant_function_name("nope") is None
+
     class R:
-        returncode = 0; stdout = "@@ -1 +10,2 @@\n"; stderr = ""
+        returncode = 0
+        stdout = "@@ -1 +10,2 @@\n"
+        stderr = ""
+
     monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
     assert mut._diff_added_lines(tmp_path, "origin/main", "x.py") == {10, 11}
     monkeypatch.setattr(mut, "_diff_added_lines", lambda *a, **k: {5, 6})
     meta = tmp_path / "mutants" / "agentized" / "sample.py.meta"
     meta.parent.mkdir(parents=True)
     meta.write_text(
-        json.dumps({"exit_code_by_key": {
-            "agentized.sample.x_keep__mutmut_1": 1,
-            "agentized.sample.x_other__mutmut_1": 0,
-            "agentized.sample.x_keep__mutmut_2": 0,
-        }}),
+        json.dumps(
+            {
+                "exit_code_by_key": {
+                    "agentized.sample.x_keep__mutmut_1": 1,
+                    "agentized.sample.x_other__mutmut_1": 0,
+                    "agentized.sample.x_keep__mutmut_2": 0,
+                }
+            }
+        ),
         encoding="utf-8",
     )
     stats = mut._collect_stats(

@@ -121,7 +121,9 @@ def _diff_added_lines(root: Path, base_ref: str, rel: str) -> set[int]:
     for spec in (f"{base_ref}...HEAD", base_ref):
         proc = subprocess.run(
             ["git", "diff", "-U0", spec, "--", rel],
-            cwd=root, capture_output=True, text=True,
+            cwd=root,
+            capture_output=True,
+            text=True,
         )
         if getattr(proc, "returncode", 1) == 0 or spec == base_ref:
             break
@@ -135,6 +137,7 @@ def _diff_added_lines(root: Path, base_ref: str, rel: str) -> set[int]:
             out.update(range(start, start + n))
     return out
 
+
 def _touched_functions(source: Path, changed_lines: set[int]) -> set[str] | None:
     if not changed_lines or not source.is_file():
         return set()
@@ -144,8 +147,14 @@ def _touched_functions(source: Path, changed_lines: set[int]) -> set[str] | None
         return None
     ranges: list[tuple[str, int, int]] = []
     skip = (
-        ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef,
-        ast.ClassDef, ast.Assign, ast.AnnAssign, ast.Expr,
+        ast.Import,
+        ast.ImportFrom,
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.Assign,
+        ast.AnnAssign,
+        ast.Expr,
     )
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -168,9 +177,11 @@ def _touched_functions(source: Path, changed_lines: set[int]) -> set[str] | None
                 return None
     return touched
 
+
 def _mutant_function_name(key: str) -> str | None:
     m = re.search(r"\.x_([A-Za-z_][\w]*)__mutmut_(?:\d+|orig)\b", key)
     return m.group(1) if m else None
+
 
 def _function_start_lines(source: Path) -> dict[str, int]:
     try:
@@ -186,6 +197,7 @@ def _function_start_lines(source: Path) -> dict[str, int]:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     out[child.name] = child.lineno
     return out
+
 
 def _trampoline_func_bodies(trampoline: Path, fn: str) -> dict[str, list[str]]:
     if not trampoline.is_file():
@@ -207,6 +219,7 @@ def _trampoline_func_bodies(trampoline: Path, fn: str) -> dict[str, list[str]]:
         bodies[name] = rows[a:end]
     return bodies
 
+
 def _mutant_hits_changed_lines(
     trampoline: Path, fn: str, mutant_key: str, func_lineno: int, changed_lines: set[int]
 ) -> bool:
@@ -219,8 +232,11 @@ def _mutant_hits_changed_lines(
         if o != m and (func_lineno + i) in changed_lines:
             return True
     if len(mut) != len(orig):
-        return any(func_lineno <= ln <= func_lineno + max(len(orig), len(mut)) for ln in changed_lines)
+        return any(
+            func_lineno <= ln <= func_lineno + max(len(orig), len(mut)) for ln in changed_lines
+        )
     return False
+
 
 def _score_changed(
     root: Path,
@@ -248,7 +264,9 @@ def _score_changed(
             changed_files = _changed_py_files(root, base_ref, prefixes)
             globs = list(mut.get("include_globs") or [])
             if globs:
-                changed_files = [p for p in changed_files if any(fnmatch.fnmatch(p, g) for g in globs)]
+                changed_files = [
+                    p for p in changed_files if any(fnmatch.fnmatch(p, g) for g in globs)
+                ]
         except Exception:
             base_ref = None
             changed_files = None
@@ -287,7 +305,9 @@ def _score_changed(
                 if fn is None or fn not in allowed:
                     continue
                 if changed_lines and fn in starts:
-                    if not _mutant_hits_changed_lines(trampoline, fn, key, starts[fn], changed_lines):
+                    if not _mutant_hits_changed_lines(
+                        trampoline, fn, key, starts[fn], changed_lines
+                    ):
                         continue
             if code in (1, 3):
                 killed += 1
@@ -302,13 +322,20 @@ def _score_changed(
     total = killed + survived + no_tests + timeout
     covered = killed + survived + timeout
     return {
-        "killed": killed, "survived": survived, "no_tests": no_tests, "timeout": timeout,
-        "other": other, "totalMutants": total, "files": files,
+        "killed": killed,
+        "survived": survived,
+        "no_tests": no_tests,
+        "timeout": timeout,
+        "other": other,
+        "totalMutants": total,
+        "files": files,
         "mutationScore": round(10000 * (killed + timeout) / total) / 100 if total else None,
         "mutationScoreCovered": (
             round(10000 * (killed + timeout) / covered) / 100 if covered else None
         ),
     }
+
+
 # pragma: no mutate end
 
 
@@ -319,9 +346,7 @@ def _collect_stats(  # pragma: no mutate
     changed_files: list[str] | None = None,
     context: str = DEFAULT_CONTEXT,
 ) -> dict:
-    return _score_changed(
-        root, base_ref=base_ref, changed_files=changed_files, context=context
-    )
+    return _score_changed(root, base_ref=base_ref, changed_files=changed_files, context=context)
 
 
 def run_mutation(

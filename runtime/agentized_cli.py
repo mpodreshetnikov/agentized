@@ -366,6 +366,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
     return 0
 
+
 def cmd_tasks_validate(args: argparse.Namespace) -> int:
     root = find_repo_root()
     try:

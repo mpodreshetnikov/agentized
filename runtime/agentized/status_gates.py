@@ -18,12 +18,23 @@ from .tasks import (
 
 TEXT_ENCODING = "utf-8"
 INDEX_ACTIVE_STATUSES: tuple[str, ...] = (
-    "open", "queue", "in-progress", "self-review", "for-review", "blocked",
+    "open",
+    "queue",
+    "in-progress",
+    "self-review",
+    "for-review",
+    "blocked",
 )
 COLUMN_FOR_STATUS: dict[str, str] = {
-    "idea": "open", "open": "open", "queue": "queue", "self-review": "queue",
-    "in-progress": "in-progress", "for-review": "for-review", "blocked": "blocked",
-    "done": "done", "canceled": "canceled",
+    "idea": "open",
+    "open": "open",
+    "queue": "queue",
+    "self-review": "queue",
+    "in-progress": "in-progress",
+    "for-review": "for-review",
+    "blocked": "blocked",
+    "done": "done",
+    "canceled": "canceled",
 }
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "idea": frozenset({"open", "queue", "canceled"}),
@@ -40,9 +51,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 VALUE_LINE_RE = re.compile(r"^\s*Ценность:\s*(\S.*)$")
 VALUE_KEY_RE = re.compile(r"^\s*Ценность:\s*")
-NEW_PATH_ALLOWED_STATUSES: frozenset[str] = frozenset(
-    {"idea", "open", "queue", "in-progress"}
-)
+NEW_PATH_ALLOWED_STATUSES: frozenset[str] = frozenset({"idea", "open", "queue", "in-progress"})
 DEADLINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PR_REF_RE = re.compile(
     r"(?i)^(?:PR\s*#\d+|#\d+|https://github\.com/[^/\s]+/[^/\s]+/pull/\d+(?:[/?#]\S*)?)$"
@@ -300,11 +309,7 @@ def default_repo_root_for_tasks(tasks_dir: Path) -> Path:
 
 def _git_missing_path(stderr: str) -> bool:
     low = stderr.lower()
-    return (
-        "does not exist" in low
-        or "exists on disk, but not in" in low
-        or "path not in" in low
-    )
+    return "does not exist" in low or "exists on disk, but not in" in low or "path not in" in low
 
 
 def _cmd_detail(proc: subprocess.CompletedProcess[str]) -> str:
@@ -345,11 +350,7 @@ def previous_task_texts_from_git(
         if _git_missing_path(err):
             return {}
         raise _git_err(rel_dir, base, err)
-    names = [
-        n
-        for n in listing.stdout.splitlines()
-        if n.startswith("T-") and n.endswith(".md")
-    ]
+    names = [n for n in listing.stdout.splitlines() if n.startswith("T-") and n.endswith(".md")]
     out: dict[str, str] = {}
     for name in names:
         rel = f"{rel_dir}/{name}"
@@ -369,9 +370,7 @@ def previous_task_texts_from_git(
 def resolve_validate_base_ref(repo_root: Path, *, explicit: str | None = None) -> str:
     if explicit:
         return explicit
-    env = (
-        os.environ.get("MUTATION_BASE") or os.environ.get("TASKS_VALIDATE_BASE") or ""
-    ).strip()
+    env = (os.environ.get("MUTATION_BASE") or os.environ.get("TASKS_VALIDATE_BASE") or "").strip()
     if env:
         return env
     try:
