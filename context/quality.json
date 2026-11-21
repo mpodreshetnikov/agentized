@@ -28,11 +28,7 @@
     "include_globs": [
       "runtime/agentized/*.py"
     ],
-    "tools": {
-      "python": "mutmut",
-      "javascript": "stryker",
-      "typescript": "stryker"
-    }
+    "tools": { "python": "mutmut", "javascript": "stryker", "typescript": "stryker" }
   },
   "test_smells": {
     "enabled": true,
@@ -62,11 +58,7 @@
         "to": "agentized.connect"
       }
     ],
-    "tools": {
-      "python": "import-linter",
-      "javascript": "dependency-cruiser",
-      "typescript": "dependency-cruiser"
-    },
+    "tools": { "python": "import-linter", "javascript": "dependency-cruiser", "typescript": "dependency-cruiser" },
     "js_config": ".dependency-cruiser.cjs",
     "js_source": "src"
   },

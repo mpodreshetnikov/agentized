@@ -38,11 +38,7 @@ def test_default_quality_config_full_cover_globs_and_structure():
     assert mut == {
         "enabled": True,
         "tool": "mutmut",
-        "tools": {
-            "python": "mutmut",
-            "javascript": "stryker",
-            "typescript": "stryker",
-        },
+        "tools": {"python": "mutmut", "javascript": "stryker", "typescript": "stryker"},
         "gate": "hard",
         "scope": "covered_changed_lines",
         "base_ref": "origin/main",

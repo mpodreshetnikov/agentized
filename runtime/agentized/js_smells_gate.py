@@ -1,4 +1,5 @@
 """Test-smells entry (AGE-34): Python + JS/TS weak-oracle scan."""
+
 from __future__ import annotations
 
 import fnmatch

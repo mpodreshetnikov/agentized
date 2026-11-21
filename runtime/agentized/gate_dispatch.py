@@ -1,4 +1,5 @@
 """Lang→tool dispatch + changed-source helpers (AGE-34)."""
+
 from __future__ import annotations
 
 import fnmatch
@@ -48,6 +49,7 @@ DEFAULT_EXCLUDE_GLOBS = (
     "**/*.example*",
 )
 
+
 def _glob_excluded(rel: str, patterns: list[str]) -> bool:
     rel = rel.replace("\\", "/")
     for pat in patterns:
@@ -59,11 +61,13 @@ def _glob_excluded(rel: str, patterns: list[str]) -> bool:
             return True
     return False
 
+
 def language_for_path(rel: str) -> str | None:
     name = Path(rel).name.lower()
     if name.endswith(".d.ts"):
         return None
     return _EXT_LANG.get(Path(name).suffix)
+
 
 def detect_languages(
     root: Path,
@@ -85,6 +89,7 @@ def detect_languages(
                         bucket.append(rel)
     return found
 
+
 def mutation_tool_for_language(mut_cfg: dict[str, Any], language: str) -> str | None:
     tools = mut_cfg.get("tools")
     if isinstance(tools, dict) and tools.get(language):
@@ -95,6 +100,7 @@ def mutation_tool_for_language(mut_cfg: dict[str, Any], language: str) -> str | 
     single_s = str(single).lower()
     return single_s if single_s in (MUTATION_TOOLS.get(language) or frozenset()) else None
 
+
 def architecture_tool_for_language(arch_cfg: dict[str, Any], language: str) -> str | None:
     tools = arch_cfg.get("tools")
     if isinstance(tools, dict) and tools.get(language):
@@ -104,6 +110,7 @@ def architecture_tool_for_language(arch_cfg: dict[str, Any], language: str) -> s
         return None
     single_s = str(single).lower()
     return single_s if single_s in (ARCHITECTURE_TOOLS.get(language) or frozenset()) else None
+
 
 def is_test_path(name: str) -> bool:
     """True for test files — not production modules like ``test_smells.py``."""
@@ -123,6 +130,7 @@ def is_test_path(name: str) -> bool:
         return True
     return False
 
+
 def git_changed_names(root: Path, base_ref: str) -> list[str]:
     cmds = [
         ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base_ref}...HEAD"],
@@ -133,6 +141,7 @@ def git_changed_names(root: Path, base_ref: str) -> list[str]:
         if proc.returncode == 0:
             return [n.strip().replace("\\", "/") for n in proc.stdout.splitlines() if n.strip()]
     raise SystemExit("git diff failed")
+
 
 def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list[str]:
     names = git_changed_names(root, base_ref)
@@ -146,6 +155,7 @@ def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list
                 out.append(name)
                 break
     return sorted(set(out))
+
 
 def combine_gate_rc(mode: str, has_findings: bool, py_rc: int) -> int:
     if mode == "warn":

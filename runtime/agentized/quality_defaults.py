@@ -36,11 +36,7 @@ def default_quality_config() -> dict[str, Any]:
         "mutation": {
             "enabled": True,
             "tool": "mutmut",
-            "tools": {
-                "python": "mutmut",
-                "javascript": "stryker",
-                "typescript": "stryker",
-            },
+            "tools": {"python": "mutmut", "javascript": "stryker", "typescript": "stryker"},
             "gate": "hard",
             "scope": "covered_changed_lines",
             "base_ref": "origin/main",

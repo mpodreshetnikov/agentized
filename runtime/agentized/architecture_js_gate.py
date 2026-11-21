@@ -1,4 +1,5 @@
 """Architecture entry (AGE-34): Python + JS/TS runners."""
+
 from __future__ import annotations
 
 import json
@@ -54,7 +55,9 @@ def run_js_architecture(
             if rc != 0:
                 findings.append(
                     {
-                        "file": str(section["js_config"]) if "js_config" in section else _DEFAULT_DC_FILE,
+                        "file": str(section["js_config"])
+                        if "js_config" in section
+                        else _DEFAULT_DC_FILE,
                         "kind": "dependency_cruiser",
                         "detail": out or f"exit {rc}",
                     }
@@ -64,7 +67,9 @@ def run_js_architecture(
             if rc != 0:
                 findings.append(
                     {
-                        "file": str(section["eslint_config"]) if "eslint_config" in section else "eslint",
+                        "file": str(section["eslint_config"])
+                        if "eslint_config" in section
+                        else "eslint",
                         "kind": "eslint_boundaries",
                         "detail": out or f"exit {rc}",
                     }

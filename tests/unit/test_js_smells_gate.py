@@ -1,11 +1,9 @@
-"""Direct js_smells_gate helpers (mutmut dependency map)."""
 from __future__ import annotations
-
 import json
 from datetime import datetime
 from pathlib import Path
-
 from agentized import js_smells_gate as gate
+
 
 def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
     assert gate.glob_match("a/b/c.test.ts", "**/*.{test,spec}.ts") is True
@@ -33,22 +31,22 @@ def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         gate,
         "load_quality",
-        lambda root, ctx: loads.append((root, ctx))
-        or {
-            "test_smells": {
-                "enabled": True,
-                "include_globs": ["**/*.{test,spec}.ts"],
+        lambda root, ctx: (
+            loads.append((root, ctx))
+            or {
+                "test_smells": {
+                    "enabled": True,
+                    "include_globs": ["**/*.{test,spec}.ts"],
+                }
             }
-        },
+        ),
     )
     monkeypatch.setattr(
         gate, "run_python_smells", lambda root, **k: pys.append((root, k.get("context"))) or 0
     )
     assert gate.run_test_smells(tmp_path, context="c1", now=lambda: fixed) == 1
     assert loads[-1] == (tmp_path, "c1") and pys[-1] == (tmp_path, "c1")
-    payload = json.loads(
-        (tmp_path / "reports/test-smells/test-smells-js-summary.json").read_text()
-    )
+    payload = json.loads((tmp_path / "reports/test-smells/test-smells-js-summary.json").read_text())
     assert payload == {
         "schemaVersion": 1,
         "mode": "hard",
@@ -58,9 +56,7 @@ def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
         "passed": False,
     }
     assert payload["findings"]
-    monkeypatch.setattr(
-        gate, "load_quality", lambda *a, **k: {"test_smells": {"enabled": False}}
-    )
+    monkeypatch.setattr(gate, "load_quality", lambda *a, **k: {"test_smells": {"enabled": False}})
     monkeypatch.setattr(
         gate, "run_python_smells", lambda root, **k: pys.append((root, k.get("context"))) or 3
     )
@@ -72,9 +68,7 @@ def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
         "load_quality",
         lambda root, ctx: {"test_smells": {"enabled": True, "mode": "warn", "include_globs": []}},
     )
-    findings, scanned = gate.run_js_smells(
-        tmp_path, {"include_globs": ["src/a.test.ts"]}
-    )
+    findings, scanned = gate.run_js_smells(tmp_path, {"include_globs": ["src/a.test.ts"]})
     assert [p.name for p in scanned] == ["a.test.ts"]  # not b.spec.ts
     monkeypatch.setattr(gate, "run_python_smells", lambda root, **k: 2)
     monkeypatch.setattr(gate, "run_js_smells", lambda root, section: ([{"k": 1}], []))

@@ -1,4 +1,5 @@
 """JS/TS test-smell helpers + brace-glob expand (AGE-34)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ JS_WEAK_PATTERNS = (
 TEST_FILE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 SKIP_DIR_PARTS = frozenset({"node_modules", ".git", "mutants", "coverage", "dist", "build"})
 
+
 def expand_brace_glob(pattern: str) -> list[str]:
     """Expand `{a,b}` brace groups (enough for *.{test,spec}.{js,ts})."""
     prefix, brace, rest = pattern.partition("{")
@@ -27,6 +29,7 @@ def expand_brace_glob(pattern: str) -> list[str]:
     for part in body.split(","):
         out.extend(expand_brace_glob(prefix + part + suffix))
     return out
+
 
 def scan_js_ts_file(path: Path, root: Path) -> list[dict]:
     """Lightweight test-smell lint for JS/TS tests (Orbit weak-oracle patterns)."""

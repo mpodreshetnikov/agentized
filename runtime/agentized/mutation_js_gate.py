@@ -1,4 +1,5 @@
 """Multi-language mutation entry (AGE-34): Stryker + mutmut."""
+
 from __future__ import annotations
 
 import fnmatch
@@ -10,7 +11,8 @@ from .gate_dispatch import (
     language_for_path,
     mutation_tool_for_language,
 )
-from .mutation import _write_summary, run_mutation as run_mutmut
+from .mutation import _write_summary
+from .mutation_ast import run_mutation as run_mutmut
 from .mutation_stryker import run_stryker_gate
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
@@ -43,9 +45,7 @@ def run_mutation(
     include_globs = list(mut.get("include_globs") or [])
     if include_globs:
         changed = [
-            path
-            for path in changed
-            if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
+            path for path in changed if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
         ]
 
     by_lang: dict[str, list[str]] = {}

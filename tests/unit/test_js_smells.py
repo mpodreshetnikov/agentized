@@ -1,4 +1,5 @@
 """JS/TS smell helpers (AGE-34)."""
+
 from __future__ import annotations
 
 from pathlib import Path

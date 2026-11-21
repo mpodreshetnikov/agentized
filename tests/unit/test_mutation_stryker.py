@@ -1,4 +1,3 @@
-"""Stryker helpers (AGE-34)."""
 from __future__ import annotations
 
 import json
@@ -7,10 +6,16 @@ from pathlib import Path
 from agentized import mutation as mut
 from agentized import mutation_stryker as ms
 
+
 def _report(tmp_path: Path, payload: dict, name: str = "mutation.json") -> None:
     d = tmp_path / "reports" / "mutation"
     d.mkdir(parents=True, exist_ok=True)
     (d / name).write_text(json.dumps(payload))
+
+
+def _muts(*statuses: str) -> list[dict]:
+    return [{"status": s} for s in statuses]
+
 
 def test_read_stryker_covered_matrix(tmp_path: Path):
     _report(
@@ -18,19 +23,19 @@ def test_read_stryker_covered_matrix(tmp_path: Path):
         {
             "files": {
                 "src/a.ts": {
-                    "mutants": [
-                        {"status": "Killed"},
-                        {"status": "Killed"},
-                        {"status": "Survived"},
-                        {"status": "Survived"},
-                        {"status": "NoCoverage"},
-                        {"status": "NoCoverage"},
-                        {"status": "Timeout"},
-                        {"status": "Timeout"},
-                        {"status": "Other"},
-                    ]
+                    "mutants": _muts(
+                        "Killed",
+                        "Killed",
+                        "Survived",
+                        "Survived",
+                        "NoCoverage",
+                        "NoCoverage",
+                        "Timeout",
+                        "Timeout",
+                        "Other",
+                    )
                 },
-                "src/b.ts": {"mutants": [{"status": "Killed"}]},
+                "src/b.ts": {"mutants": _muts("Killed")},
             }
         },
     )
@@ -46,17 +51,14 @@ def test_read_stryker_covered_matrix(tmp_path: Path):
         "source": "reports/mutation/mutation.json",
     }
     assert ms.read_stryker_covered(tmp_path / "missing") is None
-    _report(tmp_path, {"files": {"c.ts": {"mutants": [{"status": "Killed"}, {"status": "Survived"}, {"status": "NoCoverage"}]}}})
+    _report(tmp_path, {"files": {"c.ts": {"mutants": _muts("Killed", "Survived", "NoCoverage")}}})
     got = ms.read_stryker_covered(tmp_path)
     assert (got["mutationScore"], got["mutationScoreCovered"]) == (33.33, 50.0)
     _report(tmp_path, {"files": {}})
     assert ms.read_stryker_covered(tmp_path)["mutationScoreCovered"] is None
     _report(
         tmp_path,
-        {
-            "metrics": {"mutationScoreOfCoveredCode": 100, "mutationScore": 90},
-            "files": {"a.ts": {"mutants": [{"status": "Killed"}]}},
-        },
+        {"files": {"a.ts": {"mutants": _muts("Killed")}}},
         name="mutation-result.json",
     )
     (tmp_path / "reports/mutation/mutation.json").unlink()
@@ -70,31 +72,41 @@ def test_read_stryker_covered_matrix(tmp_path: Path):
     assert ms.find_stryker_wrapper(tmp_path) == preferred
     assert ms.find_stryker_wrapper(tmp_path / "empty") is None
 
-def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
-    assert (
-        ms.run_stryker_gate(
-            tmp_path,
-            changed=["src/a.ts"],
-            mut={},
-            base="origin/main",
-            min_score=100,
-            languages=["typescript"],
-            write_summary=mut._write_summary,
-        )
-        == 1
+
+def _gate(tmp_path, **kw):
+    defaults = dict(
+        changed=["src/a.ts"],
+        mut={},
+        base="unique-base-xyz",
+        min_score=100.0,
+        languages=["typescript"],
+        write_summary=mut._write_summary,
     )
+    defaults.update(kw)
+    return ms.run_stryker_gate(tmp_path, **defaults)
+
+
+def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
+    assert _gate(tmp_path, base="origin/main", min_score=100) == 1
     body = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
-    assert set(body) == {
-        "schemaVersion", "mode", "base", "gate", "tool", "passed",
-        "reasons", "changedFiles", "languages", "minScoreCovered",
-    }
     assert body["schemaVersion"] == 1 and body["tool"] == "stryker"
-    assert body["reasons"] == ["no_stryker_runner"] and body["passed"] is False
-    assert body["gate"] == "hard" and body["mode"] == "incremental"
+    assert body["mode"] == "incremental" and body["gate"] == "hard"
+    assert body["passed"] is False and body["reasons"] == ["no_stryker_runner"]
+    assert set(body) == {
+        "schemaVersion",
+        "mode",
+        "base",
+        "gate",
+        "tool",
+        "passed",
+        "reasons",
+        "changedFiles",
+        "languages",
+        "minScoreCovered",
+    }
     (tmp_path / "run-mutation-js.cjs").write_text("//\n")
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
-    monkeypatch.delenv("STRYKER_BASE", raising=False)
-    monkeypatch.delenv("MUTATION_MIN_SCORE_COVERED", raising=False)
+    for k in ("MUTATION_BASE", "STRYKER_BASE", "MUTATION_MIN_SCORE_COVERED"):
+        monkeypatch.delenv(k, raising=False)
 
     class R0:
         returncode = 0
@@ -103,45 +115,21 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         ms.subprocess,
         "run",
-        lambda cmd, **kw: calls.update(cmd=cmd, cwd=kw.get("cwd"), env=kw.get("env") or {})
-        or R0(),
+        lambda cmd, **kw: calls.update(cmd=cmd, cwd=kw.get("cwd"), env=kw.get("env") or {}) or R0(),
     )
-    # wrapper exit 0 is not enough — covered score must meet min_score
-    assert (
-        ms.run_stryker_gate(
-            tmp_path,
-            changed=["src/a.ts"],
-            mut={"x": 1},
-            base="unique-base-xyz",
-            min_score=100.0,
-            languages=["typescript"],
-            write_summary=mut._write_summary,
-        )
-        == 1
-    )
+    assert _gate(tmp_path, mut={"x": 1}) == 1
     no_rep = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
     assert no_rep["passed"] is False and no_rep["reasons"] == ["no_stryker_report"]
     assert "passed" in no_rep and "PASSED" not in no_rep and "XXpassedXX" not in no_rep
-    _report(tmp_path, {"files": {"a.ts": {"mutants": [{"status": "Killed"}]}}})
-    assert (
-        ms.run_stryker_gate(
-            tmp_path,
-            changed=["src/a.ts"],
-            mut={"x": 1},
-            base="unique-base-xyz",
-            min_score=100.0,
-            languages=["typescript"],
-            write_summary=mut._write_summary,
-        )
-        == 0
-    )
+    _report(tmp_path, {"files": {"a.ts": {"mutants": _muts("Killed")}}})
+    assert _gate(tmp_path, mut={"x": 1}) == 0
     ok = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
-    assert ok == {**ok, "passed": True, "reasons": [], "stats": ok["stats"]}
-    assert ok["stats"]["survived"] == 0 and "passed" in ok and "stats" in ok
-    _report(tmp_path, {"files": {"a.ts": {"mutants": [{"status": "Killed"}, {"status": "Survived"}]}}})
-    assert ms.run_stryker_gate(tmp_path, changed=["src/a.ts"], mut={}, base="unique-base-xyz", min_score=100.0, languages=["typescript"], write_summary=mut._write_summary) == 1
+    assert ok["passed"] is True and ok["reasons"] == [] and ok["stats"]["survived"] == 0
+    _report(tmp_path, {"files": {"a.ts": {"mutants": _muts("Killed", "Survived")}}})
+    assert _gate(tmp_path) == 1
     bad = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
-    assert bad["passed"] is False and bad["reasons"] == ["score_covered=50.0<100.0", "survived=1"]
+    assert bad["passed"] is False
+    assert bad["reasons"] == ["score_covered=50.0<100.0", "survived=1"]
     assert bad["stats"]["survived"] == 1
     assert calls["cmd"] == ["node", str(tmp_path / "run-mutation-js.cjs")]
     assert calls["cwd"] == tmp_path
@@ -154,15 +142,4 @@ def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
         returncode = 7
 
     monkeypatch.setattr(ms.subprocess, "run", lambda *a, **k: R7())
-    assert (
-        ms.run_stryker_gate(
-            tmp_path,
-            changed=["src/a.ts"],
-            mut={},
-            base="b",
-            min_score=80,
-            languages=["javascript"],
-            write_summary=mut._write_summary,
-        )
-        == 7
-    )
+    assert _gate(tmp_path, base="b", min_score=80, languages=["javascript"]) == 7

@@ -1,4 +1,5 @@
 """Stryker (JS/TS) mutation helpers (AGE-34)."""
+
 from __future__ import annotations
 
 import json
@@ -23,12 +24,14 @@ _STATUS_MAP = {
     "Timeout": "timeout",
 }
 
+
 def find_stryker_wrapper(root: Path) -> Path | None:
     for parts in _WRAPPER_CANDIDATES:
         path = root.joinpath(*parts)
         if path.is_file():
             return path
     return None
+
 
 def read_stryker_covered(root: Path) -> dict | None:
     for name in _REPORT_NAMES:
@@ -53,9 +56,7 @@ def read_stryker_covered(root: Path) -> dict | None:
         )
         overall_den = killed + survived + no_coverage + timeout
         computed_overall = (
-            None
-            if overall_den == 0
-            else round(10000 * (killed + timeout) / overall_den) / 100
+            None if overall_den == 0 else round(10000 * (killed + timeout) / overall_den) / 100
         )
         return {
             "mutationScoreCovered": computed_covered,
@@ -69,6 +70,7 @@ def read_stryker_covered(root: Path) -> dict | None:
             "source": str(file.relative_to(root)),
         }
     return None
+
 
 def run_stryker_gate(
     root: Path,

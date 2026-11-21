@@ -7,12 +7,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "packages" / "shared" / "skills" / "acceptance-artifacts" / "SKILL.md"
 COMM = ROOT / "packages" / "shared" / "skills" / "communication-autonomy" / "SKILL.md"
-# Repo layout uses runtime/agentized; mutmut sandbox copies source_paths=agentized.
-_CONNECT_CANDIDATES = (
-    ROOT / "runtime" / "agentized" / "connect.py",
-    ROOT / "agentized" / "connect.py",
+CONNECT = next(
+    (
+        c
+        for c in (ROOT / "runtime/agentized/connect.py", ROOT / "agentized/connect.py")
+        if c.is_file()
+    ),
+    ROOT / "runtime/agentized/connect.py",
 )
-CONNECT = next((p for p in _CONNECT_CANDIDATES if p.is_file()), _CONNECT_CANDIDATES[0])
 
 # Required human-facing block titles (order matters for the default short report).
 FIVE_BLOCKS = (

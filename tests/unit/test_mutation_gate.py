@@ -19,8 +19,6 @@ def test_mutmut_failure_fails_gate_even_with_cached_mutants(tmp_path: Path, monk
     )
 
     monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path)
-
-
     monkeypatch.setattr(
         mut,
         "load_quality",

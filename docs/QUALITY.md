@@ -15,9 +15,6 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | Field | Meaning |
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
-
-
-
 | `mutation.gate` | `hard` on **`mutationScoreCovered`** for **whole changed files** matching `include_globs` (default **100**; never gate overall `mutationScore`; not hunk-only) |
 | `mutation.include_globs` | Which changed sources enter the mutation set. Default/dogfood: `runtime/agentized/*.py` (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested modules; a separate `**` glob is redundant) |
 | AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head **raw bytes** (encoding cookie respected). Missing base, decode/parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
@@ -39,8 +36,6 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 | `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |
-
-
 
 Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base on **whole changed files** (not format hunks only), drops AST-equivalent (noop) files, skips cleanly when no mutable files remain, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
 
