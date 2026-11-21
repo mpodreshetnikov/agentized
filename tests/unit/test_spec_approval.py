@@ -31,7 +31,6 @@ from agentized.spec_approval_defaults import (
     self_approval_message,
 )
 
-
 def test_config_defaults_and_overrides():
     assert default_spec_approval() == {
         CFG_ENABLED: False,
@@ -68,7 +67,6 @@ def test_config_defaults_and_overrides():
     assert "spec_approval" not in default_process_config()
     assert default_spec_approval()[CFG_ENABLED] is False
 
-
 def test_task_needs_spec():
     cases = (
         ("complex", "complex"),
@@ -81,7 +79,6 @@ def test_task_needs_spec():
     )
     outcomes = [task_needs_spec(tags, needle) for tags, needle in cases]
     assert outcomes == [True, True, False, False, False, False, True]
-
 
 def test_evaluate_task_spec_matrix():
     policy = default_spec_approval()
@@ -176,7 +173,6 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: self_approval_message("T-6", "Alice"),
     }
 
-    # Name claim + that person's full email on allowlist must not self-approve
     owner_on_allow = evaluate_task_spec(
         task_id="T-6b",
         claim="Alice <alice@corp.com>",
@@ -219,7 +215,6 @@ def test_evaluate_task_spec_matrix():
     )
     assert no_allow[KEY_OK] is False
 
-    # Allowlist path
     ok = evaluate_task_spec(
         task_id="T-8",
         claim="alice",
@@ -239,7 +234,6 @@ def test_evaluate_task_spec_matrix():
         KEY_APPROVERS: ["Bob <b@x>"],
     }
 
-    # Non-owner commit path even with self-approval text
     via_git = evaluate_task_spec(
         task_id="T-10",
         claim="alice",
@@ -257,7 +251,6 @@ def test_evaluate_task_spec_matrix():
         KEY_APPROVERS: ["non-owner-commit"],
     }
 
-    # claim=None: treat claim as empty; other approvers still work via allowlist
     none_claim = evaluate_task_spec(
         task_id="T-11",
         claim=None,  # type: ignore[arg-type]
@@ -274,7 +267,6 @@ def test_evaluate_task_spec_matrix():
         KEY_APPROVERS: ["bob@x.test"],
     }
 
-    # not-allowlisted message must include task_id
     not_listed = evaluate_task_spec(
         task_id="T-12",
         claim="alice",
@@ -287,7 +279,6 @@ def test_evaluate_task_spec_matrix():
     assert not_listed[KEY_MESSAGE] == approver_not_allowlisted_message("T-12")
     assert "T-12" in not_listed[KEY_MESSAGE]
 
-    # non-owner with a distinct approver label uses that approver
     via_other = evaluate_task_spec(
         task_id="T-13",
         claim="alice",
