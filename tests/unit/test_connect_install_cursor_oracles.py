@@ -292,4 +292,3 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(Path, "mkdir", wrap)
     install_cursor(tmp_path, "context")
     assert any(s.get("parents") is True and s.get("exist_ok") is True for s in seen)
-
