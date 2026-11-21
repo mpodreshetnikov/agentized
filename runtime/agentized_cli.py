@@ -43,19 +43,26 @@ def _ctx(root: Path, args) -> Path:
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
-    from agentized.connect import ConnectRefused
+    from connect_languages import (
+        ConnectRefused,
+        merge_managed_language_excludes,
+        refuse_incomplete_languages,
+    )
 
     root = find_repo_root()
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
     try:
+        # AGE-24: refuse before any connect writes (connect.py stays main-identical).
+        refuse_incomplete_languages(root, args.context)
         result = connect(
             root,
             context_rel=args.context,
             harnesses=harnesses,
             coverage_pct=args.coverage,
         )
+        merge_managed_language_excludes(root, args.context)
     except ConnectRefused as exc:
         print(exc.message, file=sys.stderr)
         if args.json:

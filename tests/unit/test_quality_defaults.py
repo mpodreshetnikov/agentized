@@ -34,10 +34,21 @@ def test_default_quality_config_full_cover_globs_and_structure():
             "thresholds": {},
         }
     ]
+    lang = cfg["languages"]
+    assert lang["supported"] == ["python", "javascript", "typescript"]
+    assert "packages/**" not in lang["exclude_globs"]
+    assert "templates/**" not in lang["exclude_globs"]
+    assert "node_modules/**" in lang["exclude_globs"]
+    assert ".venv/**" in lang["exclude_globs"]
     mut = cfg["mutation"]
     assert mut == {
         "enabled": True,
         "tool": "mutmut",
+        "tools": {
+            "python": "mutmut",
+            "javascript": "stryker",
+            "typescript": "stryker",
+        },
         "gate": "hard",
         "scope": "covered_changed_lines",
         "base_ref": "origin/main",

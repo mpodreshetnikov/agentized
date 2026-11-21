@@ -35,6 +35,7 @@ def default_quality_config() -> dict[str, Any]:
         ],
         "languages": {
             # detect:false is refused — always detect (AGE-24).
+            # Keep exclude list in sync with languages.DEFAULT_EXCLUDE_GLOBS.
             "supported": ["python", "javascript", "typescript"],
             "exclude_globs": [
                 "node_modules/**",
@@ -63,10 +64,6 @@ def default_quality_config() -> dict[str, Any]:
                 "**/target/**",
                 "Pods/**",
                 "**/Pods/**",
-                "**/*.example",
-                "**/*.example.*",
-                "**/*.example.cjs",
-                "**/*.example.mjs",
                 ".cursor/**",
                 ".claude/**",
                 ".codex/**",
@@ -78,6 +75,13 @@ def default_quality_config() -> dict[str, Any]:
                 "**/.mypy_cache/**",
                 ".ruff_cache/**",
                 "**/.ruff_cache/**",
+                ".tox/**",
+                ".coverage",
+                "htmlcov/**",
+                "**/*.example",
+                "**/*.example.*",
+                "**/*.example.cjs",
+                "**/*.example.mjs",
             ],
         },
         "mutation": {
@@ -112,14 +116,7 @@ def default_quality_config() -> dict[str, Any]:
             "enabled": True,
             "mode": "hard",
             "tool": "import-linter",
-            "tools": {
-                "python": "import-linter",
-                "javascript": "dependency-cruiser",
-                "typescript": "dependency-cruiser",
-            },
             "config": ".importlinter",
-            "js_config": ".dependency-cruiser.cjs",
-            "js_source": "src",
             "source_roots": ["runtime/agentized"],
             "forbidden_edges": [],
         },
