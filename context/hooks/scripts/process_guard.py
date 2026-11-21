@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Claim-before-edits process guard. May deny Write/Edit in agent sessions."""
+
 from __future__ import annotations
 
 import json
@@ -29,11 +30,7 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    event = (
-        payload.get("hook_event_name")
-        or payload.get("hookEventName")
-        or "PreToolUse"
-    )
+    event = payload.get("hook_event_name") or payload.get("hookEventName") or "PreToolUse"
     allow = {
         "permission": "allow",
         "continue": True,
@@ -68,7 +65,24 @@ def main() -> int:
         result = claim_check(root, paths, context_rel=ctx)
     except Exception as exc:  # noqa: BLE001 — broken process-control.json fail closed
         msg = f"REFUSED. process-control: claim check failed: {exc}"
-        print(json.dumps({"permission": "deny", "continue": False, "agent_message": msg, "additional_context": msg, "hookEventName": event, "systemMessage": msg, "hookSpecificOutput": {"hookEventName": event, "permissionDecision": "deny", "permissionDecisionReason": msg}}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "permission": "deny",
+                    "continue": False,
+                    "agent_message": msg,
+                    "additional_context": msg,
+                    "hookEventName": event,
+                    "systemMessage": msg,
+                    "hookSpecificOutput": {
+                        "hookEventName": event,
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": msg,
+                    },
+                },
+                ensure_ascii=False,
+            )
+        )
         return 2
 
     msg = result.get("message") or ""
