@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .task_schema import (
+    PLACEHOLDER_EMPTY,
     PLACEHOLDER_TAGS,
     TASK_ID_RE,
-    allocate_task_id,
     format_id_list,
     list_tasks,
+    map_orbit_status,
     parse_id_list,
     rebuild_task_index,
     validate_kind_priority,
@@ -24,30 +26,10 @@ KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
 SAFE_TASK_ID_RE = re.compile(r"^T-[0-9A-Za-z-]+$")
 MSG_NO_STATUS = "missing or empty Orbit status (refusing silent idea)"
 MSG_NO_FM = "no front matter / id"
+MSG_NO_VALUE = "missing Orbit value/Ценность (refusing placeholder)"
 MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
 MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by)"
-VALUE_PLACEHOLDER = "_(нет ценности в источнике)_"
-
-
-# Orbit-only aliases; everything else via status_gates (kept local so #51 need not wait on split B).
-ORBIT_STATUS_MAP: dict[str, str] = {
-    "review": "for-review",
-}
-
-
-def map_orbit_status(status: str) -> str | None:
-    """Map Orbit status → Agentized; None if empty/unknown (fail loudly)."""
-    from .status_gates import is_known_status, normalize_status
-
-    key = status.strip().lower()
-    if not key:
-        return None
-    if key in ORBIT_STATUS_MAP:
-        return ORBIT_STATUS_MAP[key]
-    norm = normalize_status(key)
-    if is_known_status(norm):
-        return norm
-    return None
+MSG_BAD_ID = "id {raw!r} must be T-* (convert Orbit T-NNNN) or Agentized T-YYMMDD-xxxx"
 
 
 @dataclass
@@ -265,6 +247,21 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
     )
 
 
+def _stable_task_id(dest_tasks: Path, orbit_id: str, reserved: set[str]) -> str:
+    """Deterministic Agentized id from orbit_id so dry-run ids == write ids."""
+    from .task_schema import utc_now_stamp
+
+    day_s = utc_now_stamp()
+    digest = hashlib.sha256(orbit_id.encode()).hexdigest()
+    for i in range(16):
+        suffix = digest[i * 4 : i * 4 + 4]
+        candidate = f"T-{day_s}-{suffix}"
+        if candidate in reserved or (dest_tasks / f"{candidate}.md").exists():
+            continue
+        return candidate
+    raise RuntimeError(f"no free stable id for orbit_id {orbit_id!r}")
+
+
 def agentized_markdown(draft: OrbitTaskDraft) -> str:
     acceptance = draft.exit if draft.status == "done" else ""
     value = draft.value
@@ -273,6 +270,8 @@ def agentized_markdown(draft: OrbitTaskDraft) -> str:
         draft.title,
         status=draft.status,
         tags=draft.tags or PLACEHOLDER_TAGS,
+        parent=PLACEHOLDER_EMPTY,
+        claim=PLACEHOLDER_EMPTY,
         kind=draft.kind,
         priority=draft.priority,
         owner=draft.owner,
@@ -374,6 +373,9 @@ def import_orbit_tasks(
         if draft.error:
             _skip(report, path, f"skip ({draft.error}): {path}")
             continue
+        if not draft.task_id.startswith("T-"):
+            _skip(report, path, f"skip ({MSG_BAD_ID.format(raw=draft.task_id)}): {path}")
+            continue
         if not is_safe_task_id(draft.task_id):
             _skip(report, path, f"skip (unsafe id {draft.task_id!r}): {path}")
             continue
@@ -384,6 +386,7 @@ def import_orbit_tasks(
 
         source_id = draft.task_id
         if not TASK_ID_RE.match(draft.task_id):
+            # Orbit-style T-NNNN… → convert to Agentized id (deterministic).
             orbit_id = draft.task_id
             draft.orbit_id = orbit_id
             existing = find_dest_by_orbit_id(dest_tasks, orbit_id)
@@ -395,9 +398,7 @@ def import_orbit_tasks(
                     err=False,
                 )
                 continue
-            draft.task_id = allocate_task_id(dest_tasks)
-            while draft.task_id in reserved or (dest_tasks / f"{draft.task_id}.md").exists():
-                draft.task_id = allocate_task_id(dest_tasks)
+            draft.task_id = _stable_task_id(dest_tasks, orbit_id, reserved)
             reserved.add(draft.task_id)
             report.warnings.append(f"{orbit_id}: converted → {draft.task_id} (orbit_id preserved)")
             this_run_map[orbit_id] = draft.task_id
@@ -407,10 +408,8 @@ def import_orbit_tasks(
                 this_run_map[draft.orbit_id] = draft.task_id
 
         if not draft.value:
-            draft.value = VALUE_PLACEHOLDER
-            report.warnings.append(
-                f"{source_id}: no Orbit value — using placeholder {VALUE_PLACEHOLDER!r}"
-            )
+            _skip(report, path, f"skip ({MSG_NO_VALUE}): {path}")
+            continue
 
         dest = resolve_dest_path(dest_tasks, draft.task_id)
         if dest is None:

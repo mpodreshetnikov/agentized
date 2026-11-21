@@ -881,13 +881,16 @@ def cmd_import_orbit(args: argparse.Namespace) -> int:
     ctx = _ctx(root, args)
     source = Path(args.source)
     if not source.is_absolute():
-        source = (root / source).resolve()
+        source = (Path.cwd() / source).resolve()
+    else:
+        source = source.resolve()
     dry_run = not bool(args.write)
     report = import_orbit_tasks(source, ctx / "tasks", dry_run=dry_run)
     print(format_report(report), end="")
     if args.json:
         print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
-    if report.errors:
+    err = bool(report.errors)
+    if err:
         return 1
     return 0
 
