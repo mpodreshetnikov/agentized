@@ -18,6 +18,7 @@
 | Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |
 | Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size (hard gate) |
+| Context placement | [`context.json`](context.json) | `nested` \| `external` path/remote (AGE-25); CI config stays here |
 | Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / env-check / process / new / claim / lease / digest / check / quality |
 | Autopilot / metrics | [`../docs/autopilot.md`](../docs/autopilot.md) | WIP next-task + board metrics (`agentized autopilot`; not HTML board) |
 | Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
