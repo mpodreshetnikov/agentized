@@ -99,8 +99,12 @@ def cmd_connect(args: argparse.Namespace) -> int:
     if layout.is_external:
         from agentized.context_layout import ensure_bridge_gitignore, ensure_code_context_bridges
 
-        ensure_code_context_bridges(layout)
-        ensure_bridge_gitignore(root, context_rel=args.context)
+        try:
+            ensure_code_context_bridges(layout)
+            ensure_bridge_gitignore(root, context_rel=args.context)
+        except ValueError as exc:
+            print(f"context layout error: {exc}", file=sys.stderr)
+            return 1
     result["layout"] = {
         "placement": layout.placement,
         "registry": str(layout.registry_root),
