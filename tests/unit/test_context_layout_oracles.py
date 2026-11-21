@@ -32,6 +32,7 @@ from agentized.context_layout import (
     default_layout_config,
     ensure_bridge_gitignore,
     ensure_code_context_bridges,
+    ensure_external_registry_skeleton,
     ensure_layout_config,
     external_clone_problems,
     external_context_gate,
@@ -40,6 +41,7 @@ from agentized.context_layout import (
     is_path_inside,
     load_layout_config,
     merge_external_result,
+    preflight_bridge_conflicts,
     prepare_connect_layout,
     require_registry_ready,
     resolve_external_path,
@@ -676,8 +678,82 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
         code,
         {"placement": "external", "external": {"path": str(tmp_path / "missing"), "remote": "r"}},
     )
-    with pytest.raises(ValueError, match="external Context not ready"):
+    with pytest.raises(
+        ValueError, match="external Context not ready|external Context path missing"
+    ):
         prepare_connect_layout(code)
+
+
+def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
+    """Seed empty external clone; preflight conflicts before bridges."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    _write_layout(
+        code,
+        {"placement": "external", "external": {"path": str(ext), "remote": "r"}},
+    )
+    layout = resolve_layout(code)
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "context").mkdir()
+    assert ensure_external_registry_skeleton(resolve_layout(nested)) == []
+
+    created = ensure_external_registry_skeleton(layout)
+    assert (ext / "NAV.md").is_file()
+    assert (ext / "tasks" / "INDEX.md").is_file()
+    assert (ext / "leases" / "INDEX.md").is_file()
+    assert len(created) == 3
+    assert ensure_external_registry_skeleton(layout) == []  # idempotent
+    require_registry_ready(layout)
+    preflight_bridge_conflicts(layout)  # clean — no raise
+
+    (code / "context" / "tasks").mkdir(parents=True)
+    (code / "context" / "tasks" / "stale.md").write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        preflight_bridge_conflicts(layout)
+
+    # prepare_connect_layout seeds empty clone then fails preflight before bridges
+    empty = tmp_path / "empty-ext"
+    empty.mkdir()
+    _git_init(empty)
+    code2 = tmp_path / "code2"
+    code2.mkdir()
+    _write_layout(
+        code2,
+        {"placement": "external", "external": {"path": str(empty), "remote": "r"}},
+    )
+    (code2 / "context" / "tasks").mkdir(parents=True)
+    (code2 / "context" / "tasks" / "x.md").write_text("y", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        prepare_connect_layout(code2, bridges=False)
+    assert (empty / "NAV.md").is_file()  # seeded before preflight
+
+    bad = tmp_path / "code-bad"
+    bad.mkdir()
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(tmp_path / "nope"), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="external Context path missing"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
+    not_git = tmp_path / "not-git"
+    not_git.mkdir()
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(not_git), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="not a git checkout"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
+    file_ext = tmp_path / "file-ext"
+    file_ext.write_text("x", encoding="utf-8")
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(file_ext), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="not a directory"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
 
 
 def test_bridge_link_target_cwd_independent(tmp_path: Path, monkeypatch):

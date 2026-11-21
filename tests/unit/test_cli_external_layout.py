@@ -24,18 +24,13 @@ def _ns(**kw):
     return argparse.Namespace(**base)
 
 
-def _fresh_external(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """Code repo + external Context clone (ready); code has context.json only."""
+def _empty_external(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Code repo + EMPTY external git clone (no NAV/tasks seed); context.json only."""
     code, ext = tmp_path / "code", tmp_path / "ext"
     code.mkdir()
     ext.mkdir()
     _git_init(code)
     _git_init(ext)
-    (ext / "NAV.md").write_text("# NAV\n", encoding="utf-8")
-    (ext / "tasks").mkdir()
-    (ext / "leases").mkdir()
-    (ext / "tasks" / "INDEX.md").write_text("# tasks\n", encoding="utf-8")
-    (ext / "leases" / "INDEX.md").write_text("# leases\n", encoding="utf-8")
     ctx = code / "context"
     ctx.mkdir()
     (ctx / "context.json").write_text(
@@ -79,25 +74,29 @@ def test_layout_ctx_exits_on_bad_config(tmp_path: Path, capsys: pytest.CaptureFi
     assert "context layout error:" in capsys.readouterr().err
 
 
-def test_fresh_external_connect_bridges_idempotent(
+def test_empty_external_connect_check_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    code, ext, ctx = _fresh_external(tmp_path)
+    code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
 
+    assert not (ext / "NAV.md").exists()
     assert not (ctx / "tasks").exists()
     assert cli.cmd_connect(_ns()) == 0
     out = capsys.readouterr().out
     assert "connect OK" in out
+    assert (ext / "NAV.md").is_file()
+    assert (ext / "tasks" / "INDEX.md").is_file()
+    assert (ext / "leases" / "INDEX.md").is_file()
     assert (ctx / "tasks").is_symlink()
     assert (ctx / "tasks").resolve() == (ext / "tasks").resolve()
-    assert (ctx / "leases").is_symlink()
     assert (ctx / "NAV.md").is_symlink()
-    gi = (code / ".gitignore").read_text(encoding="utf-8")
-    assert "context/tasks" in gi
+    assert "context/tasks" in (code / ".gitignore").read_text(encoding="utf-8")
 
-    # idempotent re-run
+    assert cli.cmd_check(_ns()) == 0
+    assert "check OK" in capsys.readouterr().out
+
     assert cli.cmd_connect(_ns()) == 0
     assert (ctx / "tasks").is_symlink()
     assert (ctx / "tasks").resolve() == (ext / "tasks").resolve()
@@ -106,8 +105,8 @@ def test_fresh_external_connect_bridges_idempotent(
 def test_bridges_error_prints_layout_error_no_traceback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    code, ext, ctx = _fresh_external(tmp_path)
-    # Pre-seed conflicting local tasks dir (non-empty) + external tasks exist → conflict
+    code, ext, ctx = _empty_external(tmp_path)
+    # Pre-seed conflicting local tasks dir (non-empty) — preflight before connect writes
     (ctx / "tasks").mkdir()
     (ctx / "tasks" / "stale.md").write_text("x", encoding="utf-8")
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
@@ -117,27 +116,27 @@ def test_bridges_error_prints_layout_error_no_traceback(
     assert rc == 1
     assert "context layout error:" in err
     assert "Traceback" not in err
+    # No connect artifacts when preflight fails
+    assert not (code / "AGENTS.md").exists()
 
 
 def test_check_process_control_and_external_clone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    code, ext, ctx = _fresh_external(tmp_path)
+    code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
     assert cli.cmd_connect(_ns()) == 0
     capsys.readouterr()
 
-    # Missing process-control.json is a hard error
     pc = ctx / "process-control.json"
     assert pc.exists()
     pc.unlink()
     assert cli.cmd_check(_ns()) == 1
-    err_out = capsys.readouterr().out + capsys.readouterr().err
-    assert "process-control.json" in err_out
-    assert "check FAIL" in err_out
+    fail_out = capsys.readouterr().out
+    assert "process-control.json" in fail_out
+    assert "check FAIL" in fail_out
 
-    # Restore via reconnect pins
     assert cli.cmd_connect(_ns()) == 0
     capsys.readouterr()
     assert cli.cmd_check(_ns()) == 0
@@ -145,7 +144,6 @@ def test_check_process_control_and_external_clone(
     assert "check OK" in ok
     assert "placement: external" in ok
 
-    # Broken external clone → check fail
     import shutil
 
     shutil.rmtree(ext / "tasks")
@@ -155,7 +153,7 @@ def test_check_process_control_and_external_clone(
 def test_lease_and_sync_status_use_registry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    code, ext, ctx = _fresh_external(tmp_path)
+    code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
     assert cli.cmd_connect(_ns()) == 0
@@ -172,11 +170,9 @@ def test_lease_and_sync_status_use_registry(
         )
         == 0
     )
-    # lease file lives in external registry
     assert (ext / "leases" / "T-261121-lease.md").exists()
     assert cli.cmd_lease(_ns(lease_cmd="list")) == 0
-    listed = capsys.readouterr().out
-    assert "T-261121-lease" in listed
+    assert "T-261121-lease" in capsys.readouterr().out
 
     assert cli.cmd_sync_status(_ns()) == 0
     sync = capsys.readouterr().out
@@ -186,7 +182,7 @@ def test_lease_and_sync_status_use_registry(
 
 def test_connect_bridges_after_connect_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Bridges must run only after connect() succeeds (no orphan bridges on failure)."""
-    code, ext, ctx = _fresh_external(tmp_path)
+    code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
 
@@ -201,28 +197,23 @@ def test_connect_bridges_after_connect_order(tmp_path: Path, monkeypatch: pytest
     with pytest.raises(RuntimeError, match="connect failed"):
         cli.cmd_connect(_ns())
     assert calls == ["connect"]
-    assert not (ctx / "tasks").exists()
+    assert not (ctx / "tasks").exists() or not (ctx / "tasks").is_symlink()
 
-    monkeypatch.setattr(cli, "connect", real_connect)
     order: list[str] = []
 
     def wrap_connect(*a, **k):
         order.append("connect")
         return real_connect(*a, **k)
 
-    from agentized import context_layout as cl
+    import agentized.context_layout as layout_mod
 
-    real_bridges = cl.ensure_code_context_bridges
+    real_bridges = layout_mod.ensure_code_context_bridges
 
     def wrap_bridges(layout):
         order.append("bridges")
         return real_bridges(layout)
 
     monkeypatch.setattr(cli, "connect", wrap_connect)
-    monkeypatch.setattr(cl, "ensure_code_context_bridges", wrap_bridges)
-    # cmd_connect imports ensure_code_context_bridges locally — patch where used
-    import agentized.context_layout as layout_mod
-
     monkeypatch.setattr(layout_mod, "ensure_code_context_bridges", wrap_bridges)
     assert cli.cmd_connect(_ns()) == 0
     assert order == ["connect", "bridges"]

@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- External `agentized connect` (CLI): suppress local skeleton registry dirs before bridging so fresh external Context no longer hits `ERR_BRIDGE_CONFLICT`.
+- External `agentized connect`: empty external git clone is seeded (NAV + tasks/leases indexes); local skeleton skips bridge paths; bridge conflicts preflighted before connect writes (no CLI temp-NAV dodge).
 
 ### Changed
 

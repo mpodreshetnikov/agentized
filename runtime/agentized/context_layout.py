@@ -225,6 +225,59 @@ def require_registry_ready(layout: ContextLayout) -> None:
         raise ValueError("external Context not ready: " + "; ".join(problems))
 
 
+# Minimal external-registry seed (empty git clone → connectable). Keep short for mut.
+_EXT_NAV_MD = "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
+_EXT_TASKS_INDEX_MD = (
+    "# Tasks\n\n## open\n\n_(empty)_\n\n## in-progress\n\n_(empty)_\n\n## blocked\n\n_(empty)_\n"
+)
+_EXT_LEASES_INDEX_MD = (
+    "# Path leases\n\n| path | task | owner | expires |\n|------|------|-------|--------|\n"
+)
+
+
+def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
+    """Create NAV.md + tasks/INDEX.md + leases/INDEX.md in an empty external clone.
+
+    No-op when not external. Requires ``registry_root`` to exist as a git checkout.
+    Does not overwrite existing files.
+    """
+    if not layout.is_external:
+        return []
+    root = layout.registry_root
+    if not root.exists():
+        hint = f" remote={layout.remote}" if layout.remote else ""
+        raise ValueError(f"external Context path missing: {root}{hint}")
+    if not root.is_dir():
+        raise ValueError(f"external Context path is not a directory: {root}")
+    if not is_git_checkout(root):
+        raise ValueError(f"external Context is not a git checkout (no .git): {root}")
+    created: list[str] = []
+    (root / "tasks").mkdir(parents=True, exist_ok=True)
+    (root / "leases").mkdir(parents=True, exist_ok=True)
+    targets = (
+        (root / "NAV.md", _EXT_NAV_MD),
+        (root / "tasks" / "INDEX.md", _EXT_TASKS_INDEX_MD),
+        (root / "leases" / "INDEX.md", _EXT_LEASES_INDEX_MD),
+    )
+    for path, body in targets:
+        if path.exists():
+            continue
+        path.write_text(body.rstrip() + "\n", encoding="utf-8")
+        created.append(str(path))
+    return created
+
+
+def preflight_bridge_conflicts(layout: ContextLayout) -> None:
+    """Raise if any bridge path would conflict — no filesystem writes."""
+    if not layout.is_external:
+        return
+    code = layout.code_context
+    for name in BRIDGE_NAMES:
+        src = layout.registry_root / name
+        dest = code / name
+        _bridge_preflight(src, dest)
+
+
 def ensure_layout_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     path = layout_config_path(root, context_rel)
     created = not path.exists()
@@ -336,7 +389,10 @@ def prepare_connect_layout(
     ensure_layout_config(root, context_rel=context_rel)
     layout = resolve_layout(root, context_rel=context_rel)
     if layout.is_external:
+        ensure_external_registry_skeleton(layout)
         require_registry_ready(layout)
+        # Conflict check before any connect-side writes / bridge creation.
+        preflight_bridge_conflicts(layout)
         if bridges:
             ensure_code_context_bridges(layout)
             ensure_bridge_gitignore(root, context_rel=context_rel)
