@@ -71,6 +71,7 @@ def run_architecture_gate(
     root: Path | None = None,
     *,
     context: str = DEFAULT_CONTEXT,
+    now=None,
 ) -> int:
     root = root or find_repo_root()
     cfg = load_quality(root, context)
@@ -83,24 +84,23 @@ def run_architecture_gate(
     detected = detect_languages(root, exclude_globs=list(lang_section.get("exclude_globs") or []) or None)
     findings, tools_run = run_js_architecture(root, section, detected)
     mode = str(section.get("mode") or "hard").lower()
+    stamp = (now or datetime.now)(timezone.utc).isoformat()
     out_dir = root / "reports" / "architecture"
     out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schemaVersion": 1,
+        "mode": mode,
+        "toolsRun": tools_run,
+        "detectedLanguages": sorted(detected),
+        "generatedAt": stamp,
+        "findings": findings,
+        "passed": True if mode == "warn" else not findings,
+    }
     (out_dir / "architecture-js-summary.json").write_text(
-        json.dumps(
-            {
-                "schemaVersion": 1,
-                "mode": mode,
-                "toolsRun": tools_run,
-                "detectedLanguages": sorted(detected),
-                "generatedAt": datetime.now(timezone.utc).isoformat(),
-                "findings": findings,
-                "passed": (not findings) if mode != "warn" else True,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
     )
-    if findings and mode != "warn":
+    if mode == "warn":
+        return 0 if py_rc == 0 else py_rc
+    if findings:
         return 1
     return 0 if py_rc == 0 else py_rc

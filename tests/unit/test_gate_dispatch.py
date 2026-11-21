@@ -60,6 +60,7 @@ def test_language_for_path_exts():
         ("README.md", None),
         ("src/a.go", None),
         (r"win\path\b.ts", "typescript"),
+        ("src/a.TsX", "typescript"),
     ]
     assert [(p, gd.language_for_path(p)) for p, _ in vector] == vector
 
@@ -153,6 +154,11 @@ def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
         "pkg/foo_test.py",
         "pkg/foo-test.js",
         "pkg/foo.spec.js",
+        "pkg/foo_test.ts",
+        "lib/tests/helper.py",
+        r"win\tests\a.py",
+        "not_a_test.py",
+        "prod.py",
     ]
     assert [gd.is_test_path(p) for p in paths] == [
         False,
@@ -164,6 +170,11 @@ def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
         True,
         True,
         True,
+        True,
+        True,
+        True,
+        True,
+        False,
     ]
     monkeypatch.setattr(
         gd,
@@ -183,7 +194,7 @@ def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
 
 
 def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
-    n = {"i": 0}
+    calls: list[list[str]] = []
 
     class R1:
         returncode = 1
@@ -195,12 +206,16 @@ def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
         stdout = "src/a.py\n"
         stderr = ""
 
-    def fake_run(*a, **k):
-        n["i"] += 1
-        return R1() if n["i"] == 1 else R2()
+    def fake_run(cmd, **k):
+        calls.append(list(cmd))
+        return R1() if len(calls) == 1 else R2()
 
     monkeypatch.setattr(gd.subprocess, "run", fake_run)
     assert gd.git_changed_names(tmp_path, "origin/main") == ["src/a.py"]
+    assert calls == [
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main...HEAD"],
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main"],
+    ]
 
     class RFail:
         returncode = 2
@@ -212,4 +227,4 @@ def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
         gd.git_changed_names(tmp_path, "origin/main")
         raise AssertionError("expected SystemExit")
     except SystemExit as exc:
-        assert exc.code == 2
+        assert exc.code == 1

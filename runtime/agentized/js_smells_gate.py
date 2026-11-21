@@ -59,6 +59,7 @@ def run_test_smells(
     root: Path | None = None,
     *,
     context: str = DEFAULT_CONTEXT,
+    now=None,
 ) -> int:
     root = root or find_repo_root()
     cfg = load_quality(root, context)
@@ -69,12 +70,13 @@ def run_test_smells(
     py_rc = run_python_smells(root, context=context)
     findings, files = run_js_smells(root, section)
     mode = str(section.get("mode") or "hard").lower()
+    stamp = (now or datetime.now)(timezone.utc).isoformat()
     out_dir = root / "reports" / "test-smells"
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schemaVersion": 1,
         "mode": mode,
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "generatedAt": stamp,
         "filesScanned": len(files),
         "findings": findings,
         "passed": True if mode == "warn" else not findings,
@@ -82,12 +84,8 @@ def run_test_smells(
     (out_dir / "test-smells-js-summary.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
     )
+    if mode == "warn":
+        return 0 if py_rc == 0 else py_rc
     if findings:
-        print(f"[test-smells-js] {len(findings)} finding(s) (mode={mode})")
-        for item in findings[:40]:
-            print(f"  {item['file']}:{item['line']} {item['kind']}: {item['detail']}")
-        if mode == "warn":
-            print("[test-smells-js] warn mode — not failing the gate")
-            return 0 if py_rc == 0 else py_rc
         return 1
     return 0 if py_rc == 0 else py_rc

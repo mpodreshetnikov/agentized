@@ -76,10 +76,7 @@ def language_for_path(rel: str) -> str | None:
     name = rel.replace("\\", "/").rsplit("/", 1)[-1].lower()
     if name.endswith(".d.ts"):
         return None
-    for ext, lang in _EXT_LANG.items():
-        if name.endswith(ext):
-            return lang
-    return None
+    return _EXT_LANG.get(Path(name).suffix)
 
 
 def detect_languages(
@@ -140,31 +137,29 @@ def is_test_path(name: str) -> bool:
         return False
     if parts[0] == "tests" or "tests" in parts or "__tests__" in parts:
         return True
-    if base.startswith("test_") or base.endswith("_test.py"):
+    if base.startswith("test_"):
         return True
-    if any(x in base for x in (".test.", ".spec.", "_test.", "-test.")):
+    stem = Path(base).stem
+    if stem.endswith("_test") or stem.endswith("-test"):
+        return True
+    if ".test." in base or ".spec." in base:
         return True
     return False
 
 
 def git_changed_names(root: Path, base_ref: str) -> list[str]:
-    proc = subprocess.run(
+    cmds = [
         ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base_ref}...HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        proc = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
-            cwd=root,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            print(proc.stderr or "git diff failed", file=sys.stderr)
-            raise SystemExit(proc.returncode or 1)
-    return [n.strip().replace("\\", "/") for n in proc.stdout.splitlines() if n.strip()]
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
+    ]
+    last_err = ""
+    for cmd in cmds:
+        proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return [n.strip().replace("\\", "/") for n in proc.stdout.splitlines() if n.strip()]
+        last_err = proc.stderr or "git diff failed"
+    print(last_err, file=sys.stderr)
+    raise SystemExit(1)
 
 
 def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list[str]:

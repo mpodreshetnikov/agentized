@@ -69,6 +69,9 @@ def test_dependency_cruiser_and_eslint(tmp_path: Path, monkeypatch):
 
 
 def test_architecture_js_gate_matrix(tmp_path: Path, monkeypatch):
+    from datetime import datetime, timezone
+
+    fixed = datetime(2020, 1, 2, tzinfo=timezone.utc)
     src = tmp_path / "src"
     src.mkdir()
     (src / "app.ts").write_text("export {}\n", encoding="utf-8")
@@ -90,10 +93,11 @@ def test_architecture_js_gate_matrix(tmp_path: Path, monkeypatch):
             "architecture": {"enabled": True, "mode": "hard", "tools": {}, "tool": "builtin"},
         },
     )
-    assert gate.run_architecture_gate(tmp_path) == 1
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 1
     summary = json.loads(
         (tmp_path / "reports/architecture/architecture-js-summary.json").read_text()
     )
+    assert summary["generatedAt"] == fixed.isoformat()
     assert summary["passed"] is False
     assert {f["kind"] for f in summary["findings"]} == {"no_architecture_runner"}
 
@@ -114,10 +118,15 @@ def test_architecture_js_gate_matrix(tmp_path: Path, monkeypatch):
         },
     )
     monkeypatch.setattr(gate, "run_dependency_cruiser", lambda root, section: (0, "ok"))
-    assert gate.run_architecture_gate(tmp_path) == 0
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 0
+    summary = json.loads(
+        (tmp_path / "reports/architecture/architecture-js-summary.json").read_text()
+    )
+    assert summary["toolsRun"] == ["dependency-cruiser"]
+    assert summary["passed"] is True
 
     monkeypatch.setattr(gate, "run_dependency_cruiser", lambda root, section: (1, "boom"))
-    assert gate.run_architecture_gate(tmp_path) == 1
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 1
 
     monkeypatch.setattr(
         gate,
@@ -132,7 +141,11 @@ def test_architecture_js_gate_matrix(tmp_path: Path, monkeypatch):
         },
     )
     monkeypatch.setattr(gate, "run_eslint_boundaries", lambda root, section: (1, "x"))
-    assert gate.run_architecture_gate(tmp_path) == 0
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 0
+    summary = json.loads(
+        (tmp_path / "reports/architecture/architecture-js-summary.json").read_text()
+    )
+    assert summary["passed"] is True
 
     monkeypatch.setattr(
         gate,
@@ -146,8 +159,29 @@ def test_architecture_js_gate_matrix(tmp_path: Path, monkeypatch):
             },
         },
     )
-    assert gate.run_architecture_gate(tmp_path) == 1
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 1
     summary = json.loads(
         (tmp_path / "reports/architecture/architecture-js-summary.json").read_text()
     )
-    assert any(f["kind"] == "unknown_architecture_tool" for f in summary["findings"])
+    kinds = {f["kind"] for f in summary["findings"]}
+    assert "unknown_architecture_tool" in kinds
+    assert "no_architecture_runner" in kinds
+
+    monkeypatch.setattr(gate, "run_python_architecture", lambda *a, **k: 3)
+    monkeypatch.setattr(
+        gate,
+        "load_quality",
+        lambda *a, **k: {
+            "languages": {"exclude_globs": []},
+            "architecture": {
+                "enabled": True,
+                "mode": "hard",
+                "tools": {
+                    "typescript": "dependency-cruiser",
+                    "javascript": "dependency-cruiser",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(gate, "run_dependency_cruiser", lambda root, section: (0, "ok"))
+    assert gate.run_architecture_gate(tmp_path, now=lambda tz: fixed) == 3

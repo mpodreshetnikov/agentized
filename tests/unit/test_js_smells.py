@@ -60,6 +60,9 @@ def test_brace_scan_constants_and_gate(tmp_path: Path, monkeypatch):
     (tmp_path / "node_modules" / "x.test.js").write_text(
         "expect(1).toBeTruthy();\n", encoding="utf-8"
     )
+    from datetime import datetime, timezone
+
+    fixed = datetime(2020, 1, 2, tzinfo=timezone.utc)
     monkeypatch.setattr(gate, "run_python_smells", lambda *a, **k: 0)
     monkeypatch.setattr(
         gate,
@@ -72,12 +75,14 @@ def test_brace_scan_constants_and_gate(tmp_path: Path, monkeypatch):
             }
         },
     )
-    assert gate.run_test_smells(tmp_path) == 1
+    assert gate.run_test_smells(tmp_path, now=lambda tz: fixed) == 1
     summary = json.loads(
         (tmp_path / "reports/test-smells/test-smells-js-summary.json").read_text()
     )
+    assert summary["generatedAt"] == fixed.isoformat()
     assert summary["passed"] is False
     assert summary["filesScanned"] == 2
+    assert summary["mode"] == "hard"
 
     monkeypatch.setattr(
         gate,
@@ -90,6 +95,23 @@ def test_brace_scan_constants_and_gate(tmp_path: Path, monkeypatch):
             }
         },
     )
-    assert gate.run_test_smells(tmp_path) == 0
+    assert gate.run_test_smells(tmp_path, now=lambda tz: fixed) == 0
+    summary = json.loads(
+        (tmp_path / "reports/test-smells/test-smells-js-summary.json").read_text()
+    )
+    assert summary["passed"] is True
     monkeypatch.setattr(gate, "load_quality", lambda *a, **k: {"test_smells": {"enabled": False}})
     assert gate.run_test_smells(tmp_path) == 0
+    monkeypatch.setattr(gate, "run_python_smells", lambda *a, **k: 4)
+    monkeypatch.setattr(
+        gate,
+        "load_quality",
+        lambda *a, **k: {
+            "test_smells": {
+                "enabled": True,
+                "mode": "hard",
+                "include_globs": ["**/*.nope.ts"],
+            }
+        },
+    )
+    assert gate.run_test_smells(tmp_path, now=lambda tz: fixed) == 4
