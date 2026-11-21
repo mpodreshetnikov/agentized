@@ -8,127 +8,109 @@ from pathlib import Path
 from typing import Any
 
 _SOURCE_TESTISH_NAMES = frozenset({"test_smells.py"})
-
+# fmt: off
 _EXT_LANG = {
-    ".py": "python",
-    ".pyi": "python",
-    ".js": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".jsx": "javascript",
-    ".ts": "typescript",
-    ".tsx": "typescript",
+    ".py": "python", ".pyi": "python", ".js": "javascript", ".mjs": "javascript",
+    ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript",
 }
-
 MUTATION_TOOLS = {
-    "python": frozenset({"mutmut"}),
-    "javascript": frozenset({"stryker"}),
-    "typescript": frozenset({"stryker"}),
+    "python": frozenset({"mutmut"}), "javascript": frozenset({"stryker"}), "typescript": frozenset({"stryker"}),
 }
-
 ARCHITECTURE_TOOLS = {
     "python": frozenset({"import-linter", "builtin"}),
     "javascript": frozenset({"dependency-cruiser", "eslint-boundaries"}),
     "typescript": frozenset({"dependency-cruiser", "eslint-boundaries"}),
 }
-
+# fmt: on
 DEFAULT_EXCLUDE_GLOBS = (
-    "node_modules/**",
-    "vendor/**",
+    "**/node_modules/**",
+    "**/vendor/**",
     "**/dist/**",
     "**/build/**",
     "**/.venv/**",
     "**/__pycache__/**",
-    "mutants/**",
-    "coverage/**",
-    "reports/**",
+    "**/mutants/**",
+    "**/coverage/**",
+    "**/reports/**",
     "**/*.min.js",
     "**/.git/**",
-    "packages/**",
-    "templates/**",
     "**/*.example*",
 )
 
 
+def match_starstar(rel: str, pattern: str) -> bool:
+    rel, pats = rel.replace("\\", "/"), pattern.replace("\\", "/").split("/")
+    parts = rel.split("/") if rel else []
+
+    def rec(pi: int, pj: int) -> bool:
+        if pj < len(pats) and pats[pj] == "**":
+            start = pi
+            return any(rec(k, pj + 1) for k in range(start, len(parts) + 1))
+        if pj == len(pats):
+            return pi == len(parts)
+        if pi == len(parts):
+            return False
+        return fnmatch.fnmatch(parts[pi], pats[pj]) and rec(pi + 1, pj + 1)
+
+    return rec(0, 0)
+
+
 def _glob_excluded(rel: str, patterns: list[str]) -> bool:
-    rel = rel.replace("\\", "/")
-    for pat in patterns:
-        if fnmatch.fnmatch(rel, pat):
-            return True
-        if pat.endswith("/**") and rel == pat[:-3]:
-            return True
-        if pat.startswith("**/") and fnmatch.fnmatch(rel, pat[3:]):
-            return True
-    return False
+    return any(match_starstar(rel, pat) for pat in patterns)
 
 
 def language_for_path(rel: str) -> str | None:
     name = Path(rel).name.lower()
-    if name.endswith(".d.ts"):
-        return None
-    return _EXT_LANG.get(Path(name).suffix)
+    return None if name.endswith(".d.ts") else _EXT_LANG.get(Path(name).suffix)
 
 
-def detect_languages(
-    root: Path,
-    *,
-    exclude_globs: list[str] | None = None,
-) -> dict[str, list[str]]:
+def detect_languages(root: Path, *, exclude_globs: list[str] | None = None) -> dict[str, list[str]]:
     patterns = list(exclude_globs if exclude_globs is not None else DEFAULT_EXCLUDE_GLOBS)
     found: dict[str, list[str]] = {}
     if not root.exists():
         return found
     for path in root.rglob("*"):
-        if path.is_file():
-            rel = path.relative_to(root).as_posix()
-            if not _glob_excluded(rel, patterns):
-                lang = language_for_path(rel)
-                if lang:
-                    bucket = found.setdefault(lang, [])
-                    if len(bucket) < 8:
-                        bucket.append(rel)
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if _glob_excluded(rel, patterns):
+            continue
+        lang = language_for_path(rel)
+        if lang:
+            bucket = found.setdefault(lang, [])
+            if len(bucket) < 8:
+                bucket.append(rel)
     return found
 
 
-def mutation_tool_for_language(mut_cfg: dict[str, Any], language: str) -> str | None:
-    tools = mut_cfg.get("tools")
+def _tool_pick(cfg: dict[str, Any], language: str, allowed: dict) -> str | None:
+    tools = cfg.get("tools")
     if isinstance(tools, dict) and tools.get(language):
         return str(tools[language]).lower()
-    single = mut_cfg.get("tool")
+    single = cfg.get("tool")
     if not single:
         return None
     single_s = str(single).lower()
-    return single_s if single_s in (MUTATION_TOOLS.get(language) or frozenset()) else None
+    return single_s if single_s in (allowed.get(language) or frozenset()) else None
+
+
+def mutation_tool_for_language(mut_cfg: dict[str, Any], language: str) -> str | None:
+    return _tool_pick(mut_cfg, language, MUTATION_TOOLS)
 
 
 def architecture_tool_for_language(arch_cfg: dict[str, Any], language: str) -> str | None:
-    tools = arch_cfg.get("tools")
-    if isinstance(tools, dict) and tools.get(language):
-        return str(tools[language]).lower()
-    single = arch_cfg.get("tool")
-    if not single:
-        return None
-    single_s = str(single).lower()
-    return single_s if single_s in (ARCHITECTURE_TOOLS.get(language) or frozenset()) else None
+    return _tool_pick(arch_cfg, language, ARCHITECTURE_TOOLS)
 
 
 def is_test_path(name: str) -> bool:
-    """True for test files — not production modules like ``test_smells.py``."""
     name = name.replace("\\", "/")
-    parts = name.split("/")
-    base = parts[-1]
+    parts, base = name.split("/"), name.split("/")[-1]
     if base in _SOURCE_TESTISH_NAMES:
         return False
-    if "tests" in parts or "__tests__" in parts:
-        return True
-    if base.startswith("test_"):
+    if "tests" in parts or "__tests__" in parts or base.startswith("test_"):
         return True
     stem = Path(base).stem
-    if stem.endswith("_test") or stem.endswith("-test"):
-        return True
-    if ".test." in base or ".spec." in base:
-        return True
-    return False
+    return stem.endswith(("_test", "-test")) or ".test." in base or ".spec." in base
 
 
 def git_changed_names(root: Path, base_ref: str) -> list[str]:
@@ -137,16 +119,15 @@ def git_changed_names(root: Path, base_ref: str) -> list[str]:
         ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
     ]
     for cmd in cmds:
-        proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+        proc = subprocess.run(cmd, check=False, cwd=root, capture_output=True, text=True)
         if proc.returncode == 0:
             return [n.strip().replace("\\", "/") for n in proc.stdout.splitlines() if n.strip()]
     raise SystemExit("git diff failed")
 
 
 def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list[str]:
-    names = git_changed_names(root, base_ref)
     out = []
-    for name in names:
+    for name in git_changed_names(root, base_ref):
         if is_test_path(name) or not language_for_path(name):
             continue
         for p in prefixes:
@@ -158,6 +139,4 @@ def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list
 
 
 def combine_gate_rc(mode: str, has_findings: bool, py_rc: int) -> int:
-    if mode == "warn":
-        return py_rc
-    return 1 if has_findings else py_rc
+    return py_rc if mode == "warn" else (1 if has_findings else py_rc)

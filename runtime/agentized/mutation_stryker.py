@@ -10,19 +10,15 @@ from collections.abc import Callable
 from pathlib import Path
 
 WriteSummary = Callable[[Path, dict], Path]
-
 _WRAPPER_CANDIDATES = (
     ("scripts", "quality", "run-mutation-js.cjs"),
     ("run-mutation-js.cjs",),
     ("templates", "quality", "run-mutation-js.cjs"),
 )
 _REPORT_NAMES = ("mutation.json", "mutation-result.json")
-_STATUS_MAP = {
-    "Killed": "killed",
-    "Survived": "survived",
-    "NoCoverage": "no_tests",
-    "Timeout": "timeout",
-}
+# fmt: off
+_STATUS_MAP = {"Killed": "killed", "Survived": "survived", "NoCoverage": "no_tests", "Timeout": "timeout"}
+# fmt: on
 
 
 def find_stryker_wrapper(root: Path) -> Path | None:
@@ -33,39 +29,58 @@ def find_stryker_wrapper(root: Path) -> Path | None:
     return None
 
 
+def clear_stryker_reports(root: Path) -> None:
+    directory = root / "reports" / "mutation"
+    for name in _REPORT_NAMES:
+        path = directory / name
+        if path.is_file():
+            path.unlink()
+
+
+def report_covers_changed(report_files: list[str], changed: list[str]) -> bool:
+    if not changed:
+        return True
+    reported = [f.replace("\\", "/") for f in report_files]
+    for ch in changed:
+        path = ch.replace("\\", "/")
+        for r in reported:
+            if path == r:
+                break
+            if path.endswith("/" + r):
+                break
+            if r.endswith("/" + path):
+                break
+        else:
+            return False
+    return True
+
+
 def read_stryker_covered(root: Path) -> dict | None:
     for name in _REPORT_NAMES:
         file = root / "reports" / "mutation" / name
         if not file.is_file():
             continue
-        data = json.loads(file.read_text())
-        files = data.get("files") or {}
+        files = json.loads(file.read_text()).get("files") or {}
         counts: Counter[str] = Counter()
         for entry in files.values():
             for mutant in entry.get("mutants") or []:
                 key = _STATUS_MAP.get(str(mutant.get("status")))
                 if key is not None:
                     counts[key] += 1
-        killed = counts["killed"]
-        survived = counts["survived"]
-        no_coverage = counts["no_tests"]
-        timeout = counts["timeout"]
+        killed, survived = counts["killed"], counts["survived"]
+        no_coverage, timeout = counts["no_tests"], counts["timeout"]
         covered = killed + survived + timeout
-        computed_covered = (
-            None if covered == 0 else round(10000 * (killed + timeout) / covered) / 100
-        )
-        overall_den = killed + survived + no_coverage + timeout
-        computed_overall = (
-            None if overall_den == 0 else round(10000 * (killed + timeout) / overall_den) / 100
-        )
+        overall = killed + survived + no_coverage + timeout
+        cov = None if covered == 0 else round(10000 * (killed + timeout) / covered) / 100
+        overall_s = None if overall == 0 else round(10000 * (killed + timeout) / overall) / 100
         return {
-            "mutationScoreCovered": computed_covered,
-            "mutationScore": computed_overall,
+            "mutationScoreCovered": cov,
+            "mutationScore": overall_s,
             "killed": killed,
             "survived": survived,
             "no_tests": no_coverage,
             "timeout": timeout,
-            "totalMutants": overall_den,
+            "totalMutants": overall,
             "files": list(files.keys()),
             "source": str(file.relative_to(root)),
         }
@@ -82,7 +97,6 @@ def run_stryker_gate(
     languages: list[str],
     write_summary: WriteSummary,
 ) -> int:
-    """Fail closed: real wrapper required; Python re-checks covered score."""
     del mut
     wrapper = find_stryker_wrapper(root)
     base_payload = {
@@ -98,34 +112,28 @@ def run_stryker_gate(
     if wrapper is None:
         write_summary(root, {**base_payload, "passed": False, "reasons": ["no_stryker_runner"]})
         return 1
+    clear_stryker_reports(root)
     env = {
         **os.environ,
         "MUTATION_BASE": base,
         "STRYKER_BASE": base,
         "MUTATION_MIN_SCORE_COVERED": str(min_score),
     }
-    run = subprocess.run(["node", str(wrapper)], cwd=root, env=env)
+    run = subprocess.run(["node", str(wrapper)], check=False, cwd=root, env=env)
     if int(run.returncode) != 0:
         return int(run.returncode)
     stats = read_stryker_covered(root)
     if stats is None:
         write_summary(root, {**base_payload, "passed": False, "reasons": ["no_stryker_report"]})
         return 1
-    score = stats["mutationScoreCovered"]
-    survived = stats["survived"]
     reasons: list[str] = []
+    if not report_covers_changed(list(stats["files"]), changed):
+        reasons.append("report_missing_changed")
+    score, survived = stats["mutationScoreCovered"], stats["survived"]
     if score is None or float(score) < min_score:
         reasons.append(f"score_covered={score}<{min_score}")
     if survived != 0:
         reasons.append(f"survived={survived}")
     passed = reasons == []
-    write_summary(
-        root,
-        {
-            **base_payload,
-            "passed": passed,
-            "reasons": reasons,
-            "stats": stats,
-        },
-    )
+    write_summary(root, {**base_payload, "passed": passed, "reasons": reasons, "stats": stats})
     return 0 if passed else 1

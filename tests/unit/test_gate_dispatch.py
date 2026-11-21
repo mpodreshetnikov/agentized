@@ -5,19 +5,33 @@ from pathlib import Path
 from agentized import gate_dispatch as gd
 
 
-def test_ext_lang_and_tool_maps_pinned():
+def test_dispatch_helpers(tmp_path: Path, monkeypatch):
+    real_git = gd.git_changed_names
     assert len(gd._EXT_LANG) == 8
     assert gd._EXT_LANG[".py"] == "python" and gd._EXT_LANG[".tsx"] == "typescript"
     assert gd.MUTATION_TOOLS["python"] == frozenset({"mutmut"})
     assert gd.MUTATION_TOOLS["typescript"] == frozenset({"stryker"})
     assert "dependency-cruiser" in gd.ARCHITECTURE_TOOLS["javascript"]
-    assert len(gd.DEFAULT_EXCLUDE_GLOBS) == 14
-    assert gd.DEFAULT_EXCLUDE_GLOBS[0] == "node_modules/**"
+    assert len(gd.DEFAULT_EXCLUDE_GLOBS) == 12
+    assert gd.DEFAULT_EXCLUDE_GLOBS[0] == "**/node_modules/**"
     assert gd.DEFAULT_EXCLUDE_GLOBS[-1] == "**/*.example*"
-    assert "packages/**" in gd.DEFAULT_EXCLUDE_GLOBS
-
-
-def test_language_and_tool_helpers():
+    assert (
+        "packages/**" not in gd.DEFAULT_EXCLUDE_GLOBS
+        and "templates/**" not in gd.DEFAULT_EXCLUDE_GLOBS
+    )
+    assert gd.match_starstar("foo.test.ts", "**/*.test.ts")
+    assert gd.match_starstar(r"src\a.test.ts", "**/*.test.ts")
+    assert gd.match_starstar("src/a.ts", r"src\**\*.ts")
+    assert gd.match_starstar("src/a.ts", "src/**/*.ts")
+    assert not gd.match_starstar("", "x")
+    assert not gd.match_starstar("", "*")
+    assert not gd.match_starstar("foo", "*/**/foo")
+    assert gd.match_starstar(r"src\nested\a.ts", "src/**/*.ts")
+    assert gd.match_starstar(r"src\nested\a.ts", r"src\**\*.ts")
+    assert not gd.match_starstar(r"other\a.ts", "src/**/*.ts")
+    assert gd.match_starstar("src/__tests__/foo.ts", "**/__tests__/**/*.ts")
+    assert gd.match_starstar("__tests__/foo.ts", "**/__tests__/**/*.ts")
+    assert not gd.match_starstar("src/util.ts", "**/*.test.ts")
     vector = [
         ("src/a.py", "python"),
         ("src/A.PYI", "python"),
@@ -41,33 +55,35 @@ def test_language_and_tool_helpers():
     assert gd.architecture_tool_for_language({"tool": "builtin"}, "python") == "builtin"
     assert gd.architecture_tool_for_language({"tool": "mutmut"}, "python") is None
     assert gd.architecture_tool_for_language({}, "python") is None
-
-
-def test_glob_excluded_and_detect(tmp_path: Path):
-    assert gd._glob_excluded("node_modules/x.js", ["node_modules/**"])
-    assert gd._glob_excluded(r"node_modules\x.js", ["node_modules/**"])
+    assert gd._glob_excluded("node_modules/x.js", ["**/node_modules/**"])
+    assert gd._glob_excluded("tools/node_modules/x.js", ["**/node_modules/**"])
+    assert gd._glob_excluded(r"node_modules\x.js", ["**/node_modules/**"])
     assert gd._glob_excluded("dist/a.js", ["**/dist/**"])
     assert gd._glob_excluded("foo/bar", ["**/bar"])
-    assert gd._glob_excluded("packages", ["packages/**"])
-    assert gd._glob_excluded("packages/x/y.py", ["packages/**"])
-    assert not gd._glob_excluded("src/a.ts", ["packages/**"])
+    assert gd._glob_excluded("node_modules", ["node_modules/**"])
+    assert gd._glob_excluded(r"dist\a.js", ["**/dist/**"])
+    assert not gd._glob_excluded("packages/x/y.ts", list(gd.DEFAULT_EXCLUDE_GLOBS))
+    assert not gd._glob_excluded("src/a.ts", list(gd.DEFAULT_EXCLUDE_GLOBS))
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.ts").write_text("export {}\n", encoding="utf-8")
     (tmp_path / "src" / "b.py").write_text("x=1\n", encoding="utf-8")
+    (tmp_path / "packages" / "app").mkdir(parents=True)
+    (tmp_path / "packages" / "app" / "c.ts").write_text("export {}\n", encoding="utf-8")
+    (tmp_path / "tools" / "node_modules").mkdir(parents=True)
+    (tmp_path / "tools" / "node_modules" / "leftpad.js").write_text("1\n", encoding="utf-8")
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.js").write_text("1\n", encoding="utf-8")
     found = gd.detect_languages(tmp_path, exclude_globs=list(gd.DEFAULT_EXCLUDE_GLOBS))
     assert sorted(found.keys()) == ["python", "typescript"]
-    assert found["typescript"] == ["src/a.ts"] and found["python"] == ["src/b.py"]
+    assert found["typescript"] == ["src/a.ts", "packages/app/c.ts"]
+    assert found["python"] == ["src/b.py"]
+    assert "tools/node_modules/leftpad.js" not in (found.get("javascript") or [])
     open_found = gd.detect_languages(tmp_path, exclude_globs=[])
     assert "javascript" in open_found and "node_modules/x.js" in open_found["javascript"]
     for i in range(10):
         (tmp_path / "src" / f"f{i}.py").write_text("x=1\n", encoding="utf-8")
     assert len(gd.detect_languages(tmp_path)["python"]) == 8
     assert gd.detect_languages(tmp_path / "missing") == {}
-
-
-def test_is_test_path_changed_and_git(tmp_path: Path, monkeypatch):
     expect = {
         "runtime/agentized/test_smells.py": False,
         "runtime/agentized/js_smells.py": False,
@@ -108,23 +124,19 @@ def test_is_test_path_changed_and_git(tmp_path: Path, monkeypatch):
         "src/nested/deep.ts",
     ]
     assert seen == [(tmp_path, "origin/main")]
-
-
-def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(gd, "git_changed_names", real_git)
     calls: list = []
 
     class R1:
-        returncode = 1
-        stdout = ""
-        stderr = "fail1"
+        returncode, stdout, stderr = 1, "", "fail1"
 
     class R2:
-        returncode = 0
-        stdout = r"src\a.py" + "\n"
-        stderr = ""
+        returncode, stdout, stderr = 0, r"src\a.py" + "\n", ""
 
     def fake_run(cmd, **k):
-        calls.append((list(cmd), k.get("cwd"), k.get("capture_output"), k.get("text")))
+        calls.append(
+            (list(cmd), k.get("cwd"), k.get("capture_output"), k.get("text"), k.get("check"))
+        )
         return R1() if len(calls) == 1 else R2()
 
     monkeypatch.setattr(gd.subprocess, "run", fake_run)
@@ -135,14 +147,19 @@ def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
             tmp_path,
             True,
             True,
+            False,
         ),
-        (["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main"], tmp_path, True, True),
+        (
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main"],
+            tmp_path,
+            True,
+            True,
+            False,
+        ),
     ]
 
     class RFail:
-        returncode = 2
-        stdout = ""
-        stderr = "boom"
+        returncode, stdout, stderr = 2, "", "boom"
 
     monkeypatch.setattr(gd.subprocess, "run", lambda *a, **k: RFail())
     try:
@@ -150,11 +167,6 @@ def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
         raise AssertionError("expected SystemExit")
     except SystemExit as exc:
         assert exc.args == ("git diff failed",)
-
-
-def test_combine_gate_rc():
-    assert gd.combine_gate_rc("warn", True, 7) == 7
-    assert gd.combine_gate_rc("warn", False, 0) == 0
-    assert gd.combine_gate_rc("hard", True, 0) == 1
-    assert gd.combine_gate_rc("hard", False, 0) == 0
+    assert gd.combine_gate_rc("warn", True, 7) == 7 and gd.combine_gate_rc("warn", False, 0) == 0
+    assert gd.combine_gate_rc("hard", True, 0) == 1 and gd.combine_gate_rc("hard", False, 0) == 0
     assert gd.combine_gate_rc("hard", False, 3) == 3

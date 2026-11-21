@@ -17,7 +17,7 @@ def _npx() -> str | None:
 
 
 def _run(cmd: list[str], root: Path) -> tuple[int, str]:
-    proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(cmd, check=False, cwd=root, capture_output=True, text=True)
     out = ((proc.stdout or "") + (proc.stderr or "")).strip()[:2000]
     return int(proc.returncode), out
 

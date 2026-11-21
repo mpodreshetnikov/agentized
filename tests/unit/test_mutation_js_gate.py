@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import json
 from pathlib import Path
+
 from agentized import mutation_js_gate as gate
 
 
@@ -83,17 +85,14 @@ def test_run_mutation_paths(tmp_path: Path, monkeypatch):
     seen: dict = {}
 
     def fake_stryker(root, **kw):
-        assert root is tmp_path
-        assert kw.get("mut") is not None
-        assert callable(kw.get("write_summary"))
+        assert root is tmp_path and kw.get("mut") is not None and callable(kw.get("write_summary"))
         seen.update(kw)
         return 0
 
     monkeypatch.setattr(gate, "run_stryker_gate", fake_stryker)
     mutmuts.clear()
     assert gate.run_mutation(tmp_path) == 0
-    assert seen["base"] == "origin/feature"
-    assert seen["min_score"] == 88.0
+    assert seen["base"] == "origin/feature" and seen["min_score"] == 88.0
     assert seen["changed"] == ["src/a.ts", "src/b.js"]
     assert seen["languages"] == ["javascript", "typescript"]
     assert mutmuts[-1] == (tmp_path, gate.DEFAULT_CONTEXT)
