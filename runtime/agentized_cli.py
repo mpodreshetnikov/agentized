@@ -582,6 +582,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     for required in ("tasks/INDEX.md", "leases/INDEX.md"):
         if not (ctx / required).exists():
             errors.append(f"нет {_display_path(root, ctx / required)}")
+    # process-control.json missing is a hard error (fail-closed) — not a soft warning.
     for required in ("skills", "hooks", "quality.json", "process-control.json"):
         if not (code_ctx / required).exists():
             errors.append(f"нет {_display_path(root, code_ctx / required)} (code-repo config)")
