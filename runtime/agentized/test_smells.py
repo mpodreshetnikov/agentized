@@ -231,10 +231,12 @@ def run_test_smells(
         return 0
 
     mode = str(section.get("mode") or "hard").lower()
-    globs = list(
-        section.get("include_globs")
-        or ["tests/unit/**/*.py", "tests/quality/**/*.py", "tests/**/test_*.py"]
-    )
+    raw_globs = section.get("include_globs")
+    if isinstance(raw_globs, list):
+        # Explicit [] = scan nothing (empty consumer quality.json).
+        globs = list(raw_globs)
+    else:
+        globs = ["tests/unit/**/*.py", "tests/quality/**/*.py", "tests/**/test_*.py"]
     files = _iter_test_files(root, globs)
     findings: list[dict] = []
     for path in files:

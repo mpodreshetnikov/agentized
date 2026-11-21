@@ -32,6 +32,8 @@ PROCESS_BASE=<pr-base-sha> ./bin/agentized process size
 
 Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` is false (not only `level == over`).
 
+**Connect baseline (AGE-85):** when HEAD has `{context}/.agentized/managed.json` but the size base does not (first connect push, or no `origin/main` yet), insertions on connect-installed bootstrap paths (`AGENTS.md`, `{context}/**`, `.githooks/`, harness dirs, …) are excluded from the count. User/source paths still count — not a generic bypass. After `managed.json` exists on the base, the normal full diff applies.
+
 ## Tip hygiene (AGE-76)
 
 Hard gate inside `agentized tasks-validate` (dogfood pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.) Template quality CI/pre-push do **not** run tip hygiene until that seed lands.

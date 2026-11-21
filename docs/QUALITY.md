@@ -45,6 +45,8 @@ Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows
 
 On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
+**Consumer layout (AGE-85):** first connect **detects** modules from the target repo — dogfood `runtime/agentized`+`tests/unit`, or `src`/`lib`/`app` + `tests`/`test`. Nothing detected → valid **empty** `modules` / mutation globs / architecture `source_roots` (gates skip with a clear message). Stale dogfood paths that do not exist on disk **fail closed** with an explicit error (never a silent pass).
+
 New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, `mutationScoreCovered=100`, coverage=80.
 
 ## Strong reviewer (AGE-11)
