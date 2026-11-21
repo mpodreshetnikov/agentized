@@ -36,6 +36,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 | `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |
+| `./bin/agentized process format-disables` (CI, dogfood) | Hard fail if the PR diff **adds** formatter/linter disable comments in `*.py` / `*.pyi`: `# fmt: off` / `# fmt: skip` / `# fmt: on`, `# noqa`, `# ruff: noqa`, `# flake8: noqa`, `# isort: skip|off`, `# yapf: disable`. **No allowlist** unless Maxim approves a sole-purpose follow-up. Scans added lines only (existing disables on `main` are grandfathered). |
 
 Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base on **whole changed files** (not format hunks only), drops AST-equivalent (noop) files, skips cleanly when no mutable files remain, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
 

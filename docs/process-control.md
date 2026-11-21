@@ -52,6 +52,15 @@ PR number resolution:
 
 `ready` only from `in-progress` → `self-review` + claim `_(пусто)_`. Already `self-review` → no-op (no writes). Other statuses refused.
 
+## Format / lint disable comments (T-261121-8c84)
+
+Hard dogfood CI gate: PR diffs must not **add** formatter/linter disable comments in Python sources (`*.py` / `*.pyi`). Banned forms include `# fmt: off` / `# fmt: skip` / `# fmt: on`, `# noqa` (any codes), `# ruff: noqa`, `# flake8: noqa`, `# isort: skip|off`, `# yapf: disable`. **No allowlist** unless Maxim approves a sole-purpose change. Same base rules as size (`PROCESS_BASE` / `--base`; refuse `HEAD`).
+
+```bash
+./bin/agentized process format-disables
+PROCESS_BASE=<pr-base-sha> ./bin/agentized process format-disables --json
+```
+
 ## Spec approval gate (AGE-28) — core
 
 Optional `spec_approval` policy (defaults off). Pure evaluation lives in
