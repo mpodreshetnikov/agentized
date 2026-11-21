@@ -18,25 +18,73 @@ def _gate_step(path: Path) -> str:
     )[0]
 
 
+def _exact_lines(step: str, expected: str) -> list[str]:
+    return [ln.strip() for ln in step.splitlines() if ln.strip() == expected]
+
+
 def test_tasks_validate_hard_in_dogfood_and_template_ci():
     expected = '"${CLI[@]}" tasks-validate'
-    for path in CI_PATHS:
-        step = _gate_step(path)
-        assert "|| true" not in step
-        lines = [ln.strip() for ln in step.splitlines() if ln.strip() == expected]
-        assert lines == [expected]
+    found = {str(p.relative_to(ROOT)): _exact_lines(_gate_step(p), expected) for p in CI_PATHS}
+    assert found == {
+        ".github/workflows/ci.yml": [expected],
+        "templates/quality/ci.yml": [expected],
+    }
+    soft = {
+        str(p.relative_to(ROOT)): [
+            ln for ln in _gate_step(p).splitlines() if "|| true" in ln
+        ]
+        for p in CI_PATHS
+    }
+    assert soft == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
 
 
 def test_index_freshness_uses_porcelain_no_hardcoded_paths():
     expected_index = '"${CLI[@]}" index'
-    porcelain = '[[ -n "$(git status --porcelain)" ]]'
-    for path in CI_PATHS:
-        step = _gate_step(path)
-        assert "|| true" not in step
-        assert expected_index in step
-        assert porcelain in step
-        assert "exit 1" in step
-        # Path-independent: template (and dogfood) must not hardcode context/ paths.
-        assert "context/tasks/INDEX.md" not in step
-        assert "context/leases/INDEX.md" not in step
-        assert "git diff --exit-code" not in step
+    found_index = {
+        str(p.relative_to(ROOT)): _exact_lines(_gate_step(p), expected_index) for p in CI_PATHS
+    }
+    assert found_index == {
+        ".github/workflows/ci.yml": [expected_index],
+        "templates/quality/ci.yml": [expected_index],
+    }
+    porcelain = {
+        str(p.relative_to(ROOT)): [
+            ln.strip()
+            for ln in _gate_step(p).splitlines()
+            if "git status --porcelain" in ln and not ln.strip().startswith("#")
+        ]
+        for p in CI_PATHS
+    }
+    expected_porc = [
+        'if [[ -n "$(git status --porcelain)" ]]; then',
+        "git status --porcelain >&2",
+    ]
+    assert porcelain == {
+        ".github/workflows/ci.yml": expected_porc,
+        "templates/quality/ci.yml": expected_porc,
+    }
+    soft = {
+        str(p.relative_to(ROOT)): [
+            ln for ln in _gate_step(p).splitlines() if "|| true" in ln
+        ]
+        for p in CI_PATHS
+    }
+    assert soft == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
+    hardcoded = {
+        str(p.relative_to(ROOT)): [
+            ln.strip()
+            for ln in _gate_step(p).splitlines()
+            if "context/tasks/INDEX.md" in ln
+            or "context/leases/INDEX.md" in ln
+            or "git diff --exit-code" in ln
+        ]
+        for p in CI_PATHS
+    }
+    assert hardcoded == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
+    exits = {
+        str(p.relative_to(ROOT)): _exact_lines(_gate_step(p), "exit 1") for p in CI_PATHS
+    }
+    assert exits == {
+        ".github/workflows/ci.yml": ["exit 1", "exit 1"],
+        "templates/quality/ci.yml": ["exit 1", "exit 1"],
+    }
