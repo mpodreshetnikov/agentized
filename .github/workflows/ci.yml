@@ -62,6 +62,19 @@ jobs:
             echo "agentized CLI not found" >&2
             exit 1
           fi
+          # CI-only: pin mutmut to 1 worker. Parallel fork workers on GHA have
+          # produced 2 consistent false survivors that local runs never see.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("runtime/agentized/mutation.py")
+          old = '[sys.executable, "-m", "mutmut", "run"]'
+          new = '[sys.executable, "-m", "mutmut", "run", "--max-children", "1"]'
+          text = p.read_text(encoding="utf-8")
+          if old not in text:
+              raise SystemExit(f"mutmut invoke site not found in {p}")
+          p.write_text(text.replace(old, new, 1), encoding="utf-8")
+          print("pinned mutmut --max-children 1")
+          PY
           "${CLI[@]}" process size
           "${CLI[@]}" quality check
 
@@ -76,4 +89,14 @@ jobs:
             reports/mutation/mutation-summary.json
             reports/test-smells/test-smells-summary.json
             reports/architecture/architecture-summary.json
+          if-no-files-found: warn
+
+      - name: Upload mutation metas on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-metas
+          path: |
+            mutants/**/*.meta
+            mutants/**/*.spans
           if-no-files-found: warn
