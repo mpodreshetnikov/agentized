@@ -93,3 +93,61 @@ def test_requirements_pins_exact_ruff():
     req = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
     lines = [ln.strip() for ln in req.splitlines() if ln.strip().startswith("ruff")]
     assert lines == ["ruff==0.17.6"]
+
+
+def _git(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_ruff_format_changed_unformatted_exits_1_formatted_exits_0(tmp_path: Path):
+    """Behavioural: dirty vs base → exit 1; after format → exit 0."""
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "test")
+    # Base: already formatted (ruff line-length 100 defaults apply via env pyproject optional).
+    src = tmp_path / "mod.py"
+    src.write_text("x = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", "mod.py")
+    _git(tmp_path, "commit", "-m", "base")
+    base = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+
+    # Unformatted change: long single line that ruff will wrap/split at line-length 100.
+    dirty = "x = " + repr("a" * 120) + "\n"
+    src.write_text(dirty, encoding="utf-8")
+    _git(tmp_path, "add", "mod.py")
+    _git(tmp_path, "commit", "-m", "dirty")
+
+    # Ensure ruff would rewrite this file.
+    check = subprocess.run(
+        ["ruff", "format", "--check", "mod.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert check.returncode == 1
+
+    bad = subprocess.run(
+        ["bash", str(SCRIPT), base],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert bad.returncode == 1
+
+    subprocess.run(["ruff", "format", "mod.py"], cwd=tmp_path, check=True, capture_output=True)
+    _git(tmp_path, "add", "mod.py")
+    _git(tmp_path, "commit", "-m", "formatted")
+
+    good = subprocess.run(
+        ["bash", str(SCRIPT), base],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert good.returncode == 0
