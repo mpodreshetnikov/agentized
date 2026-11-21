@@ -107,7 +107,6 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     ):
         section = data.get(key)
         if isinstance(section, dict):
-            # setdefault: db_tests (and any future layer) may be absent from defaults.
             out.setdefault(key, {}).update(section)
     gates_in = data.get("gates") or {}
     out["gates"].update({k: gates_in[k] for k in gates_in})
@@ -157,9 +156,7 @@ def set_reviewer_options(
 
 
 def _install_layer_gates_connect_hook() -> None:
-    """Install AGE-31 reconnect hook without editing connect.py (see layer_gates)."""
     from .layer_gates import install_ensure_quality_hook
-
     install_ensure_quality_hook()
 
 

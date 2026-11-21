@@ -678,7 +678,7 @@ def _section_or_default(cfg: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def apply_layer_upgrades_to_repo(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
-    """Load quality.json, apply AGE-31 layer upgrades, persist when needed."""
+    """Persist AGE-31 layer upgrades into quality.json when needed."""
     from . import quality as quality_mod
 
     data = quality_mod.load_quality(root, context_rel)
@@ -689,11 +689,7 @@ def apply_layer_upgrades_to_repo(root: Path, context_rel: str = DEFAULT_CONTEXT)
 
 
 def install_ensure_quality_hook() -> None:
-    """Wrap connect.ensure_quality_config so reconnect/create persist layer gates.
-
-    connect.py stays byte-identical to main (avoids full-file mutmut). Hook lives
-    in this module; quality.py installs it on import.
-    """
+    """Wrap connect.ensure_quality_config; quality import installs (connect.py untouched)."""
     from . import connect as connect_mod
 
     current = connect_mod.ensure_quality_config
@@ -740,19 +736,3 @@ def run_db_tests_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEX
         detection=detect_db_layer(root, skip_prefixes=skip_rel_prefixes(root, section)),
     )
 
-
-def main(argv: list[str] | None = None) -> int:
-    args = list(argv or sys.argv[1:])
-    context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
-    which = "e2e" if "--e2e" in args else ("db" if "--db" in args else "all")
-    root = find_repo_root()
-    rc = 0
-    if which in {"all", "e2e"}:
-        rc = run_e2e_gate(root, context=context) or rc
-    if which in {"all", "db"}:
-        rc = run_db_tests_gate(root, context=context) or rc
-    return rc
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

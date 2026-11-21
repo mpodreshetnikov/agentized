@@ -36,15 +36,12 @@ def test_default_config_contract():
 
 
 def test_quality_module_installs_age31_connect_hook():
-    """quality import must wrap connect.ensure_quality_config (AGE-31)."""
     import agentized.connect as connect_mod
     import agentized.quality as quality_mod
+    from agentized.layer_gates import install_ensure_quality_hook
 
     assert quality_mod.QUALITY_FILENAME == "quality.json"
     assert getattr(connect_mod.ensure_quality_config, "_age31_layer_hook", False) is True
-    # Idempotent re-install must keep the same wrapped callable.
-    from agentized.layer_gates import install_ensure_quality_hook
-
     before = connect_mod.ensure_quality_config
     install_ensure_quality_hook()
     assert connect_mod.ensure_quality_config is before
