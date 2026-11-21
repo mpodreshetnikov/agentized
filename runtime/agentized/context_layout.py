@@ -225,20 +225,9 @@ def require_registry_ready(layout: ContextLayout) -> None:
         raise ValueError("external Context not ready: " + "; ".join(problems))
 
 
-# Minimal external-registry seed (empty git clone → connectable). Keep short for mut.
+# External empty-clone seed. INDEX bodies = rebuild_* (same as connect/index; coord #55).
 _EXT_NAV_MD = "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
-_EXT_TASKS_INDEX_MD = (
-    "# Tasks\n\n## open\n\n_(empty)_\n\n## in-progress\n\n_(empty)_\n\n## blocked\n\n_(empty)_\n"
-)
-_EXT_LEASES_INDEX_MD = (
-    "# Path leases\n\n| path | task | owner | expires |\n|------|------|-------|--------|\n"
-)
 _EXT_SEED_DIRS = ("tasks", "leases", "decisions", "goals", "digests")
-_EXT_SEED_REL_PATHS = (
-    ("NAV.md", _EXT_NAV_MD),
-    ("tasks/INDEX.md", _EXT_TASKS_INDEX_MD),
-    ("leases/INDEX.md", _EXT_LEASES_INDEX_MD),
-)
 
 
 def _atomic_write_text(path: Path, body: str) -> None:
@@ -253,7 +242,8 @@ def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
 
     No-op when not external. Requires ``registry_root`` to exist as a git checkout.
     Does not overwrite existing files. Callers must ``preflight_bridge_conflicts``
-    first so a conflict never leaves a partial seed.
+    first so a conflict never leaves a partial seed. tasks/leases INDEX match
+    ``rebuild_task_index`` / ``rebuild_lease_index`` (byte-equal to ``agentized index``).
     """
     if not layout.is_external:
         return []
@@ -264,9 +254,16 @@ def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
         raise ValueError(f"external Context is not a git checkout (no .git): {root}")
     for sub in _EXT_SEED_DIRS:
         (root / sub).mkdir(exist_ok=True)
+    from .leases import rebuild_lease_index
+    from .task_schema import rebuild_task_index
+
     created: list[str] = []
-    for rel, body in _EXT_SEED_REL_PATHS:
-        path = root / rel
+    targets: list[tuple[Path, str]] = [
+        (root / "NAV.md", _EXT_NAV_MD),
+        (root / "tasks" / "INDEX.md", rebuild_task_index(root / "tasks")),
+        (root / "leases" / "INDEX.md", rebuild_lease_index(root / "leases")),
+    ]
+    for path, body in targets:
         if path.exists():
             continue
         _atomic_write_text(path, body)

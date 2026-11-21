@@ -46,6 +46,7 @@ from agentized.context_layout import (
     require_registry_ready,
     resolve_external_path,
     resolve_layout,
+    rollback_code_context_bridges,
     session_lease_warn,
     session_nav_reminder,
 )
@@ -695,6 +696,52 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
         prepare_connect_layout(code)
 
 
+def test_rollback_code_context_bridges_exact(tmp_path: Path):
+    """Connect-failure cleanup: unlink only listed external bridge symlinks."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    (ext / "NAV.md").write_text("# n\n", encoding="utf-8")
+    (ext / "tasks").mkdir()
+    (ext / "leases").mkdir()
+    _write_layout(code, {"placement": "external", "external": {"path": str(ext), "remote": "r"}})
+    layout = resolve_layout(code)
+    assert ensure_code_context_bridges(layout) == ["tasks", "leases", "NAV.md"]
+    # Empty names → no-op (keeps bridges).
+    rollback_code_context_bridges(layout, [])
+    assert (code / "context" / "tasks").is_symlink()
+    # Partial list: only named symlinks removed; others stay.
+    rollback_code_context_bridges(layout, ["tasks", "NAV.md"])
+    assert not (code / "context" / "tasks").exists()
+    assert not (code / "context" / "NAV.md").exists()
+    assert (code / "context" / "leases").is_symlink()
+    # Re-create; non-symlink dest must not be removed.
+    assert "tasks" in ensure_code_context_bridges(layout)
+    (code / "context" / "tasks").unlink()
+    (code / "context" / "tasks").mkdir()
+    (code / "context" / "tasks" / "keep.md").write_text("x", encoding="utf-8")
+    rollback_code_context_bridges(layout, ["tasks"])
+    assert (code / "context" / "tasks").is_dir()
+    assert (code / "context" / "tasks" / "keep.md").exists()
+    # Nested layout → no-op even with names (incl. symlink — do not unlink).
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "context" / "tasks").mkdir(parents=True)
+    (nested / "context" / "tasks" / "T.md").write_text("t", encoding="utf-8")
+    rollback_code_context_bridges(resolve_layout(nested), ["tasks"])
+    assert (nested / "context" / "tasks" / "T.md").exists()
+    nested2 = tmp_path / "nested2"
+    nested2.mkdir()
+    (nested2 / "context").mkdir()
+    elsewhere = tmp_path / "elsewhere-tasks"
+    elsewhere.mkdir()
+    (nested2 / "context" / "tasks").symlink_to(elsewhere)
+    rollback_code_context_bridges(resolve_layout(nested2), ["tasks"])
+    assert (nested2 / "context" / "tasks").is_symlink()
+    assert (nested2 / "context" / "tasks").resolve() == elsewhere.resolve()
+
+
 def test_atomic_write_text_utf8_under_c_locale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Seed writes use encoding=utf-8 (not locale) via temp+replace — no 0-byte NAV."""
     from agentized.context_layout import _EXT_NAV_MD, _atomic_write_text
@@ -739,6 +786,9 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     (nested / "context").mkdir()
     assert ensure_external_registry_skeleton(resolve_layout(nested)) == []
 
+    from agentized.leases import rebuild_lease_index
+    from agentized.task_schema import rebuild_task_index
+
     created = ensure_external_registry_skeleton(layout)
     assert created == [
         str(ext / "NAV.md"),
@@ -748,9 +798,12 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     assert (ext / "NAV.md").read_text(encoding="utf-8") == (
         "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
     )
-    assert "_(empty)_" in (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8")
-    assert "| path | task | owner | expires |" in (ext / "leases" / "INDEX.md").read_text(
-        encoding="utf-8"
+    # INDEX bodies byte-equal rebuild_* (coord Lead REJECT #55 / connect seeds).
+    assert (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8") == rebuild_task_index(
+        ext / "tasks"
+    )
+    assert (ext / "leases" / "INDEX.md").read_text(encoding="utf-8") == rebuild_lease_index(
+        ext / "leases"
     )
     for sub in ("tasks", "leases", "decisions", "goals", "digests"):
         assert (ext / sub).is_dir()
