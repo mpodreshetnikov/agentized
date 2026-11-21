@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-dea2](T-261121-dea2.md) — Task schema oracles split B (AGE-79 / #60) (родитель: T-261115-918b) · claim: age-46-worker
 
 ## blocked
 
