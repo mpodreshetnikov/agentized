@@ -5,6 +5,7 @@ candidate, or status_gates import failure while touching a task file → deny.
 Non-task paths allow without loading status_gates (AGE-22 may land separately).
 PreToolUse only (process_guard); no afterFileEdit path.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,8 +22,7 @@ _MSG_GATES_API = "[status-guard] REFUSED: status_gates missing validate API"
 _MSG_CONTEXT = "[status-guard] REFUSED: context_rel must be a non-empty string"
 _MSG_EDIT = "cannot apply Edit onto task file (old_string mismatch or missing file)"
 _MSG_UNBUILDABLE = (
-    "cannot build candidate text for task file "
-    "(empty/whitespace write or unknown tool shape)"
+    "cannot build candidate text for task file (empty/whitespace write or unknown tool shape)"
 )
 _MSG_EVAL = "[status-guard] REFUSED: evaluation error: {exc}"
 _EVENT_PRE = "PreToolUse"
@@ -221,9 +221,7 @@ def evaluate_status_guard(
     tool_input = tool_input_from_payload(payload)
     # Always feed tool_input explicitly so Codex/Claude `input` alias is covered.
     # `input`-only illegal-transition tests kill tool_input key mutants.
-    paths = list(
-        dict.fromkeys(extract_paths(payload) + extract_paths({"tool_input": tool_input}))
-    )
+    paths = list(dict.fromkeys(extract_paths(payload) + extract_paths({"tool_input": tool_input})))
     task_paths = [p for p in paths if is_task_path(p)]
     if len(task_paths) == 0:
         return allow_response(event)
@@ -232,9 +230,7 @@ def evaluate_status_guard(
     try:
         gates_mod = gates if gates is not None else loader()
     except Exception as exc:  # noqa: BLE001 — fail closed
-        return deny_response(
-            event, f"[status-guard] REFUSED: status_gates unavailable: {exc}"
-        )
+        return deny_response(event, f"[status-guard] REFUSED: status_gates unavailable: {exc}")
 
     extract_status = getattr(gates_mod, "extract_status", None)
     validate_task_text = getattr(gates_mod, "validate_task_text", None)
@@ -270,13 +266,14 @@ def evaluate_status_guard(
             continue
 
         if old_text:
-            old_status = extract_status(old_text)
+            # Real status_gates.extract_status returns "" when missing — treat as None.
+            old_status = extract_status(old_text) or None
         else:
             old_status = None
+        # AGE-49/#37 API: value line always required; no require_value kwarg.
         result = validate_task_text(
             candidate,
             old_status=old_status,
-            require_value=True,
             check_transition=old_status is not None,
         )
         if not hasattr(result, "ok") or result.ok is not True:

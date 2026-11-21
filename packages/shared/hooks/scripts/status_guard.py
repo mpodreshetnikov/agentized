@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """AGE-38 status-gate hook; decide logic in agentized.status_guard (fail-closed)."""
+
 from __future__ import annotations
 
 import json
@@ -58,11 +59,7 @@ def main() -> int:
     try:
         peek = json.loads(raw) if raw.strip() else {}
         if isinstance(peek, dict):
-            event = (
-                peek.get("hook_event_name")
-                or peek.get("hookEventName")
-                or "PreToolUse"
-            )
+            event = peek.get("hook_event_name") or peek.get("hookEventName") or "PreToolUse"
             root = resolve_root(peek) if peek else workspace
     except Exception:  # noqa: BLE001
         root = workspace

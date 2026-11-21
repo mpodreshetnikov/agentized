@@ -3,6 +3,7 @@
 
 Import failure of status_guard / runtime → deny ALL edits (fail-closed).
 """
+
 from __future__ import annotations
 
 import json
@@ -32,11 +33,7 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    event = (
-        payload.get("hook_event_name")
-        or payload.get("hookEventName")
-        or "PreToolUse"
-    )
+    event = payload.get("hook_event_name") or payload.get("hookEventName") or "PreToolUse"
     allow = {
         "permission": "allow",
         "continue": True,
@@ -78,9 +75,7 @@ def main() -> int:
 
     ctx = context_rel(root)
     try:
-        status_out = decide_from_stdin(
-            raw, root=root, context_rel=ctx, extract_paths=extract_paths
-        )
+        status_out = decide_from_stdin(raw, root=root, context_rel=ctx, extract_paths=extract_paths)
     except Exception as exc:  # noqa: BLE001 — fail closed
         msg = f"[status-guard] REFUSED: evaluation error: {exc}"
         print(
