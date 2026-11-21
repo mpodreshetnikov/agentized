@@ -30,9 +30,7 @@ def test_tasks_validate_hard_in_dogfood_and_template_ci():
         "templates/quality/ci.yml": [expected],
     }
     soft = {
-        str(p.relative_to(ROOT)): [
-            ln for ln in _gate_step(p).splitlines() if "|| true" in ln
-        ]
+        str(p.relative_to(ROOT)): [ln for ln in _gate_step(p).splitlines() if "|| true" in ln]
         for p in CI_PATHS
     }
     assert soft == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
@@ -64,9 +62,7 @@ def test_index_freshness_uses_porcelain_no_hardcoded_paths():
         "templates/quality/ci.yml": expected_porc,
     }
     soft = {
-        str(p.relative_to(ROOT)): [
-            ln for ln in _gate_step(p).splitlines() if "|| true" in ln
-        ]
+        str(p.relative_to(ROOT)): [ln for ln in _gate_step(p).splitlines() if "|| true" in ln]
         for p in CI_PATHS
     }
     assert soft == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
@@ -81,9 +77,7 @@ def test_index_freshness_uses_porcelain_no_hardcoded_paths():
         for p in CI_PATHS
     }
     assert hardcoded == {".github/workflows/ci.yml": [], "templates/quality/ci.yml": []}
-    exits = {
-        str(p.relative_to(ROOT)): _exact_lines(_gate_step(p), "exit 1") for p in CI_PATHS
-    }
+    exits = {str(p.relative_to(ROOT)): _exact_lines(_gate_step(p), "exit 1") for p in CI_PATHS}
     assert exits == {
         ".github/workflows/ci.yml": ["exit 1", "exit 1"],
         "templates/quality/ci.yml": ["exit 1", "exit 1"],
