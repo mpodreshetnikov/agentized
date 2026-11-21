@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-5617](T-261121-5617.md) — AGE-67 CI task gates (tasks-validate + INDEX equality) · claim: age67-ci-gates
+_(пусто)_
 
 ## blocked
 
