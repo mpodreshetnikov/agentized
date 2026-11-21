@@ -54,7 +54,7 @@ PR number resolution:
 
 ## Format / lint disable comments (T-261121-8c84)
 
-Hard dogfood CI gate: PRs must not **add** formatter/linter disable *comments* in Python sources (`*.py` / `*.pyi`). Banned forms include `# fmt: off` / `# fmt: skip` / `# fmt: on`, `# noqa` (any codes), `# ruff: noqa`, `# flake8: noqa`, `# isort: skip|off`, `# yapf: disable`. Detection is `tokenize` COMMENT tokens (string/docstring mentions do not count). **No allowlist** unless Maxim approves a sole-purpose change. Same base rules as size (`PROCESS_BASE` / `--base`; refuse `HEAD`).
+Hard CI + pre-push gate (dogfood and `templates/quality/`): PRs must not **add** formatter/linter/coverage/mutation disables. Scopes: Python COMMENT tokens (`*.py`/`*.pyi`/`*.pyw` — fmt/noqa/pragma/type:ignore/pylint/mypy/pyright), JS/TS comments (`eslint-disable`, `prettier-ignore`, `@ts-ignore|nocheck|expect-error`, Stryker disable), and config keys (ruff `per-file-ignores`/`exclude`/`extend-exclude`, coverage `omit`, mutmut excludes, Stryker ignore/disableComments). HEAD blob only; renames followed for base; non-UTF-8 blobs fail naming the file. **No allowlist** unless Maxim approves a sole-purpose change. Same base rules as size (`PROCESS_BASE` / `--base`; refuse `HEAD`).
 
 ```bash
 ./bin/agentized process format-disables

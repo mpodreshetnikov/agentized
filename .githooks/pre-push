@@ -32,6 +32,9 @@ echo "[agentized pre-push] tasks-validate (tip hygiene + INDEX)"
 echo "[agentized pre-push] process size"
 "${CLI[@]}" process size
 
+echo "[agentized pre-push] process format-disables"
+"${CLI[@]}" process format-disables
+
 echo "[agentized pre-push] quality check (coverage + mutation)"
 "${CLI[@]}" quality check
 
