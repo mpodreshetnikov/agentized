@@ -810,7 +810,6 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--context", default=None)
     bd.set_defaults(func=cmd_board)
 
-
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
     ix.add_argument("--context", default=None)
     ix.add_argument("--print", action="store_true")

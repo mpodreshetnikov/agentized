@@ -246,9 +246,12 @@ def load_human_participants(context_dir: Path) -> list[str]:
         raise BoardError(str(path), "human_participants must be a list")
     out: list[str] = []
     for item in raw:
-        s = str(item).strip()
-        if s:
-            out.append(s)
+        if not isinstance(item, str) or not item.strip():
+            raise BoardError(
+                str(path),
+                "human_participants entries must be non-empty strings",
+            )
+        out.append(item.strip())
     return out
 
 
