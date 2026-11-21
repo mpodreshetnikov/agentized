@@ -70,6 +70,7 @@ def _write_index(tasks: Path) -> None:
 
 def test_extract_and_resolve_pr():
     assert extract_pr_number(None) is extract_pr_number("") is None
+    assert extract_pr_number("nope") is None
     assert extract_pr_number("#52") == 52
     assert extract_pr_number("PR #7") == 7
     assert extract_pr_number("1") == 1
@@ -81,6 +82,8 @@ def test_extract_and_resolve_pr():
     assert resolve_pr(env={"AGENTIZED_PR": "41"}).pr_number == 41
     assert resolve_pr(env={"GITHUB_REF": "refs/pull/52/merge"}).pr_number == 52
     assert resolve_pr(env={"GITHUB_REF": "refs/heads/main"}).pr_number is None
+    assert resolve_pr(env={"GITHUB_REF": "   "}).pr_number is None
+    assert resolve_pr(env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "nope", "GITHUB_PR_NUMBER": "8"}).pr_number == 8
 
     # GitHub wins; agreeing override OK.
     ok = resolve_pr(explicit=55, env={"GITHUB_REF": "refs/pull/55/merge", "AGENTIZED_PR": "55"})
@@ -224,8 +227,13 @@ def test_validate_tip_hygiene_pull_request_and_conflict(tmp_path: Path):
     local = validate_tip_hygiene(tasks, env={"GITHUB_EVENT_NAME": "push"})
     assert local == GateResult(True)
 
+    skip_idx = validate_tip_hygiene(
+        tasks, pr=9, env={}, check_index=False
+    )
+    assert skip_idx == GateResult(True)
 
-def test_apply_ready_rules_and_idempotent(tmp_path: Path):
+
+def test_apply_ready_rules_and_idempotent(tmp_path: Path, monkeypatch):
     with pytest.raises(ValueError, match="ready refuses status"):
         apply_ready(_task("done", extra="acceptance_note: x"), review_note="n")
     with pytest.raises(ValueError, match="ready refuses status"):
@@ -243,6 +251,8 @@ def test_apply_ready_rules_and_idempotent(tmp_path: Path):
     assert "статус: self-review" in once
     assert f"claim: {CLAIM_EMPTY}" in once
     assert last_progress_entry(once) == READY_PROGRESS
+    no_pr = apply_ready(_task("in-progress"), review_note="n", pr="   ")
+    assert "pr:" not in no_pr.split("## Цель")[0]
 
     # Idempotent: second apply returns identical text.
     twice = apply_ready(once, review_note="ignored", pr="#999")
@@ -274,6 +284,13 @@ def test_apply_ready_rules_and_idempotent(tmp_path: Path):
     bad.write_bytes(b"\xff\xfe")
     with pytest.raises(ValueError, match="unreadable task file"):
         write_ready(tasks, "T-261121-bin", review_note="n")
+
+    def boom(path: Path) -> str:
+        raise OSError("denied")
+
+    monkeypatch.setattr(th, "_read_text", boom)
+    with pytest.raises(ValueError, match="unreadable task file"):
+        write_ready(tasks, tid, review_note="n")
 
 
 def test_read_write_helpers_use_text_encoding(tmp_path: Path):

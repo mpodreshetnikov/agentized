@@ -65,7 +65,10 @@ def test_template_ci_has_tasks_validate_hard():
 
 
 def test_pre_push_runs_tasks_validate():
+    expected = '"${CLI[@]}" tasks-validate'
     for path in (PRE_PUSH, TEMPLATE_PRE_PUSH):
         text = path.read_text(encoding="utf-8")
-        assert '"${CLI[@]}" tasks-validate' in text
-        assert "|| true" not in text.split("tasks-validate")[1].split("process size")[0]
+        assert _exact_lines(text, expected) == [expected]
+        between = text.split("tasks-validate", 1)[1].split("process size", 1)[0]
+        soft = [ln for ln in between.splitlines() if "|| true" in ln]
+        assert soft == []
