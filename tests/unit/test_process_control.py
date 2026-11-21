@@ -24,6 +24,16 @@ from agentized.process_size import DOC as SIZE_DOC
 from agentized.process_size import diff_insertions as size_diff_insertions
 
 
+def _patch_size_deps(monkeypatch, insertions):
+    """Hermetic size_check: skip base ancestry / base-limit git; stub insertions."""
+    monkeypatch.setattr("agentized.process_size.validate_process_base", lambda *a, **k: None)
+    monkeypatch.setattr("agentized.process_size.limit_from_base_ref", lambda *a, **k: None)
+    if callable(insertions):
+        monkeypatch.setattr("agentized.process_size.diff_insertions", insertions)
+    else:
+        monkeypatch.setattr("agentized.process_size.diff_insertions", lambda *a, **k: insertions)
+
+
 def _task(root: Path, task_id: str, *, status: str, claim: str) -> None:
     tasks = root / "context" / "tasks"
     tasks.mkdir(parents=True, exist_ok=True)
@@ -86,10 +96,7 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
 
-    def fake_diff(root, base_ref):
-        return 60
-
-    monkeypatch.setattr("agentized.process_control.diff_insertions", fake_diff)
+    _patch_size_deps(monkeypatch, 60)
     result = size_check(tmp_path)
     assert result["level"] == "warn"
     assert result["ok"] is True
@@ -99,42 +106,42 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     assert result["base"] == "origin/main"
     assert result["message"] == (
         "process-control: PR size 60 insertions vs origin/main "
-        "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
+        "(warn ≥50 = 50.0% of 100; over >100; ≤100 OK). See docs/process-control.md."
     )
     assert "over >100" in result["message"]
     assert "over ≥100" not in result["message"]
     assert DOC == SIZE_DOC == "docs/process-control.md"
 
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
+    _patch_size_deps(monkeypatch, 120)
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False
     assert over["insertions"] == 120
     assert over["message"] == (
         "process-control: PR size 120 insertions vs origin/main "
-        "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
+        "(warn ≥50 = 50.0% of 100; over >100; ≤100 OK). See docs/process-control.md."
     )
     assert "over >100" in over["message"]
     assert "over ≥100" not in over["message"]
 
     # Inclusive limit: at exact limit → warn; +1 → over.
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 100)
+    _patch_size_deps(monkeypatch, 100)
     at_limit = size_check(tmp_path, base_ref="upstream/main")
     assert at_limit["level"] == "warn"
     assert at_limit["ok"] is True
     assert at_limit["base"] == "upstream/main"
     assert at_limit["message"] == (
         "process-control: PR size 100 insertions vs upstream/main "
-        "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
+        "(warn ≥50 = 50.0% of 100; over >100; ≤100 OK). See docs/process-control.md."
     )
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 101)
+    _patch_size_deps(monkeypatch, 101)
     over_by_one = size_check(tmp_path, base_ref="upstream/main")
     assert over_by_one["level"] == "over"
     assert over_by_one["ok"] is False
     assert over_by_one["insertions"] == 101
     assert over_by_one["message"] == (
         "process-control: PR size 101 insertions vs upstream/main "
-        "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
+        "(warn ≥50 = 50.0% of 100; over >100; ≤100 OK). See docs/process-control.md."
     )
 
 
@@ -487,7 +494,7 @@ def test_size_check_defaults_process_base_and_errors(tmp_path: Path, monkeypatch
     (tmp_path / "context").mkdir()
     # Missing keys → defaults 1500 / 75
     (tmp_path / "context" / "process-control.json").write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 10)
+    _patch_size_deps(monkeypatch, 10)
     monkeypatch.delenv("PROCESS_BASE", raising=False)
     ok = size_check(tmp_path)
     assert ok["limit"] == 1500
@@ -496,7 +503,7 @@ def test_size_check_defaults_process_base_and_errors(tmp_path: Path, monkeypatch
     assert ok["ok"] is True
     assert ok["message"] == (
         "process-control: PR size 10 insertions vs origin/main "
-        "(warn ≥1125 = 75.0% of 1500; over >1500). See docs/process-control.md."
+        "(warn ≥1125 = 75.0% of 1500; over >1500; ≤1500 OK). See docs/process-control.md."
     )
     monkeypatch.setenv("PROCESS_BASE", "origin/develop")
     via_env = size_check(tmp_path)
@@ -515,10 +522,7 @@ def test_size_check_defaults_process_base_and_errors(tmp_path: Path, monkeypatch
 
     # Restore valid config so boom-git exercises diff_insertions, not field validation.
     (tmp_path / "context" / "process-control.json").write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr(
-        "agentized.process_control.diff_insertions",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("boom-git")),
-    )
+    _patch_size_deps(monkeypatch, lambda *_: (_ for _ in ()).throw(RuntimeError("boom-git")))
     err = size_check(tmp_path)
     assert err == {
         "ok": False,
@@ -565,13 +569,13 @@ def test_main_size_claim_usage_streams(tmp_path: Path, monkeypatch, capsys):
         '"claim_mode_agent": "refuse", "claim_mode_local": "warn"}\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 10)
+    _patch_size_deps(monkeypatch, 10)
     assert process_main(["size", "--context", "context"]) == 0
     out = capsys.readouterr()
     assert "over >50" in out.out
     assert out.err == ""
 
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 60)
+    _patch_size_deps(monkeypatch, 60)
     assert process_main(["size"]) == 1
     out = capsys.readouterr()
     assert "over >50" in out.err
@@ -736,7 +740,7 @@ def test_claim_and_size_pass_context_rel(tmp_path: Path, monkeypatch):
         }
 
     monkeypatch.setattr("agentized.process_control.load_process_config", fake_load)
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 1)
+    _patch_size_deps(monkeypatch, 1)
     claim_check(tmp_path, ["runtime/x.py"], context_rel="otherctx", env={})
     size_check(tmp_path, context_rel="sizectx")
     assert calls == [("load", "otherctx"), ("load", "sizectx")]
@@ -761,7 +765,7 @@ def test_main_argv_none_context_paths_and_newlines(tmp_path: Path, monkeypatch, 
         '"claim_mode_local": "warn", "claim_mode_agent": "refuse"}\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 1)
+    _patch_size_deps(monkeypatch, 1)
 
     # argv is None → sys.argv[1:]
     monkeypatch.setattr(
@@ -773,7 +777,7 @@ def test_main_argv_none_context_paths_and_newlines(tmp_path: Path, monkeypatch, 
     assert out.out.endswith("\n")
     assert out.out == (
         "process-control: PR size 1 insertions vs origin/main "
-        "(warn ≥2 = 50.0% of 5; over >5). See docs/process-control.md.\n"
+        "(warn ≥2 = 50.0% of 5; over >5; ≤5 OK). See docs/process-control.md.\n"
     )
     assert "XX\nXX" not in out.out
 
@@ -804,3 +808,21 @@ def test_main_argv_none_context_paths_and_newlines(tmp_path: Path, monkeypatch, 
     # Empty --paths list after flag still passes empty list (not default).
     assert process_main(["claim", "--paths"]) == 0
     assert seen[-1][0] == []
+
+
+def test_main_size_refuses_head_and_non_ancestor(monkeypatch, capsys):
+    """PROCESS_BASE=HEAD / non-ancestor of origin/main → main(['size']) exit 1."""
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: root)
+
+    monkeypatch.setenv("PROCESS_BASE", "HEAD")
+    assert process_main(["size"]) == 1
+    err = capsys.readouterr().err
+    assert "must not be HEAD" in err
+    assert err.endswith("\n")
+
+    monkeypatch.setenv("PROCESS_BASE", "0000000000000000000000000000000000000001")
+    assert process_main(["size"]) == 1
+    err = capsys.readouterr().err
+    assert "ancestor of origin/main" in err

@@ -16,7 +16,7 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 | `claim_mode_agent=refuse` | Cursor/Claude/Codex cloud (or labeled agent) | Hook/CLI **deny** without claim |
 | `claim_mode_local=warn` | Local interactive | Warn only |
 
-`process_guard` runs on Write/Edit (and Codex `apply_patch`) before lease-warn. Cursor hooks use `failClosed: true`. Broken `process-control.json` → deny + exit **2**. Import failures still allow.
+`process_guard` runs on Write/Edit (and Codex `apply_patch`) before lease-warn. Cursor hooks use `failClosed: true`. Broken `process-control.json` → deny + exit **2**. Runtime import failure of claim guard → deny + exit **2**.
 
 ## Reviewable PR size (AGE-32 / AGE-35 / AGE-40)
 

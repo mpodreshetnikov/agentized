@@ -6,7 +6,7 @@
         "command": ".cursor/hooks/session_start.py"
       }
     ],
-            "preToolUse": [
+    "preToolUse": [
       {
         "command": ".cursor/hooks/process_guard.py",
         "matcher": "Write|Edit",

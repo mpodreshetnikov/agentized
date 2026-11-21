@@ -20,6 +20,28 @@ except ImportError:  # copied next to hooks without package layout
             return Path.cwd()
 
 
+def _deny(event: str, msg: str) -> int:
+    print(
+        json.dumps(
+            {
+                "permission": "deny",
+                "continue": False,
+                "agent_message": msg,
+                "additional_context": msg,
+                "hookEventName": event,
+                "systemMessage": msg,
+                "hookSpecificOutput": {
+                    "hookEventName": event,
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": msg,
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 2
+
+
 def main() -> int:
     workspace = ensure_runtime_on_path(_HERE)
     raw = sys.stdin.read()
@@ -43,10 +65,8 @@ def main() -> int:
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
         from agentized.process_control import claim_check
-    except Exception as exc:  # noqa: BLE001 — never crash the harness
-        allow["agent_message"] = f"[process-guard] unavailable: {exc}"
-        print(json.dumps(allow, ensure_ascii=False))
-        return 0
+    except Exception as exc:  # noqa: BLE001 — fail closed on runtime import failure
+        return _deny(event, f"REFUSED. process-control: claim guard unavailable: {exc}")
 
     root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
@@ -64,26 +84,7 @@ def main() -> int:
     try:
         result = claim_check(root, paths, context_rel=ctx)
     except Exception as exc:  # noqa: BLE001 — broken process-control.json fail closed
-        msg = f"REFUSED. process-control: claim check failed: {exc}"
-        print(
-            json.dumps(
-                {
-                    "permission": "deny",
-                    "continue": False,
-                    "agent_message": msg,
-                    "additional_context": msg,
-                    "hookEventName": event,
-                    "systemMessage": msg,
-                    "hookSpecificOutput": {
-                        "hookEventName": event,
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": msg,
-                    },
-                },
-                ensure_ascii=False,
-            )
-        )
-        return 2
+        return _deny(event, f"REFUSED. process-control: claim check failed: {exc}")
 
     msg = result.get("message") or ""
     if result.get("ok", True):

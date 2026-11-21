@@ -63,6 +63,38 @@ def test_process_guard_allows_without_paths(monkeypatch, tmp_path, capsys):
     assert out["permission"] == "allow"
 
 
+def test_process_guard_import_fail_deny_exit_2(monkeypatch, tmp_path, capsys):
+    """Runtime import failure of claim guard → deny JSON + exit 2 (fail closed)."""
+    root = _repo_root()
+    script = root / "packages/shared/hooks/scripts/process_guard.py"
+    if not script.is_file():
+        pytest.skip("process_guard script not present")
+    payload = json.dumps({"tool_input": {"file_path": "runtime/x.py"}, "cwd": str(tmp_path)})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    mod = _load("process_guard_import_fail", script)
+
+    def fake_ensure(here=None):  # noqa: ARG001
+        return tmp_path
+
+    monkeypatch.setattr(mod, "ensure_runtime_on_path", fake_ensure)
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "agentized.hook_common" or name == "agentized.process_control":
+            raise ImportError("blocked agentized import")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    rc = mod.main()
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["permission"] == "deny"
+    assert "unavailable" in out["agent_message"]
+
+
 def test_process_guard_broken_json_deny_exit_2(monkeypatch, tmp_path, capsys):
     """Broken process-control.json → deny JSON + exit 2 (fail closed)."""
     root = _repo_root()
