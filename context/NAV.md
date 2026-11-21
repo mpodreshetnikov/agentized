@@ -19,7 +19,6 @@
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |
 | Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size (hard gate) |
 | Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / env-check / process / new / claim / lease / digest / check / quality |
-| Autopilot / metrics | [`../docs/autopilot.md`](../docs/autopilot.md) | WIP next-task + board metrics (`agentized autopilot`; not HTML board) |
 | Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
 | Quality | [`../docs/QUALITY.md`](../docs/QUALITY.md) | Coverage / mutation / pre-push / CI |
 | Process control | [`../docs/process-control.md`](../docs/process-control.md) | Claim · PR size · hooks |
