@@ -693,8 +693,8 @@ def install_ensure_quality_hook() -> None:
     from . import connect as connect_mod
 
     current = connect_mod.ensure_quality_config
-    if getattr(current, "_age31_layer_hook", False):
-        return
+    if getattr(current, "_age31_layer_hook", False) is True:
+        current = current._age31_orig  # type: ignore[attr-defined]
 
     def ensure_quality_config(
         root: Path,
@@ -712,6 +712,7 @@ def install_ensure_quality_hook() -> None:
         return out
 
     ensure_quality_config._age31_layer_hook = True  # type: ignore[attr-defined]
+    ensure_quality_config._age31_orig = current  # type: ignore[attr-defined]
     connect_mod.ensure_quality_config = ensure_quality_config  # type: ignore[assignment]
 
 

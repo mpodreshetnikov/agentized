@@ -172,6 +172,9 @@ def test_module_thresholds_fallbacks():
     cfg = {"coverage": {"lines": 80, "branches": 70}}
     assert module_thresholds(cfg, {"thresholds": {}}) == (80.0, 70.0)
     assert module_thresholds(cfg, {"thresholds": {"lines": 60}}) == (60.0, 70.0)
+    # Non-default globals — kills get("lines")→get("XXlinesXX") falling back to 80.
+    cfg91 = {"coverage": {"lines": 91, "branches": 77}}
+    assert module_thresholds(cfg91, {"thresholds": {}}) == (91.0, 77.0)
     assert module_thresholds({}, {"thresholds": {}}) == (
         float(DEFAULT_COVERAGE_PCT),
         float(DEFAULT_COVERAGE_PCT),
