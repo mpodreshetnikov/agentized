@@ -56,35 +56,23 @@ def _seed_context_skills(root: Path, rel: str = "context") -> Path:
 
 
 def test_hooks_json_exact_structure_and_utf8_indent(tmp_path: Path):
-    """Kill hooks.json key/path/matcher/version string + write_text encoding/indent mutants."""
+    """Kill hooks.json key/path/matcher/version string + write_text encoding mutants."""
     _seed_context_skills(tmp_path)
     seen_enc: list[str | None] = []
-    seen_indent: list[Any] = []
     real_w = Path.write_text
-    real_dumps = json.dumps
 
     def wrap_w(self: Path, data: str, encoding: str | None = None, **kwargs):
         if self.name == "hooks.json":
             seen_enc.append(encoding)
         return real_w(self, data, encoding=encoding, **kwargs)
 
-    def wrap_dumps(obj, **kwargs):
-        if isinstance(obj, dict) and "hooks" in obj:
-            seen_indent.append(kwargs.get("indent", "MISSING"))
-        return real_dumps(obj, **kwargs)
-
-    with (
-        mock.patch.object(Path, "write_text", wrap_w),
-        mock.patch.object(connect_mod.json, "dumps", wrap_dumps),
-    ):
+    with mock.patch.object(Path, "write_text", wrap_w):
         result = install_cursor(tmp_path, "context")
 
     hooks_path = tmp_path / ".cursor" / "hooks.json"
     raw = hooks_path.read_text(encoding="utf-8")
     assert raw == json.dumps(EXPECTED_HOOKS, indent=2) + "\n"
-    assert json.loads(raw) == EXPECTED_HOOKS
     assert seen_enc and all(enc == "utf-8" for enc in seen_enc)
-    assert seen_indent and all(i == 2 for i in seen_indent)
     assert result["hooks_json"] == str(hooks_path)
 
 
@@ -100,7 +88,6 @@ def test_return_keys_and_skills_managed_lists(tmp_path: Path):
         "plugin_path",
         "local_plugin_hint",
     }
-    assert isinstance(result["skills_copied"], list)
     assert result["skills_copied"]  # created/updated paths nonempty
     assert isinstance(result["skills_managed"], dict)
     assert result["skipped_user"] == []
@@ -132,7 +119,7 @@ class _RecordGet(dict):
 def test_skills_result_get_keys_and_empty_list_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Kill skills_result.get key XX/CASE/None + default None/omit mutants."""
+    """Kill skills_result.get key/default mutants via recorded get calls."""
     _seed_context_skills(tmp_path)
     fake = _RecordGet(
         created=["c"],
@@ -146,12 +133,10 @@ def test_skills_result_get_keys_and_empty_list_defaults(
         return fake
 
     monkeypatch.setattr(connect_mod, "_managed_copy_tree", wrap)
-    # still need pin hooks etc. — install_cursor will call wrap for managed copy only
     result = install_cursor(tmp_path, "context")
     assert result["skills_copied"] == ["c", "u", "n", "b"]
     assert result["skipped_user"] == ["s"]
     assert result["skills_managed"] is fake
-    # Exact get calls for the four aggregate keys + skipped_user
     keys = [k for k, _d in fake.gets]
     assert keys.count("created") >= 1
     assert keys.count("updated") >= 1
@@ -161,18 +146,6 @@ def test_skills_result_get_keys_and_empty_list_defaults(
     for k, d in fake.gets:
         if k in {"created", "updated", "unchanged", "bootstrapped", "skipped_user"}:
             assert d == []
-            assert k == k.lower() and "XX" not in str(k)
-    assert "CREATED" not in keys
-    assert "UPDATED" not in keys
-    assert "UNCHANGED" not in keys
-    assert "BOOTSTRAPPED" not in keys
-    assert "SKIPPED_USER" not in keys
-    assert None not in keys
-    assert "XXcreatedXX" not in keys
-    assert "XXupdatedXX" not in keys
-    assert "XXunchangedXX" not in keys
-    assert "XXbootstrappedXX" not in keys
-    assert "XXskipped_userXX" not in keys
 
 
 def test_force_default_false_passed_to_managed_copy(
@@ -321,49 +294,9 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     assert any(s.get("parents") is True and s.get("exist_ok") is True for s in seen)
 
 
-def test_skills_copied_not_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Kill ``written = (... )`` → None."""
-    _seed_context_skills(tmp_path)
-    result = install_cursor(tmp_path, "context")
-    assert result["skills_copied"] is not None
-    assert isinstance(result["skills_copied"], list)
-
-
 def test_hooks_json_path_str_not_none(tmp_path: Path):
     """Kill ``str(hooks_path)`` → ``str(None)``."""
     _seed_context_skills(tmp_path)
     result = install_cursor(tmp_path, "context")
     hooks = tmp_path / ".cursor" / "hooks.json"
     assert result["hooks_json"] == str(hooks)
-    assert "None" not in result["hooks_json"]
-
-
-def test_pretooluse_matcher_literals(tmp_path: Path):
-    """Kill preToolUse matcher Write|Edit and Write|Edit|Shell|Bash case/XX mutants."""
-    _seed_context_skills(tmp_path)
-    install_cursor(tmp_path, "context")
-    data = json.loads((tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
-    pre = data["hooks"]["preToolUse"]
-    assert pre[0]["matcher"] == "Write|Edit"
-    assert pre[1]["matcher"] == "Write|Edit|Shell|Bash"
-    assert pre[0]["command"] == ".cursor/hooks/process_guard.py"
-    assert pre[1]["command"] == ".cursor/hooks/lease_warn.py"
-
-
-def test_hook_event_key_literals(tmp_path: Path):
-    """Kill sessionStart/beforeShellExecution/afterFileEdit key case/XX mutants."""
-    _seed_context_skills(tmp_path)
-    install_cursor(tmp_path, "context")
-    data = json.loads((tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
-    hooks = data["hooks"]
-    assert list(hooks.keys()) == [
-        "sessionStart",
-        "preToolUse",
-        "beforeShellExecution",
-        "afterFileEdit",
-    ]
-    assert hooks["sessionStart"][0]["command"] == ".cursor/hooks/session_start.py"
-    assert hooks["beforeShellExecution"][0]["command"] == (".cursor/hooks/ensure_agent_hooks.py")
-    assert hooks["afterFileEdit"][0]["command"] == ".cursor/hooks/lease_warn.py"
-    assert data["version"] == 1
-    assert set(data) == {"version", "hooks"}
