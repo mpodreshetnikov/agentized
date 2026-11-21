@@ -1,17 +1,13 @@
 """AGE-31 layer gates — real quality.json trees (no mocked load_quality)."""
 from __future__ import annotations
-
 import json
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
 import pytest
-
 from agentized import layer_gates as lg
 from agentized.quality import default_quality_config, save_quality
 from agentized.quality_defaults import default_quality_config as defaults_fn
-
 def _ensure_mini_app(root: Path) -> Path:
     """Minimal playwright + db/tests tree for layer-gate oracles."""
     app = root / "app"
@@ -30,8 +26,6 @@ def _ensure_mini_app(root: Path) -> Path:
     tests.mkdir(parents=True)
     (tests / "test_init.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
     return app
-
-
 def _git_init(root: Path) -> None:
     subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
     subprocess.run(
@@ -40,8 +34,6 @@ def _git_init(root: Path) -> None:
     subprocess.run(
         ["git", "config", "user.name", "t"], cwd=root, check=True, capture_output=True
     )
-
-
 def _commit_all(root: Path, msg: str = "chg") -> str:
     subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
     subprocess.run(
@@ -50,8 +42,6 @@ def _commit_all(root: Path, msg: str = "chg") -> str:
     return subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
     ).stdout.strip()
-
-
 def _write_quality(root: Path, **section_overrides: object) -> None:
     cfg = default_quality_config()
     cfg["modules"] = []
@@ -61,26 +51,18 @@ def _write_quality(root: Path, **section_overrides: object) -> None:
         else:
             cfg[key] = value
     save_quality(root, cfg)
-
-
 def _summary(root: Path, gate: str) -> dict:
     return json.loads((root / "reports" / gate / f"{gate}-summary.json").read_text(encoding="utf-8"))
-
-
 def _decision(*, days: int = 7, approved_by: str = "Maxim") -> dict:
     return {
         "reason": "temporary migration",
         "approved_by": approved_by,
         "expires": (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(),
     }
-
-
 def _pw_tree(root: Path) -> None:
     (root / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
     (root / "e2e").mkdir(exist_ok=True)
     (root / "e2e" / "a.spec.ts").write_text("test('a', async () => {})\n", encoding="utf-8")
-
-
 def test_detect_e2e_and_absent(tmp_path: Path):
     _pw_tree(tmp_path)
     (tmp_path / "package.json").write_text(
@@ -93,8 +75,6 @@ def test_detect_e2e_and_absent(tmp_path: Path):
     empty.mkdir()
     (empty / "README.md").write_text("x\n", encoding="utf-8")
     assert lg.detect_e2e(empty, skip_prefixes=())["evidence"] == []
-
-
 def test_detect_db_and_nested_orm(tmp_path: Path):
     mig = tmp_path / "db" / "migrations"
     mig.mkdir(parents=True)
@@ -120,8 +100,6 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     (orm / "db" / "tests").mkdir(parents=True)
     (orm / "db" / "tests" / "t.sql").write_text("SELECT 1;\n", encoding="utf-8")
     assert lg.detect_db_layer(orm, skip_prefixes=())["framework"] == "prisma"
-
-
 def test_skip_prefixes_agentized_only(tmp_path: Path):
     (tmp_path / "templates" / "e2e").mkdir(parents=True)
     (tmp_path / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
@@ -133,8 +111,6 @@ def test_skip_prefixes_agentized_only(tmp_path: Path):
     (tmp_path / "templates" / "quality").mkdir(parents=True)
     assert lg.skip_rel_prefixes(tmp_path) == ("templates/", "tests/fixtures/")
     assert lg.skip_rel_prefixes(tmp_path, {"skip_rel_prefixes": ["vendor/"]}) == ("vendor/",)
-
-
 def test_disable_decision_rules():
     assert lg.DISABLE_DECISION_MAX_DAYS == 14
     clock = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -174,8 +150,6 @@ def test_disable_decision_rules():
         {"disable_decision": {**base, "expires": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()}},
         now=None,
     ) is True
-
-
 def test_e2e_disabled_requires_decision(tmp_path: Path, monkeypatch):
     _git_init(tmp_path)
     _pw_tree(tmp_path)
@@ -187,8 +161,6 @@ def test_e2e_disabled_requires_decision(tmp_path: Path, monkeypatch):
     _write_quality(tmp_path, e2e={"enabled": False, "mode": "hard", "disable_decision": _decision()})
     assert lg.run_e2e_gate(tmp_path) == 0
     assert _summary(tmp_path, "e2e")["reason"] == "disabled_by_decision"
-
-
 def test_red_commands_and_require_false(tmp_path: Path, monkeypatch):
     _git_init(tmp_path)
     _pw_tree(tmp_path)
@@ -231,8 +203,6 @@ def test_red_commands_and_require_false(tmp_path: Path, monkeypatch):
         f["kind"] == "require_disabled_without_decision"
         for f in _summary(tmp_path, "e2e")["findings"]
     )
-
-
 def test_missing_suite_and_changed_sources(tmp_path: Path, monkeypatch):
     _git_init(tmp_path)
     _pw_tree(tmp_path)
@@ -261,8 +231,6 @@ def test_missing_suite_and_changed_sources(tmp_path: Path, monkeypatch):
     (tmp_path / "e2e" / "ok.spec.ts").write_text("test('ok2', async () => {})\n", encoding="utf-8")
     _commit_all(tmp_path, "ui+e2e")
     assert lg.run_e2e_gate(tmp_path) == 0
-
-
 def test_git_fail_closed_and_autodetect(tmp_path: Path, monkeypatch):
     _git_init(tmp_path)
     _pw_tree(tmp_path)
@@ -287,8 +255,6 @@ def test_git_fail_closed_and_autodetect(tmp_path: Path, monkeypatch):
     assert lg._has_supabase(tmp_path) is False
     (tmp_path / "supabase" / "config.toml").write_text("[project]\n", encoding="utf-8")
     assert lg.default_test_command("db_tests", {"framework": "sql"}, root=tmp_path) == "supabase test db"
-
-
 def test_test_command_required_orm(tmp_path: Path, monkeypatch):
     _git_init(tmp_path)
     (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"prisma": "5"}}), encoding="utf-8")
@@ -312,8 +278,6 @@ def test_test_command_required_orm(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LAYER_GATES_BASE", base)
     assert lg.run_db_tests_gate(tmp_path) == 1
     assert any(f["kind"] == "test_command_required" for f in _summary(tmp_path, "db_tests")["findings"])
-
-
 def test_apply_layer_upgrades_persists(tmp_path: Path):
     cfg = defaults_fn()
     cfg["e2e"] = {"enabled": False, "mode": "warn"}
@@ -327,12 +291,9 @@ def test_apply_layer_upgrades_persists(tmp_path: Path):
     assert loaded["e2e"]["mode"] == "hard"
     assert loaded["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
     assert lg.apply_layer_upgrades_to_repo(tmp_path) == []
-
-
 def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     import agentized.connect as connect_mod
     from agentized.quality import load_quality, save_quality as sq
-
     lg.install_ensure_quality_hook()
     wrapped = connect_mod.ensure_quality_config
     assert wrapped._age31_layer_hook is True and wrapped._age31_orig is not None
@@ -352,13 +313,28 @@ def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     assert out["created"] is False and out["coverage_pct"] == 91
     # Preserve orig upgraded_modes + layer keys (kills get/or mutants).
     assert "test_smells" in out["upgraded_modes"]
-    assert {"e2e.enabled", "db_tests.enabled", "gates.ci"} <= set(out["upgraded_modes"])
+    assert {"e2e.enabled", "db_tests.enabled", "gates.ci", "gates.pre_push"} <= set(out["upgraded_modes"])
     loaded = load_quality(tmp_path, context_rel="alt-ctx")
     assert loaded["e2e"]["enabled"] == "auto" and loaded["test_smells"]["mode"] == "hard"
     assert loaded["gates"]["ci"].index("e2e") < loaded["gates"]["ci"].index("mutation")
+    assert loaded["gates"]["pre_push"] == ["e2e", "db_tests", "mutation"]
     assert wrapped2(tmp_path, "alt-ctx")["upgraded_modes"] == []
+    # Missing upgraded_modes key on bare result (kills `in result or True`).
+    bare_root = tmp_path / "bare-hook"
+    bare_root.mkdir()
+    cfg2 = defaults_fn()
+    cfg2["e2e"] = {"enabled": False, "mode": "warn"}
+    cfg2["db_tests"] = {"enabled": False, "mode": "warn"}
+    cfg2["gates"] = {"ci": ["mutation"], "pre_push": ["mutation"]}
+    sq(bare_root, cfg2, context_rel="ctx2")
 
+    def bare_orig(root, context_rel, coverage_pct=None):
+        return {"created": False}
 
+    connect_mod.ensure_quality_config = bare_orig
+    lg.install_ensure_quality_hook()
+    bare_out = connect_mod.ensure_quality_config(bare_root, "ctx2")
+    assert "e2e.enabled" in bare_out["upgraded_modes"] and "gates.pre_push" in bare_out["upgraded_modes"]
 def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
     root = _ensure_mini_app(tmp_path)
     _git_init(root)
@@ -382,26 +358,31 @@ def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
         "gates": {"ci": ["coverage", "mutation"], "pre_push": ["mutation"]},
     }
     up = lg.upgrade_layer_gate_config(data)
-    assert "e2e.enabled" in up and data["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
+    assert "e2e.enabled" in up and "gates.pre_push" in up
+    assert data["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
+    assert data["gates"]["pre_push"] == ["e2e", "db_tests", "mutation"]
     created: dict = {"gates": {"ci": ["coverage"], "pre_push": ["coverage"]}}
-    lg.upgrade_layer_gate_config(created)
+    up_c = lg.upgrade_layer_gate_config(created)
+    assert {"e2e.created", "db_tests.created", "gates.ci", "gates.pre_push"} <= set(up_c)
     assert created["e2e"] == {"enabled": "auto", "mode": "hard", "require_tests_for_changed": True}
+    assert created["gates"]["pre_push"] == ["coverage", "e2e", "db_tests"]
     bad = {"e2e": {"enabled": "auto", "mode": "hard"}, "db_tests": {"enabled": "auto", "mode": "hard"}, "gates": "bogus"}
-    lg.upgrade_layer_gate_config(bad)
-    assert bad["gates"]["ci"] == ["e2e", "db_tests"]
+    up_b = lg.upgrade_layer_gate_config(bad)
+    assert bad["gates"]["ci"] == ["e2e", "db_tests"] and bad["gates"]["pre_push"] == ["e2e", "db_tests"]
+    assert "gates.pre_push" in up_b
     gates: list = ["coverage"]
     assert lg._ensure_gate_list(gates, "e2e") is True and gates == ["coverage", "e2e"]
     # full-cover dogfood glob (fnmatch * matches /) covers layer_gates.py
     globs = list(defaults_fn()["mutation"]["include_globs"])
     assert globs == ["runtime/agentized/*.py"]
-
-
 def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
     assert lg._JSON_ENCODING == "utf-8" and lg._CMD_OUTPUT_LIMIT == 4000
     assert lg._normalize_rel(r"db\migrations/") == "db/migrations"
     assert lg._normalize_rel("db/migrations") == "db/migrations"
     assert lg._looks_like_db_dir("db/migrations/") == "migrations_dir"
+    assert lg._looks_like_db_dir("pgtap") == "pgtap_dir"
     assert lg._looks_like_db_dir("pgtap/") == "pgtap_dir"
+    assert lg._looks_like_db_dir("vendor/pgtap") == "pgtap_dir"
     assert lg._looks_like_db_dir("tests/db") == "db_tests_dir"
     assert lg._looks_like_db_dir("tests/sql") == "db_tests_dir"
     assert lg._looks_like_db_dir("db/tests") == "db_tests_dir"
@@ -435,6 +416,14 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
     found2 = lg._read_python_deps(py, ())
     assert {rel for rel, _ in found2} >= {"pyproject.toml", "requirements.txt"}
     assert any("sqlalchemy" in names for _, names in found2)
+    # No pyproject: continue (not break) past missing file to requirements*.txt.
+    req_only = tmp_path / "req_only"
+    req_only.mkdir()
+    (req_only / "requirements.txt").write_text("django\n", encoding="utf-8")
+    (req_only / "requirements-bin.txt").write_bytes(b"alembic==1\n\xff\xfe\n")
+    found3 = lg._read_python_deps(req_only, ())
+    assert {rel for rel, _ in found3} >= {"requirements.txt", "requirements-bin.txt"}
+    assert any("django" in n for _, n in found3) and any("alembic" in n for _, n in found3)
     (tmp_path / "marker.txt").write_text("yes", encoding="utf-8")
     rc, out = lg._run_command(tmp_path, "test -f marker.txt && echo HELLO_GATE")
     assert rc == 0 and isinstance(out, str) and "HELLO_GATE" in out
