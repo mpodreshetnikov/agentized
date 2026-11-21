@@ -147,7 +147,7 @@ def test_count_and_int_bool_bypass_helpers():
         "assert int(n) == 3",
         'assert lines[0] == "[mutmut]"',
         'assert result["message"].startswith("agent-env-check: REFUSED")',
-        'assert watched == [True, False, False, True]',
+        "assert watched == [True, False, False, True]",
     ]
     for src in strong_srcs:
         node = ast.parse(src).body[0]
@@ -165,14 +165,11 @@ def test_smells_hard_flags_count_and_int_bypasses(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     (tests / "test_int_bypass.py").write_text(
-        "def test_int_bypass():\n"
-        "    flag = True\n"
-        "    assert int(flag) == 1\n",
+        "def test_int_bypass():\n    flag = True\n    assert int(flag) == 1\n",
         encoding="utf-8",
     )
     (tests / "test_exact_count_ok.py").write_text(
-        "def test_exact_count_ok():\n"
-        '    assert "aa".count("a") == 2\n',
+        'def test_exact_count_ok():\n    assert "aa".count("a") == 2\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -190,7 +187,9 @@ def test_smells_hard_flags_count_and_int_bypasses(tmp_path: Path, monkeypatch):
     summary = json.loads(
         (tmp_path / "reports/test-smells/test-smells-summary.json").read_text(encoding="utf-8")
     )
-    names = {Path(f["file"]).name for f in summary["findings"] if f["kind"] == "weak_primary_oracle"}
+    names = {
+        Path(f["file"]).name for f in summary["findings"] if f["kind"] == "weak_primary_oracle"
+    }
     assert names == {"test_count_bypass.py", "test_int_bypass.py"}
 
 

@@ -4,6 +4,7 @@
 (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested).
 Editing this module pulls it into the hard mutation gate when changed.
 """
+
 from __future__ import annotations
 
 from typing import Any

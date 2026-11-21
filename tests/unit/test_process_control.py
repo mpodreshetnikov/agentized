@@ -175,11 +175,7 @@ def test_active_claims_keeps_claim_when_parent_empty(tmp_path: Path):
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True, exist_ok=True)
     (tasks / "T-261116-emp.md").write_text(
-        "# T-261116-emp — t\n\n"
-        "статус: in-progress\n"
-        "теги: AGE-43\n"
-        "родитель:\n"
-        "claim: worker-x\n",
+        "# T-261116-emp — t\n\nстатус: in-progress\nтеги: AGE-43\nродитель:\nclaim: worker-x\n",
         encoding="utf-8",
     )
     claims = active_claims(tmp_path)
@@ -193,9 +189,7 @@ def test_normalize_and_extract_paths(tmp_path: Path):
         ".github/workflows/ci.yml"
     ]
     # Must not turn ".github/..." into "github/..." (old lstrip("./") bug).
-    assert extract_paths({"file_path": ".github/workflows/ci.yml"}) == [
-        ".github/workflows/ci.yml"
-    ]
+    assert extract_paths({"file_path": ".github/workflows/ci.yml"}) == [".github/workflows/ci.yml"]
     # Strip only "./" prefixes; keep absolute paths intact for normalize_repo_path.
     assert extract_paths({"file_path": "././runtime/x.py"}) == ["runtime/x.py"]
     abs_keep = str(tmp_path / "runtime" / "kept.py")

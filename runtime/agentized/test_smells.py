@@ -3,6 +3,7 @@
 Config: context/quality.json → test_smells (mode: hard|warn).
 Does not replace the quality-gates skill rules — it only catches common smells.
 """
+
 from __future__ import annotations
 
 import ast
@@ -110,8 +111,10 @@ def _is_weak_assert(node: ast.Assert) -> bool:
         return True
     if isinstance(test, ast.Name):
         return True
-    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not) and isinstance(
-        test.operand, ast.Name
+    if (
+        isinstance(test, ast.UnaryOp)
+        and isinstance(test.op, ast.Not)
+        and isinstance(test.operand, ast.Name)
     ):
         return True
     if isinstance(test, ast.Compare) and len(test.ops) == 1:
@@ -197,8 +200,10 @@ def _scan_file(path: Path, root: Path) -> list[dict]:
             name = _call_name(call.func)
             if "patch" not in name:
                 continue
-            if call.args and isinstance(call.args[0], ast.Constant) and isinstance(
-                call.args[0].value, str
+            if (
+                call.args
+                and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[0].value, str)
             ):
                 target = call.args[0].value
                 findings.append(

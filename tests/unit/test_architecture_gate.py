@@ -9,7 +9,9 @@ from agentized import architecture_gate as arch
 def test_builtin_forbidden_edge(tmp_path: Path, monkeypatch):
     src = tmp_path / "runtime" / "agentized"
     src.mkdir(parents=True)
-    (src / "mutation.py").write_text("import agentized.connect\nfrom agentized.connect import x\n", encoding="utf-8")
+    (src / "mutation.py").write_text(
+        "import agentized.connect\nfrom agentized.connect import x\n", encoding="utf-8"
+    )
     (src / "connect.py").write_text("x = 1\n", encoding="utf-8")
     (src / "__init__.py").write_text("", encoding="utf-8")
     (src / "readme.txt").write_text("nope\n", encoding="utf-8")
@@ -35,9 +37,7 @@ def test_builtin_forbidden_edge(tmp_path: Path, monkeypatch):
 
 
 def test_architecture_disabled(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(
-        arch, "load_quality", lambda *a, **k: {"architecture": {"enabled": False}}
-    )
+    monkeypatch.setattr(arch, "load_quality", lambda *a, **k: {"architecture": {"enabled": False}})
     assert arch.run_architecture_gate(tmp_path) == 0
 
 
@@ -137,7 +137,11 @@ def test_run_import_linter_with_exe(tmp_path: Path, monkeypatch):
         stdout = "ok"
         stderr = ""
 
-    monkeypatch.setattr(arch.shutil if hasattr(arch, "shutil") else __import__("shutil"), "which", lambda n: "/bin/lint-imports")
+    monkeypatch.setattr(
+        arch.shutil if hasattr(arch, "shutil") else __import__("shutil"),
+        "which",
+        lambda n: "/bin/lint-imports",
+    )
     # Patch where used inside function via import shutil locally — stub subprocess.run
     calls = {}
 

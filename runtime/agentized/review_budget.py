@@ -1,4 +1,5 @@
 """Independent strong-reviewer budget + watermark (Orbit review-delta mechanism)."""
+
 from __future__ import annotations
 
 import fnmatch
@@ -102,7 +103,10 @@ def _empty_scope() -> dict[str, Any]:
 def _migrate_store(data: dict[str, Any]) -> dict[str, Any]:
     """Normalize on-disk state to scoped form; migrate legacy flat files."""
     if isinstance(data.get("scopes"), dict):
-        scopes = {str(k): dict(v) if isinstance(v, dict) else _empty_scope() for k, v in data["scopes"].items()}
+        scopes = {
+            str(k): dict(v) if isinstance(v, dict) else _empty_scope()
+            for k, v in data["scopes"].items()
+        }
         active = data.get("active_scope") or "default"
         return {"scopes": scopes, "active_scope": str(active)}
     # Legacy flat {used, watermark, ...} → scopes.default
@@ -399,9 +403,7 @@ def evaluate_delta(root: Path, since: str, cfg: dict[str, Any]) -> dict[str, Any
     threshold = int(cfg.get("delta_lines") or 200)
     reasons: list[str] = []
     if reviewable > threshold:
-        reasons.append(
-            f"{reviewable} reviewable lines since {since[:12]} (over {threshold})"
-        )
+        reasons.append(f"{reviewable} reviewable lines since {since[:12]} (over {threshold})")
     for path in sensitive:
         reasons.append(f"{path} — sensitive surface")
     return {
@@ -646,9 +648,7 @@ def main(argv: list[str] | None = None) -> int:
         if "--findings" in args:
             findings = int(args[args.index("--findings") + 1])
         try:
-            result = record_review(
-                root, sha, findings=findings, context_rel=context, scope=scope
-            )
+            result = record_review(root, sha, findings=findings, context_rel=context, scope=scope)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -657,8 +657,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2))
         return 0
     print(
-        "usage: review_budget.py status|allow|record|reset "
-        "[--sha SHA] [--findings N] [--scope ID]",
+        "usage: review_budget.py status|allow|record|reset [--sha SHA] [--findings N] [--scope ID]",
         file=sys.stderr,
     )
     return 2

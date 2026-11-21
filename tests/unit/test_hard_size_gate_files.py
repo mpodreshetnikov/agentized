@@ -3,6 +3,7 @@
 Kept separate from test_process_control.py so mutmut's module-scoped test
 selection does not require .githooks / .github / templates inside mutants/.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -33,7 +33,9 @@ def test_ensure_link_and_collect(tmp_path: Path):
     assert mut._ensure_agentized_link(tmp_path) is False
     meta = tmp_path / "mutants" / "x.meta"
     meta.parent.mkdir(parents=True)
-    meta.write_text(json.dumps({"exit_code_by_key": {"a": 1, "b": 0, "c": 5, "d": 36}}), encoding="utf-8")
+    meta.write_text(
+        json.dumps({"exit_code_by_key": {"a": 1, "b": 0, "c": 5, "d": 36}}), encoding="utf-8"
+    )
     stats = mut._collect_stats(tmp_path)
     assert stats["killed"] == 1
     assert stats["survived"] == 1
@@ -113,15 +115,19 @@ def test_run_mutation_include_globs_filter_reaches_mutmut(tmp_path: Path, monkey
         return R()
 
     monkeypatch.setattr(mut.subprocess, "run", fake_run)
-    monkeypatch.setattr(mut, "_collect_stats", lambda root: {  # noqa: ARG001
-        "killed": 0,
-        "survived": 0,
-        "no_tests": 0,
-        "timeout": 0,
-        "totalMutants": 0,
-        "mutationScoreCovered": 100.0,
-        "mutationScore": 100.0,
-    })
+    monkeypatch.setattr(
+        mut,
+        "_collect_stats",
+        lambda root: {  # noqa: ARG001
+            "killed": 0,
+            "survived": 0,
+            "no_tests": 0,
+            "timeout": 0,
+            "totalMutants": 0,
+            "mutationScoreCovered": 100.0,
+            "mutationScore": 100.0,
+        },
+    )
     monkeypatch.chdir(tmp_path)
     try:
         mut.run_mutation(tmp_path)
@@ -148,9 +154,15 @@ def test_write_setup(tmp_path: Path):
 def test_test_selection_multi_file(tmp_path: Path):
     unit = tmp_path / "tests" / "unit"
     unit.mkdir(parents=True)
-    (unit / "test_process_size.py").write_text("def test_a():\n    assert 1 == 1\n", encoding="utf-8")
-    (unit / "test_mutation_gate.py").write_text("def test_b():\n    assert 1 == 1\n", encoding="utf-8")
-    (unit / "test_mutation_more.py").write_text("def test_c():\n    assert 1 == 1\n", encoding="utf-8")
+    (unit / "test_process_size.py").write_text(
+        "def test_a():\n    assert 1 == 1\n", encoding="utf-8"
+    )
+    (unit / "test_mutation_gate.py").write_text(
+        "def test_b():\n    assert 1 == 1\n", encoding="utf-8"
+    )
+    (unit / "test_mutation_more.py").write_text(
+        "def test_c():\n    assert 1 == 1\n", encoding="utf-8"
+    )
     selected = mut._test_selection_for(
         ["agentized/process_size.py", "agentized/mutation.py"],
         tmp_path,

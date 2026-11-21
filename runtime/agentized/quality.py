@@ -1,4 +1,5 @@
 """Versioned quality config (coverage thresholds, modules, mutation gate)."""
+
 from __future__ import annotations
 
 from copy import deepcopy

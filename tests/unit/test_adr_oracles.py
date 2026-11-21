@@ -98,7 +98,7 @@ def test_title_and_task_validation():
     assert _yaml_quote("a: b #c") == '"a: b #c"'
     assert _yaml_quote('say "hi"') == '"say \\"hi\\""'
     assert _yaml_quote("a\\b") == '"a\\\\b"'
-    assert _yaml_quote('\\') == '"\\\\"'
+    assert _yaml_quote("\\") == '"\\\\"'
 
 
 def test_render_adr_default_status_and_tasks(monkeypatch):
@@ -130,9 +130,7 @@ def test_render_adr_explicit_now_ignores_clock():
 
 def test_allocate_token_width_exhaustion_and_create(tmp_path: Path, monkeypatch):
     calls: list = []
-    monkeypatch.setattr(
-        adr_mod.secrets, "token_hex", lambda n: calls.append(n) or "abc0"
-    )
+    monkeypatch.setattr(adr_mod.secrets, "token_hex", lambda n: calls.append(n) or "abc0")
     assert allocate_adr_id(tmp_path, now=FIXED) == "ADR-200102-abc"
     assert calls == [2]
     (tmp_path / "ADR-200102-abc.md").write_text("x", encoding="utf-8")

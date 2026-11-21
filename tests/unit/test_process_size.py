@@ -1,4 +1,5 @@
 """Mutation-oriented tests for fail-closed process size / config helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path

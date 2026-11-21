@@ -19,15 +19,19 @@ def test_mutmut_failure_fails_gate_even_with_cached_mutants(tmp_path: Path, monk
     )
 
     monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path)
-    monkeypatch.setattr(mut, "load_quality", lambda *a, **k: {
-        "mutation": {
-            "enabled": True,
-            "min_score_covered": 100,
-            "break_on_no_tests": False,
-            "include_globs": ["runtime/agentized/quality.py"],
+    monkeypatch.setattr(
+        mut,
+        "load_quality",
+        lambda *a, **k: {
+            "mutation": {
+                "enabled": True,
+                "min_score_covered": 100,
+                "break_on_no_tests": False,
+                "include_globs": ["runtime/agentized/quality.py"],
+            },
+            "modules": [{"source": ["runtime/agentized"]}],
         },
-        "modules": [{"source": ["runtime/agentized"]}],
-    })
+    )
     monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: ["runtime/agentized/quality.py"])
     monkeypatch.setattr(mut, "_ensure_agentized_link", lambda root: False)
     monkeypatch.setattr(mut, "_write_setup", lambda root, only: None)
@@ -36,6 +40,7 @@ def test_mutmut_failure_fails_gate_even_with_cached_mutants(tmp_path: Path, monk
 
     def fake_run(cmd, **kwargs):
         calls["n"] += 1
+
         # first call may be pytest; second mutmut
         class R:
             returncode = 1 if "mutmut" in cmd else 0

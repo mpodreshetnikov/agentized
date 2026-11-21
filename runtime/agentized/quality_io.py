@@ -3,6 +3,7 @@
 Equivalent mutants on encoding=/ensure_ascii= are observationally identical
 for UTF-8 JSON; keep the hard gate focused on merge/normalize logic in quality.py.
 """
+
 from __future__ import annotations
 
 import json

@@ -61,7 +61,9 @@ def test_connect_external_repo_uses_installed_assets(tmp_path: Path, monkeypatch
     assert "process_guard" in (tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8")
     assert result["quality_templates"]["pre_push"] in {"created", "updated", "unchanged"}
     assert "AGENTIZED:QUALITY" in (tmp_path / ".githooks" / "pre-push").read_text(encoding="utf-8")
-    assert "command -v agentized" in (tmp_path / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    assert "command -v agentized" in (tmp_path / ".githooks" / "pre-push").read_text(
+        encoding="utf-8"
+    )
     # installed packages must stay read-only (no plugin refresh writes)
     assert not marker.exists()
     if before is not None:

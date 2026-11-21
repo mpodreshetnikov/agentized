@@ -39,7 +39,17 @@ def test_decode_git_quoted_non_ascii_path():
 def _git_repo(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"],
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
         cwd=tmp_path,
         check=True,
         capture_output=True,
@@ -153,7 +163,10 @@ def test_disabled_and_cli(tmp_path: Path, monkeypatch):
         ),
         encoding="utf-8",
     )
-    assert review_main(["record", "--sha", head, "--findings", "2", "--context", "context", "--json"]) == 0
+    assert (
+        review_main(["record", "--sha", head, "--findings", "2", "--context", "context", "--json"])
+        == 0
+    )
     assert review_main(["allow", "--force", "--context", "context", "--json"]) == 0
     # delta with sensitive path
     (tmp_path / "runtime").mkdir(exist_ok=True)
@@ -216,11 +229,11 @@ def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
     assert (tmp_path / ".cursor" / "agents" / "reviewer.md").exists()
     cursor_body = (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
     assert "grok-4.7" in cursor_body
-    set_reviewer_options(
-        tmp_path, harness="cursor", model="gpt-5.4", budget_max=5
-    )
+    set_reviewer_options(tmp_path, harness="cursor", model="gpt-5.4", budget_max=5)
     pin_reviewer_agents(tmp_path, "context")
-    assert "gpt-5.4" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    assert "gpt-5.4" in (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text(
+        encoding="utf-8"
+    )
     assert load_quality(tmp_path)["reviewer"]["budget_max"] == 5
 
 
@@ -320,9 +333,7 @@ def test_invalid_watermark_blocks_and_record_rejects(tmp_path: Path, monkeypatch
     assert "unavailable" in blocked["message"] or "cannot compare" in blocked["message"]
 
 
-def test_unavailable_watermark_blocks_even_with_open_findings(
-    tmp_path: Path, monkeypatch
-):
+def test_unavailable_watermark_blocks_even_with_open_findings(tmp_path: Path, monkeypatch):
     """Fix-pack path must not skip watermark validation when open_findings > 0."""
     _git_repo(tmp_path)
     (tmp_path / "context").mkdir()
@@ -457,7 +468,12 @@ def test_quoted_non_ascii_sensitive_path_requests_review(tmp_path: Path, monkeyp
     wf = tmp_path / ".github" / "workflows"
     wf.mkdir(parents=True)
     (wf / "déploy.yml").write_text("name: d\non: push\n", encoding="utf-8")
-    subprocess.run(["git", "add", ".github/workflows/déploy.yml"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", ".github/workflows/déploy.yml"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "wf"],
         cwd=tmp_path,
@@ -505,7 +521,9 @@ def test_binary_under_sensitive_glob_requests_review(tmp_path: Path, monkeypatch
     record_review(tmp_path, head, findings=0)
     (tmp_path / "runtime").mkdir()
     (tmp_path / "runtime" / "payload.bin").write_bytes(b"\x00\x01\x02\xff")
-    subprocess.run(["git", "add", "runtime/payload.bin"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "runtime/payload.bin"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "bin"],
         cwd=tmp_path,

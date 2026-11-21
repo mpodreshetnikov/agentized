@@ -1,4 +1,5 @@
 """Acceptance / handoff reporting level (short vs technical)."""
+
 from __future__ import annotations
 
 import json
@@ -46,9 +47,7 @@ def load_reporting(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, 
     return cfg
 
 
-def save_reporting(
-    root: Path, data: dict[str, Any], context_rel: str = DEFAULT_CONTEXT
-) -> Path:
+def save_reporting(root: Path, data: dict[str, Any], context_rel: str = DEFAULT_CONTEXT) -> Path:
     path = reporting_path(root, context_rel)
     path.parent.mkdir(parents=True, exist_ok=True)
     level = str(data.get("level") or "short").lower()

@@ -1,4 +1,5 @@
 """Managed-hash connect: user edits preserved; untouched pins auto-update."""
+
 from __future__ import annotations
 
 import json
@@ -88,9 +89,7 @@ def test_untouched_updates_on_template_and_model_change(tmp_path: Path, monkeypa
     assert cursor_skill.read_text(encoding="utf-8") == "VERSION_TWO\n"
 
     # quality.json model change → untouched reviewer re-renders
-    set_reviewer_options(
-        tmp_path, context_rel="context", harness="cursor", model="gpt-5.4-test"
-    )
+    set_reviewer_options(tmp_path, context_rel="context", harness="cursor", model="gpt-5.4-test")
     # Without force, connect should still update because file hash matches manifest
     # (untouched) and desired body changed.
     pin_reviewer_agents(tmp_path, "context")
@@ -135,9 +134,7 @@ def test_review_set_force_overwrites_user_edit(tmp_path: Path, monkeypatch):
     connect(tmp_path, context_rel="context", harnesses=["cursor"])
     assert "CUSTOM" in rev.read_text(encoding="utf-8")
 
-    set_reviewer_options(
-        tmp_path, context_rel="context", harness="cursor", model="force-model-x"
-    )
+    set_reviewer_options(tmp_path, context_rel="context", harness="cursor", model="force-model-x")
     pin_reviewer_agents(tmp_path, "context", force=True)
     text = rev.read_text(encoding="utf-8")
     model_lines = [ln for ln in text.splitlines() if ln.startswith("model:")]

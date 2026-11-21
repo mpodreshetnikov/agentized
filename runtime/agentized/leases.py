@@ -114,9 +114,7 @@ def render_lease_file(
     status: str = "active",
 ) -> str:
     if not expires:
-        expires = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        expires = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
     path_lines = "\n".join(f"- {p}" for p in paths) if paths else "- _(нет)_"
     return (
         f"# Lease {task_id}\n\n"
@@ -134,11 +132,7 @@ def rebuild_lease_index(leases_dir: Path) -> str:
     for lease in leases:
         for p in lease.paths:
             rows.append(f"| `{p}` | {lease.task_id} | {lease.owner} | {lease.expires} |")
-    body = (
-        "\n".join(rows)
-        if rows
-        else "| _(пусто)_ | | | |"
-    )
+    body = "\n".join(rows) if rows else "| _(пусто)_ | | | |"
     return (
         "# Path leases — индекс\n\n"
         "Кто держит какие пути кода. Генерируемый индекс.\n\n"

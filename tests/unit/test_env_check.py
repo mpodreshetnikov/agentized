@@ -182,9 +182,13 @@ def test_claude_and_codex_paths(tmp_path: Path):
     assert ec.check(env={"CLAUDE_CODE_REMOTE": "true"}, repo_root=tmp_path, home=tmp_path / "h")[
         "ok"
     ]
-    bad = ec.check(env={"CLAUDE_CODE_REMOTE": "true"}, repo_root=tmp_path / "empty", home=tmp_path / "h")
+    bad = ec.check(
+        env={"CLAUDE_CODE_REMOTE": "true"}, repo_root=tmp_path / "empty", home=tmp_path / "h"
+    )
     (tmp_path / "empty").mkdir()
-    bad = ec.check(env={"CLAUDE_CODE_REMOTE": "true"}, repo_root=tmp_path / "empty", home=tmp_path / "h")
+    bad = ec.check(
+        env={"CLAUDE_CODE_REMOTE": "true"}, repo_root=tmp_path / "empty", home=tmp_path / "h"
+    )
     assert bad["ok"] is False
 
     (tmp_path / ".codex").mkdir()
@@ -255,6 +259,5 @@ def test_cursor_chain_ok_no_warn(tmp_path: Path):
     assert result["ok"] is True
     assert result["severity"] == "cursor"
     assert result["message"] == (
-        "agent-env-check: Cursor project hooks reach this session. "
-        "Agent-hooks git chain OK."
+        "agent-env-check: Cursor project hooks reach this session. Agent-hooks git chain OK."
     )
