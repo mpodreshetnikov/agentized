@@ -26,21 +26,18 @@ from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import (
     ALL_STATUSES,
     INDEX_ACTIVE_STATUSES,
-    extract_status,
     normalize_status,
-    previous_task_texts_from_git,
+    prepare_claim_text,
+    prepare_new_task_text,
+    prepare_status_text,
     rebuild_task_index_active,
-    resolve_validate_base_ref,
-    validate_task_text,
-    validate_tasks_dir,
+    run_tasks_validate,
 )
 from agentized.tasks import (
     allocate_task_id,
     append_progress,
     list_tasks,
-    parse_task,
     render_task_file,
-    set_field,
 )
 
 
@@ -333,11 +330,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         parent=parent,
         goal=args.goal or "Что должно быть сделано.",
     )
-    text = text.replace("\n## Цель", f"\nЦенность: {value}\n\n## Цель", 1)
-    if extract_status(text) != "open":
-        print("status-gates FAIL: new task must stay open", file=sys.stderr)
-        return 1
-    gate = validate_task_text(text, old_status=None, require_value=True, check_transition=False)
+    text, gate = prepare_new_task_text(text, value)
     if not gate.ok:
         print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
         return 1
@@ -357,13 +350,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
         print(f"нет задачи {args.task_id}", file=sys.stderr)
         return 1
     old_text = path.read_text(encoding="utf-8")
-    old_status = extract_status(old_text)
-    text = set_field(old_text, "claim", args.owner)
-    text = set_field(text, "статус", "in-progress")
-    text = append_progress(text, f"claim by {args.owner}")
-    gate = validate_task_text(
-        text, old_status=old_status, require_value=True, check_transition=True
-    )
+    text, gate = prepare_claim_text(old_text, args.owner)
     if not gate.ok:
         print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
         return 1
@@ -399,10 +386,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if new_status not in {normalize_status(s) for s in ALL_STATUSES}:
         print(f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}", file=sys.stderr)
         return 1
-    old_text = path.read_text(encoding="utf-8")
-    old_status = extract_status(old_text)
-    text = set_field(old_text, "статус", new_status)
-    # Optional gate fields from CLI flags
+    fields: dict[str, str] = {}
     for field, attr in (
         ("blocked_reason", "blocked_reason"),
         ("blocked_deadline", "blocked_deadline"),
@@ -414,9 +398,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         if val:
             if not _single_line(f"--{attr.replace('_', '-')}", str(val)):
                 return 1
-            text = set_field(text, field, val)
-    gate = validate_task_text(
-        text, old_status=old_status, require_value=True, check_transition=True
+            fields[field] = str(val)
+    text, gate = prepare_status_text(
+        path.read_text(encoding="utf-8"), new_status, fields=fields
     )
     if not gate.ok:
         print(f"status-gates FAIL: {gate.message}", file=sys.stderr)
@@ -432,21 +416,14 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_tasks_validate(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx = _ctx(root, args)
-    require_value = not bool(getattr(args, "allow_missing_value", False))
     base = getattr(args, "base", None) or None
     try:
-        ref = resolve_validate_base_ref(root, explicit=base)
-        previous = previous_task_texts_from_git(
-            ctx / "tasks", repo_root=root, ref=ref
+        ref, result = run_tasks_validate(
+            ctx / "tasks", repo_root=root, base_ref=base
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
         return 1
-    result = validate_tasks_dir(
-        ctx / "tasks",
-        require_value=require_value,
-        previous_by_name=previous,
-    )
     if result.ok:
         print(f"tasks-validate OK (base={ref})")
         return 0
@@ -507,10 +484,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     # Hard status gates (AGE-22) — snapshot fields + transition vs PR base
     try:
-        previous = previous_task_texts_from_git(ctx / "tasks", repo_root=root)
-        gates = validate_tasks_dir(
-            ctx / "tasks", require_value=True, previous_by_name=previous
-        )
+        _ref, gates = run_tasks_validate(ctx / "tasks", repo_root=root)
         if not gates.ok:
             errors.extend(gates.errors)
     except RuntimeError as exc:
@@ -842,11 +816,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--base",
         default=None,
         help="git ref for prior blobs (default: MUTATION_BASE / merge-base origin/main)",
-    )
-    tv.add_argument(
-        "--allow-missing-value",
-        action="store_true",
-        help="не требовать строку Ценность (только для миграции; CI не использует)",
     )
     tv.set_defaults(func=cmd_tasks_validate)
 

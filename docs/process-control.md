@@ -20,12 +20,16 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 
 ## Reviewable PR size (AGE-32 / AGE-35)
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Over the limit **hard-fails** `agentized process size` (exit 1). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
+Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Limit is **inclusive** (1500 OK, 1501 fails). Strictly over the limit **hard-fails** `agentized process size` (exit 1). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
 
 ```bash
 ./bin/agentized process size
 ./bin/agentized process size --base origin/main --json
 ```
+
+## Status gates / Ценность (AGE-22)
+
+`agentized tasks-validate` (CI + `check`) requires a non-placeholder `Ценность:` line on every `T-*.md`, plus status-field rules (blocked / review / done / transitions vs PR base). There is no `--allow-missing-value`. Legacy Orbit tasks without `Ценность` fail after #25 — sibling PRs add the line (and other gate fields) on rebase. New paths may only start as `idea|open|queue|in-progress`.
 
 ## Spec / decision hygiene
 

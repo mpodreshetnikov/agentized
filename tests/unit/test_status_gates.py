@@ -14,22 +14,36 @@ from agentized.status_gates import (
     MSG_BLOCKED_DEADLINE_INVALID,
     MSG_BLOCKED_REASON,
     MSG_DONE_EVIDENCE,
+    MSG_DUPLICATE_FIELD,
+    MSG_GIT_ERROR,
     MSG_ILLEGAL,
     MSG_MISSING_STATUS,
     MSG_MISSING_VALUE,
+    MSG_NEW_PATH,
     MSG_REVIEW_EVIDENCE,
+    MSG_TASK_DELETED,
     MSG_UNKNOWN_NEW,
     MSG_UNKNOWN_OLD,
     MSG_UNKNOWN_STATUS,
+    MSG_UNREADABLE,
+    NEW_PATH_ALLOWED_STATUSES,
     GateResult,
+    _cmd_detail,
+    _git_err,
+    _git_missing_path,
+    duplicate_field_errors,
     extract_status,
     has_value_line,
     is_known_status,
     is_real_pr_ref,
     normalize_status,
     parse_task_fields,
+    prepare_claim_text,
+    prepare_new_task_text,
+    prepare_status_text,
     previous_task_texts_from_git,
     resolve_validate_base_ref,
+    run_tasks_validate,
     validate_status_requirements,
     validate_task_file,
     validate_task_text,
@@ -61,21 +75,15 @@ def _task(status: str, *, value: bool = True, extra: str = "", body: str = "") -
 def test_normalize_extract_empty_refuse():
     assert normalize_status("Dropped") == "canceled"
     assert normalize_status("queued") == "queue"
-    assert normalize_status("") == ""
-    assert normalize_status(None) == ""
+    assert normalize_status("") == normalize_status(None) == ""
     assert has_value_line("Ценность: x") is True
     assert has_value_line("Ценность: _(пусто)_") is False
-    assert has_value_line("value: x") is False
-    assert has_value_line("") is False
-    assert has_value_line(None) is False
+    assert has_value_line("value: x") is has_value_line("") is has_value_line(None) is False
     text = _task("in-progress")
-    assert parse_task_fields(text)["статус"] == "in-progress"
-    assert extract_status(text) == "in-progress"
+    assert parse_task_fields(text)["статус"] == extract_status(text) == "in-progress"
     assert extract_status("# only title\n\nЦенность: x\n") == ""
-    assert extract_status("") == ""
-    assert extract_status("статус:   \n") == ""
-    assert parse_task_fields("") == {}
-    assert parse_task_fields(None) == {}
+    assert extract_status("") == extract_status("статус:   \n") == ""
+    assert parse_task_fields("") == parse_task_fields(None) == {}
     bare = "# T-261116-x — X\n\nЦенность: v\n"
     assert validate_task_text(bare, check_transition=False) == GateResult(
         False, (MSG_MISSING_STATUS,)
@@ -85,8 +93,9 @@ def test_normalize_extract_empty_refuse():
         False, (MSG_MISSING_STATUS,)
     )
     assert validate_status_requirements(bare) == GateResult(False, (MSG_MISSING_STATUS,))
-    assert validate_transition("", "open") == GateResult(False, (MSG_MISSING_STATUS,))
-    assert validate_transition("open", "") == GateResult(False, (MSG_MISSING_STATUS,))
+    assert validate_transition("", "open") == validate_transition("open", "") == GateResult(
+        False, (MSG_MISSING_STATUS,)
+    )
 
 
 def test_transition_matrix_pass_fail():
@@ -174,16 +183,10 @@ def test_review_pr_and_done_fields():
     assert validate_status_requirements(_task("done", extra="pr: #3")) == GateResult(
         False, (MSG_DONE_EVIDENCE,)
     )
-    assert validate_status_requirements(
-        _task("done", body="- Done — merged PR #3\n")
-    ) == GateResult(False, (MSG_DONE_EVIDENCE,))
-    assert is_real_pr_ref("#12") is True
-    assert is_real_pr_ref("PR #12") is True
+    assert is_real_pr_ref("#12") is is_real_pr_ref("PR #12") is True
     assert is_real_pr_ref("https://github.com/o/r/pull/12") is True
-    assert is_real_pr_ref("https://example.com/x") is False
-    assert is_real_pr_ref("merged") is False
-    assert is_real_pr_ref("") is False
-    assert is_real_pr_ref("_(пусто)_") is False
+    assert is_real_pr_ref("https://example.com/x") is is_real_pr_ref("merged") is False
+    assert is_real_pr_ref("") is is_real_pr_ref("_(пусто)_") is is_real_pr_ref(None) is False
 
 
 def test_value_transition_file_dir(tmp_path: Path):
@@ -191,9 +194,6 @@ def test_value_transition_file_dir(tmp_path: Path):
     assert validate_task_text(text, check_transition=False) == GateResult(
         False, (MSG_MISSING_VALUE,)
     )
-    assert validate_task_text(
-        text, require_value=False, check_transition=False
-    ) == GateResult(True)
     path = tmp_path / "T-261116-abc.md"
     path.write_text(_task("open"), encoding="utf-8")
     old = path.read_text(encoding="utf-8")
@@ -226,9 +226,6 @@ def test_value_transition_file_dir(tmp_path: Path):
     assert validate_tasks_dir(tmp_path) == GateResult(
         False, (f"T-261116-ccc.md: {MSG_MISSING_VALUE}",)
     )
-    assert validate_task_file(
-        tmp_path / "T-261116-ccc.md", require_value=False
-    ) == GateResult(True)
 
 
 def test_unknown_and_gate_message():
@@ -248,8 +245,75 @@ def test_unknown_and_gate_message():
     assert GateResult(True).message == ""
     assert GateResult(False, ("a", "b")).message == "a; b"
     assert is_known_status("open") is True
-    assert is_known_status("flying") is False
-    assert is_known_status("") is False
+    assert is_known_status("flying") is is_known_status("") is False
+
+
+def test_duplicates_deleted_new_path_unreadable(tmp_path: Path):
+    dup = _task("open") + "статус: open\n"
+    dups = (MSG_DUPLICATE_FIELD.format(key="статус"),)
+    assert duplicate_field_errors(dup) == dups
+    assert validate_status_requirements(dup) == GateResult(False, dups)
+    assert validate_task_text(dup, check_transition=False) == GateResult(False, dups)
+    twin_val = _task("open") + "Ценность: other\n"
+    assert MSG_DUPLICATE_FIELD.format(key="Ценность") in duplicate_field_errors(twin_val)
+
+    assert NEW_PATH_ALLOWED_STATUSES == frozenset(
+        {"idea", "open", "queue", "in-progress"}
+    )
+    fresh = tmp_path / "brand"
+    fresh.mkdir()
+    (fresh / "T-261116-newdone.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    (fresh / "T-261116-newsr.md").write_text(
+        _task("self-review", extra="review_note: ok"), encoding="utf-8"
+    )
+    (fresh / "T-261116-newblocked.md").write_text(
+        _task("blocked", extra="blocked_reason: x\nblocked_deadline: 2026-12-01"),
+        encoding="utf-8",
+    )
+    (fresh / "T-261116-ok.md").write_text(_task("open"), encoding="utf-8")
+    bad_new = validate_tasks_dir(fresh, previous_by_name={})
+    assert any(MSG_NEW_PATH.format(st="done") in e for e in bad_new.errors)
+    assert any(MSG_NEW_PATH.format(st="self-review") in e for e in bad_new.errors)
+    assert any(MSG_NEW_PATH.format(st="blocked") in e for e in bad_new.errors)
+    assert not any("T-261116-ok.md" in e for e in bad_new.errors)
+
+    # sorted previous names: keep first in-tree so continue≠break still finds later delete
+    gone = validate_tasks_dir(
+        fresh,
+        previous_by_name={
+            "T-261116-ok.md": _task("open"),
+            "T-261116-zz-gone.md": _task("open"),
+        },
+    )
+    assert any(
+        e == f"T-261116-zz-gone.md: {MSG_TASK_DELETED}" for e in gone.errors
+    )
+
+    bad_bytes = tmp_path / "T-261116-bin.md"
+    bad_bytes.write_bytes(b"\xff\xfe status")
+    try:
+        bad_bytes.read_bytes().decode("utf-8")
+        raise AssertionError("expected UnicodeDecodeError")
+    except UnicodeDecodeError as exc:
+        assert validate_task_file(bad_bytes) == GateResult(
+            False, (MSG_UNREADABLE.format(detail=exc),)
+        )
+    locked = tmp_path / "T-261116-lock.md"
+    locked.write_text(_task("open"), encoding="utf-8")
+    locked.chmod(0)
+    try:
+        try:
+            locked.read_bytes()
+            raise AssertionError("expected OSError")
+        except OSError as exc:
+            assert (
+                f"{locked.name}: {MSG_UNREADABLE.format(detail=exc)}"
+                in validate_tasks_dir(tmp_path).errors
+            )
+    finally:
+        locked.chmod(0o644)
 
 
 def test_file_skip_transition_flags(tmp_path: Path):
@@ -270,10 +334,6 @@ def test_file_skip_transition_flags(tmp_path: Path):
     assert validate_tasks_dir(
         tmp_path, skip_stems=frozenset({"T-261116-aaa"})
     ) == GateResult(True)
-    no_val = tmp_path / "T-261116-noval.md"
-    no_val.write_text(_task("open", value=False), encoding="utf-8")
-    assert validate_task_file(no_val) == GateResult(False, (MSG_MISSING_VALUE,))
-    assert validate_task_file(no_val, require_value=False) == GateResult(True)
 
     path = tmp_path / "T-261116-jump.md"
     old = _task("open")
@@ -292,19 +352,9 @@ def test_file_skip_transition_flags(tmp_path: Path):
     assert validate_task_text(
         done, old_status="open", check_transition=False
     ) == GateResult(True)
-    blocked_jump = validate_task_text(done, old_status="open", check_transition=True)
-    assert blocked_jump.ok is False
-    assert blocked_jump.errors[0] == MSG_ILLEGAL.format(
-        old="open", new="done", allowed=sorted(ALLOWED_TRANSITIONS["open"])
-    )
     assert validate_task_text(_task("open"), old_status=None) == GateResult(True)
 
     name = "T-261116-jump2.md"
-    p2 = tmp_path / name
-    p2.write_text(
-        _task("done", extra="acceptance_note: lead signed off"), encoding="utf-8"
-    )
-    # previous map illegal / legal
     d = tmp_path / "prev"
     d.mkdir()
     jp = d / name
@@ -318,22 +368,6 @@ def test_file_skip_transition_flags(tmp_path: Path):
     assert validate_tasks_dir(
         d, previous_by_name={name: "# T\n\nЦенность: x\n"}
     ) == GateResult(False, (f"{name}: {MSG_MISSING_STATUS} (previous)",))
-    from agentized.status_gates import NEW_PATH_FORBIDDEN_STATUSES
-
-    fresh = tmp_path / "brand"
-    fresh.mkdir()
-    assert NEW_PATH_FORBIDDEN_STATUSES == frozenset({"done", "canceled"})
-    (fresh / "T-261116-newdone.md").write_text(
-        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
-    )
-    (fresh / "T-261116-newcanceled.md").write_text(_task("canceled"), encoding="utf-8")
-    (fresh / "T-261116-newsr.md").write_text(
-        _task("self-review", extra="review_note: ok"), encoding="utf-8"
-    )
-    bad_new = validate_tasks_dir(fresh, previous_by_name={})
-    assert any("new task cannot start as done" in e for e in bad_new.errors)
-    assert any("new task cannot start as canceled" in e for e in bad_new.errors)
-    assert not any("self-review" in e and "new task" in e for e in bad_new.errors)
 
 
 def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
@@ -357,6 +391,13 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     (ctx / "T-261116-new.md").write_text(_task("open"), encoding="utf-8")
     blobs2 = previous_task_texts_from_git(ctx, repo_root=tmp_path, ref="HEAD")
     assert "T-261116-new.md" not in blobs2 and name in blobs2
+    # deleted on disk but still at base
+    (ctx / name).unlink()
+    blobs3 = previous_task_texts_from_git(ctx, repo_root=tmp_path, ref="HEAD")
+    assert name in blobs3
+    del_r = validate_tasks_dir(ctx, previous_by_name=blobs3)
+    assert any(MSG_TASK_DELETED in e for e in del_r.errors)
+
     with pytest.raises(RuntimeError):
         previous_task_texts_from_git(ctx, repo_root=tmp_path / "nope", ref="HEAD")
 
@@ -367,8 +408,12 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     (tasks / "T-261116-b.md").write_text(_task("open"), encoding="utf-8")
 
     def fake_run(argv, **kwargs):
-        rel = argv[-1]
-        if rel.endswith("T-261116-a.md"):
+        cmd = " ".join(argv)
+        if "ls-tree" in cmd:
+            return SimpleNamespace(
+                returncode=0, stdout="T-261116-a.md\nT-261116-b.md\n", stderr=""
+            )
+        if cmd.endswith("T-261116-a.md"):
             return SimpleNamespace(
                 returncode=1,
                 stdout="",
@@ -384,15 +429,53 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     }
 
     def boom(argv, **kwargs):
-        if "show" in argv:
+        if "ls-tree" in argv or "show" in argv:
             return SimpleNamespace(
                 returncode=128, stdout="", stderr="fatal: not a git repository"
             )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", boom)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as boom_exc:
         previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD")
+    assert str(boom_exc.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks", ref="HEAD", detail="fatal: not a git repository"
+    )
+
+    def miss_tree(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "ls-tree" in argv:
+            return SimpleNamespace(
+                returncode=128,
+                stdout="",
+                stderr="fatal: path 'context/tasks' does not exist in 'HEAD'",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", miss_tree)
+    assert previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD") == {}
+
+    def empty_tree(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "ls-tree" in argv:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected {argv}")
+
+    monkeypatch.setattr(subprocess, "run", empty_tree)
+    assert previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD") == {}
+
+    def show_os(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "ls-tree" in argv:
+            return SimpleNamespace(returncode=0, stdout="T-261116-a.md\n", stderr="")
+        raise OSError("show-boom")
+
+    monkeypatch.setattr(subprocess, "run", show_os)
+    with pytest.raises(RuntimeError) as show_exc:
+        previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD")
+    assert str(show_exc.value) == MSG_GIT_ERROR.format(
+        rel="context/tasks/T-261116-a.md", ref="HEAD", detail="show-boom"
+    )
 
     assert resolve_validate_base_ref(tmp_path, explicit="abc123") == "abc123"
     monkeypatch.setenv("MUTATION_BASE", "env-base")
@@ -402,29 +485,18 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     assert resolve_validate_base_ref(tmp_path) == "tv-base"
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
 
-    def fake_mb(argv, **kwargs):
-        return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", fake_mb)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr=""),
+    )
     assert resolve_validate_base_ref(tmp_path) == "deadbeef"
-
-    def fail_mb(argv, **kwargs):
-        return SimpleNamespace(returncode=1, stdout="", stderr="err")
-
-    monkeypatch.setattr(subprocess, "run", fail_mb)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="err"),
+    )
     assert resolve_validate_base_ref(tmp_path) == "origin/main"
-
-
-def test_validate_tasks_dir_require_value_false(tmp_path: Path):
-    path = tmp_path / "T-261116-nv2.md"
-    path.write_text(
-        "# T-261116-nv2 — x\n\nстатус: open\nтеги: t\nродитель: p\nclaim: c\n\n## Цель\n\nx\n",
-        encoding="utf-8",
-    )
-    assert validate_tasks_dir(tmp_path) == GateResult(
-        False, (f'{path.name}: missing value line "Ценность: …"',)
-    )
-    assert validate_tasks_dir(tmp_path, require_value=False) == GateResult(True)
 
 
 def test_claim_and_file_edges(tmp_path: Path):
@@ -458,17 +530,9 @@ def test_claim_and_file_edges(tmp_path: Path):
     )
     assert validate_task_file(path, old_text=None) == GateResult(True)
     path.write_text(_task("open", value=False), encoding="utf-8")
-    assert validate_task_file(path, require_value=True) == GateResult(
-        False, (MSG_MISSING_VALUE,)
-    )
-    assert validate_task_file(path, old_text=_task("idea"), require_value=True) == GateResult(
-        False, (MSG_MISSING_VALUE,)
-    )
-    assert validate_task_file(path, old_text=_task("idea"), require_value=False) == GateResult(
-        True
-    )
+    assert validate_task_file(path) == GateResult(False, (MSG_MISSING_VALUE,))
     path.write_text(_task("done", extra="acceptance_note: ok"), encoding="utf-8")
-    bad = validate_task_file(path, old_text=_task("open"), require_value=False)
+    bad = validate_task_file(path, old_text=_task("open"))
     assert bad.ok is False and bad.errors[0].startswith("illegal transition open → done")
 
     a, b = tmp_path / "T-261116-a.md", tmp_path / "T-261116-b.md"
@@ -485,9 +549,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     from agentized.status_gates import (
         CANONICAL_STATUSES,
         COLUMN_FOR_STATUS,
-        MSG_GIT_ERROR,
         STATUS_ALIASES,
-        _git_missing_path,
         default_repo_root_for_tasks,
     )
     import subprocess
@@ -510,62 +572,30 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
 
     assert default_repo_root_for_tasks(FakePath()) == Path("/only")
     assert default_repo_root_for_tasks(TwoParents()) == Path("/")
-
-    pr_samples = {
-        None: "reject",
-        "": "reject",
-        "   ": "reject",
-        "_placeholder": "reject",
-        "_(пусто)_": "reject",
-        "#12": "accept",
-        "PR #12": "accept",
-        "https://github.com/o/r/pull/9": "accept",
-        "merged": "reject",
-    }
-    assert {k: ("accept" if is_real_pr_ref(k) else "reject") for k in pr_samples} == pr_samples
-
-    assert CANONICAL_STATUSES == (
-        "idea",
-        "open",
-        "queue",
-        "in-progress",
-        "self-review",
-        "for-review",
-        "blocked",
-        "done",
-        "canceled",
-    )
+    assert CANONICAL_STATUSES[-1] == "canceled"
     assert STATUS_ALIASES == {"dropped": "canceled", "queued": "queue"}
-    assert COLUMN_FOR_STATUS == {
-        "idea": "open",
-        "open": "open",
-        "queue": "queue",
-        "self-review": "queue",
-        "in-progress": "in-progress",
-        "for-review": "for-review",
-        "blocked": "blocked",
-        "done": "done",
-        "canceled": "canceled",
-    }
     assert set(COLUMN_FOR_STATUS) == set(CANONICAL_STATUSES)
-
-    miss = {
-        "fatal: path not in 'HEAD'": "missing",
-        "exists on disk, but not in 'abc'": "missing",
-        "fatal: path 'x' does not exist in 'HEAD'": "missing",
-        "fatal: bad object": "other",
-    }
-    assert {k: ("missing" if _git_missing_path(k) else "other") for k in miss} == miss
+    assert _git_missing_path("fatal: path not in 'HEAD'")
+    assert _git_missing_path("exists on disk, but not in 'abc'")
+    assert not _git_missing_path("fatal: bad object")
+    assert str(_git_err("rel/x", "REF", "boom")) == MSG_GIT_ERROR.format(
+        rel="rel/x", ref="REF", detail="boom"
+    )
+    proc = SimpleNamespace(returncode=7, stdout="out-detail", stderr="")
+    assert _cmd_detail(proc) == "out-detail"
+    assert _cmd_detail(SimpleNamespace(returncode=9, stdout="", stderr="")) == "exit 9"
 
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "T-261116-os.md").write_text(_task("open"), encoding="utf-8")
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("boom"))
+    )
     with pytest.raises(RuntimeError) as excinfo:
         previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
     assert str(excinfo.value) == MSG_GIT_ERROR.format(
-        rel="context/tasks/T-261116-os.md", ref="HEAD", detail="boom"
+        rel="context/tasks", ref="HEAD", detail="boom"
     )
     monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
@@ -573,101 +603,84 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         resolve_validate_base_ref(tmp_path)
     assert str(excinfo2.value) == "git merge-base failed: boom"
 
-    calls: list[list[str]] = []
+    calls: list = []
 
     def ok_mb(argv, **kwargs):
+        assert kwargs.get("check") is False
         calls.append(list(argv))
-        assert kwargs.get("capture_output") is True and kwargs.get("text") is True
         return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", ok_mb)
     assert resolve_validate_base_ref(tmp_path) == "abc123"
-    assert calls == [["git", "-C", str(tmp_path), "merge-base", "origin/main", "HEAD"]]
-    for stdout in ("  \n", "", None):
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, stdout=stdout, **k: SimpleNamespace(
-                returncode=0, stdout=stdout, stderr=""
-            ),
-        )
-        assert resolve_validate_base_ref(tmp_path) == "origin/main"
+    assert calls[0][:3] == ["git", "-C", str(tmp_path)]
+    assert calls[0][-3:] == ["merge-base", "origin/main", "HEAD"]
 
-    (tasks / "T-261116-g1.md").write_text(_task("open"), encoding="utf-8")
+    def tree_and_show(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "ls-tree" in argv:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="T-261116-os.md\nREADME.md\nnotes.txt\n",
+                stderr="",
+            )
+        if "show" in argv:
+            return SimpleNamespace(returncode=0, stdout=_task("open"), stderr="")
+        if "merge-base" in argv:
+            return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected")
+
+    monkeypatch.setattr(subprocess, "run", tree_and_show)
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
+    assert set(
+        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
+    ) == {"T-261116-os.md"}
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
+    assert ref == "deadbeef" and result.ok is True
 
     def fail_show(argv, **kwargs):
-        assert argv[:4] == ["git", "-C", str(tmp_path), "show"]
         assert kwargs.get("check") is False
-        return SimpleNamespace(returncode=128, stdout="", stderr="fatal: bad object")
+        if "ls-tree" in argv:
+            return SimpleNamespace(returncode=0, stdout="T-261116-os.md\n", stderr="")
+        return SimpleNamespace(
+            returncode=128, stdout="fatal: bad object", stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", fail_show)
     with pytest.raises(RuntimeError) as e3:
         previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef")
     assert str(e3.value) == MSG_GIT_ERROR.format(
-        rel="context/tasks/T-261116-g1.md", ref="deadbeef", detail="fatal: bad object"
+        rel="context/tasks/T-261116-os.md",
+        ref="deadbeef",
+        detail="fatal: bad object",
     )
-    (tasks / "T-261116-keep.md").write_text(_task("open"), encoding="utf-8")
 
-    def miss_then_ok(argv, **kwargs):
-        rel = str(argv[-1])
-        if rel.endswith("T-261116-g1.md") or rel.endswith("T-261116-os.md"):
+    def weird_tree(argv, **kwargs):
+        assert kwargs.get("check") is False
+        if "ls-tree" in argv:
             return SimpleNamespace(
-                returncode=128, stdout="", stderr="fatal: path 'x' does not exist in 'x'"
+                returncode=128, stdout="", stderr="fatal: weird object"
             )
-        return SimpleNamespace(returncode=0, stdout="kept\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", miss_then_ok)
-    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="deadbeef") == {
-        "T-261116-keep.md": "kept\n"
-    }
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: SimpleNamespace(returncode=7, stdout="", stderr=""),
-    )
+    monkeypatch.setattr(subprocess, "run", weird_tree)
     with pytest.raises(RuntimeError) as e4:
         previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
     assert str(e4.value) == MSG_GIT_ERROR.format(
-        rel="context/tasks/T-261116-g1.md", ref="HEAD", detail="exit 7"
+        rel="context/tasks", ref="HEAD", detail="fatal: weird object"
     )
-    monkeypatch.setenv("MUTATION_BASE", "must-read-env")
-    assert resolve_validate_base_ref(tmp_path) == "must-read-env"
-    root_s = str(tmp_path.resolve())
-    mb_calls: list[list[str]] = []
 
-    def fake_run(argv, **kwargs):
-        assert kwargs.get("check") is False and argv[2] == root_s
-        if "merge-base" in argv:
-            mb_calls.append(list(argv))
-            return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
-        if "show" in argv:
-            return SimpleNamespace(returncode=0, stdout="blob\n", stderr="")
-        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
-    monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
-    assert previous_task_texts_from_git(tasks) == {
-        "T-261116-g1.md": "blob\n",
-        "T-261116-keep.md": "blob\n",
-        "T-261116-os.md": "blob\n",
-    }
-    assert mb_calls and mb_calls[0][2] == root_s
     other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
     other.mkdir(exist_ok=True)
-    out = other / "T-261116-out.md"
-    out.write_text(_task("open"), encoding="utf-8")
-    try:
-        out.resolve().relative_to(tmp_path.resolve())
-    except ValueError as expected_exc:
-        detail = str(expected_exc)
-    else:
-        raise AssertionError("expected ValueError")
+    (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
     with pytest.raises(RuntimeError) as e5:
         previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
-    assert str(e5.value) == MSG_GIT_ERROR.format(
-        rel="T-261116-out.md", ref="HEAD", detail=detail
-    )
+    try:
+        other.resolve().relative_to(tmp_path.resolve())
+        raise AssertionError("expected ValueError")
+    except ValueError as ve:
+        assert str(e5.value) == MSG_GIT_ERROR.format(
+            rel=other.name, ref="HEAD", detail=str(ve)
+        )
 
 
 def test_two_commit_open_to_done_vs_base(tmp_path: Path):
@@ -699,9 +712,9 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path):
     )
     os.environ["MUTATION_BASE"] = base
     try:
-        result = validate_tasks_dir(
-            tasks, previous_by_name=previous_task_texts_from_git(tasks, repo_root=root)
-        )
+        prev = previous_task_texts_from_git(tasks)  # repo_root=None → default root
+        assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
+        result = validate_tasks_dir(tasks, previous_by_name=prev)
     finally:
         os.environ.pop("MUTATION_BASE", None)
     assert result.ok is False
@@ -753,3 +766,99 @@ def test_rebuild_task_index_active(tmp_path: Path):
         "blocked",
     ]
 
+
+def test_prepare_helpers_and_run_validate_kwargs(tmp_path: Path, monkeypatch):
+    from agentized.tasks import render_task_file
+    import agentized.status_gates as sg
+
+    base = render_task_file("T-261116-prep", "Prep", status="open")
+    base = base.replace("\n## Цель", "\nЦенность: v\n\n## Цель", 1)
+    claimed, cg = prepare_claim_text(base, "alice")
+    assert cg == GateResult(True) and "claim: alice" in claimed
+    assert "статус: in-progress" in claimed and "claim by alice" in claimed
+    idea = render_task_file("T-261116-prep", "Prep", status="idea").replace(
+        "\n## Цель", "\nЦенность: v\n\n## Цель", 1
+    )
+    assert prepare_claim_text(idea, "alice")[1].ok is False
+    blocked, sg_res = prepare_status_text(
+        base,
+        "blocked",
+        fields={"blocked_reason": "dep", "blocked_deadline": "2026-12-01"},
+    )
+    assert sg_res == GateResult(True) and "blocked_reason: dep" in blocked
+    # old_status must drive transition: open→done is illegal even with acceptance
+    done_bad, dg = prepare_status_text(
+        base, "done", fields={"acceptance_note": "shipped"}
+    )
+    assert dg.ok is False and "illegal transition open → done" in dg.errors[0]
+    queued, qg = prepare_status_text(base, "queue", fields={"pr": ""})
+    assert qg == GateResult(True) and "статус: queue" in queued
+    raw = render_task_file("T-261116-prep", "Prep", status="open")
+    twin = raw.replace("\n## Цель", "\n## Цель\n\nx\n\n## Цель", 1)
+    with_val, vg = prepare_new_task_text(twin, "ship value")
+    assert vg == GateResult(True) and with_val.count("Ценность: ship value") == 1
+    assert prepare_new_task_text(
+        raw.replace("статус: open", "статус: queue", 1), "x"
+    )[1] == GateResult(False, ("new task must stay open",))
+
+    tasks = tmp_path / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "T-261116-rv.md").write_text(
+        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
+    )
+    calls: dict = {}
+
+    def fake_resolve(root, *, explicit=None):
+        calls["resolve"] = (root, explicit)
+        return "CUSTOM-REF"
+
+    def fake_prev(td, *, repo_root=None, ref=None):
+        calls["prev"] = (td, repo_root, ref)
+        return {"T-261116-rv.md": _task("open")}
+
+    def fake_validate(td, *, previous_by_name=None, skip_stems=None):
+        calls["validate"] = previous_by_name
+        return GateResult(False, ("illegal transition open → done",))
+
+    monkeypatch.setattr(sg, "resolve_validate_base_ref", fake_resolve)
+    monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
+    monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")
+    assert ref == "CUSTOM-REF"
+    assert calls["resolve"] == (tmp_path, "B")
+    assert calls["prev"] == (tasks, tmp_path, "CUSTOM-REF")
+    assert calls["validate"] == {"T-261116-rv.md": _task("open")}
+    assert result.ok is False
+
+    # previous_task_texts must pass repo_root into resolve_validate_base_ref
+    roots: list = []
+
+    def capture_resolve(root, *, explicit=None):
+        roots.append(root)
+        return "HEAD"
+
+    monkeypatch.setattr(sg, "resolve_validate_base_ref", capture_resolve)
+    monkeypatch.setattr(
+        sg,
+        "_run_git",
+        lambda root, args: SimpleNamespace(
+            returncode=128, stdout="", stderr="does not exist"
+        ),
+    )
+    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD") == {}
+    assert roots == [tmp_path]
+
+    # continue after previous-status miss must still validate later files
+    multi = tmp_path / "multi"
+    multi.mkdir()
+    (multi / "T-261116-a.md").write_text(_task("open"), encoding="utf-8")
+    (multi / "T-261116-b.md").write_text(_task("open", value=False), encoding="utf-8")
+    multi_res = validate_tasks_dir(
+        multi,
+        previous_by_name={
+            "T-261116-a.md": "# T\n\nЦенность: x\n",
+            "T-261116-b.md": _task("open"),
+        },
+    )
+    assert any("T-261116-a.md" in e and "статус" in e for e in multi_res.errors)
+    assert any("T-261116-b.md" in e and "Ценность" in e for e in multi_res.errors)

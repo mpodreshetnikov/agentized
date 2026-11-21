@@ -20,7 +20,7 @@ _(пусто)_
 
 ## self-review
 
-- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: cursor-cloud
+- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: bc-b989d062-e580-5802-a012-e4c217d2f8eb
 
 ## for-review
 

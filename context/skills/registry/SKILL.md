@@ -1,12 +1,27 @@
 ---
 name: registry
-description: Create, claim, and update Agentized tasks with confirmation, append-only Progress, INDEX, and hard status gates.
+description: Create, claim, and update Agentized tasks with human confirmation, status fields, append-only Progress, live INDEX, and hard status gates.
 ---
 
 # Registry (Agentized)
 
-1. Create: `python3 runtime/agentized_cli.py new --title "…" --value "…"` (no `--yes` except tests).
-2. Status field only — never move task files. Lifecycle: `idea→open|queue→in-progress→self-review|for-review|blocked→done|canceled` (`dropped`→canceled).
-3. Hard gates (CLI/pre-commit/CI): transitions vs PR base; empty статус refuse; blocked needs reason+deadline; review needs note or real pr; done needs acceptance_note; new tasks need Ценность.
-4. Status: `… status T-… --status …` (+ gate flags). Claim: `… claim T-… --owner <human>`. Progress append-only. Then `… index` and `… tasks-validate`.
-5. Subtasks: one nest level via `родитель:`. Do not invent backlog.
+## When to use
+
+- Creating a task or one-level subtask
+- Claiming work before code edits
+- Writing Progress / Decision Log entries
+- Changing task status
+
+## Instructions
+
+1. **Create** with human confirmation by default:
+   - `python3 runtime/agentized_cli.py new --title "…" --value "…"`
+   - Do **not** pass `--yes` in normal human sessions (autotests only).
+2. Task status is a field at the start of the task file (`статус:`). **Do not move files** when status changes.
+3. Lifecycle: `idea → open|queue → in-progress → self-review|for-review|blocked → done | canceled` (`dropped` → canceled).
+4. Hard gates (CLI/CI): transitions vs PR base; empty статус refuse; blocked needs reason+deadline; review needs note or real pr; done needs acceptance_note; every task needs `Ценность:`; run `tasks-validate`.
+5. **Claim before code**:
+   - `python3 runtime/agentized_cli.py claim T-… --owner <human>`
+6. Status: `… status T-… --status …` (+ gate flags). Subtasks: one nest level via `родитель:`.
+7. Progress and Decision Log are **append-only**; then `index`.
+8. Do not invent backlog. Tasks appear during real work, not as pre-seeded examples.

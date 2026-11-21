@@ -38,4 +38,3 @@ reports/architecture/
 !.codex/agents/
 !.codex/agents/reviewer.toml
 .agents/skills/
-board.html
