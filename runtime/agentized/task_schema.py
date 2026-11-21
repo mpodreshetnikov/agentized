@@ -61,7 +61,6 @@ PLACEHOLDER_TAGS = "_(нет)_"
 PLACEHOLDER_SECTION = "_(append-only)_"
 PLACEHOLDER_EMPTY = "_(пусто)_"
 DEFAULT_GOAL = "Что должно быть сделано."
-DEFAULT_VALUE = "Импорт из orbit-tasks — сохранить историю статусов без ручного копирования."
 PROGRESS_MARKER = "## Progress"
 INDEX_TITLE = "# Задачи — живой индекс"
 INDEX_INTRO = "Генерируемый список **активной** работы. Не полный архив истории."
@@ -141,27 +140,25 @@ def unknown_depends_on_ids(
     return missing
 
 
+# Orbit-only aliases; everything else goes through status_gates normalize/is_known.
 ORBIT_STATUS_MAP: dict[str, str] = {
-    "idea": "idea",
-    "open": "open",
-    "queue": "queue",
-    "in-progress": "in-progress",
     "review": "for-review",
-    "self-review": "self-review",
-    "for-review": "for-review",
-    "blocked": "blocked",
-    "done": "done",
-    "dropped": "canceled",
-    "canceled": "canceled",
 }
 
 
 def map_orbit_status(status: str) -> str | None:
-    """Map Orbit status string → Agentized status; None if unknown."""
-    key = (status or "").strip().lower()
+    """Map Orbit status → Agentized; None if empty/unknown (fail loudly)."""
+    from .status_gates import is_known_status, normalize_status
+
+    key = status.strip().lower()
     if not key:
-        return "idea"
-    return ORBIT_STATUS_MAP.get(key)
+        return None
+    if key in ORBIT_STATUS_MAP:
+        return ORBIT_STATUS_MAP[key]
+    norm = normalize_status(key)
+    if is_known_status(norm):
+        return norm
+    return None
 
 
 def validate_kind_priority(kind: str, priority: str) -> list[str]:
