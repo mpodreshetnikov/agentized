@@ -76,10 +76,6 @@ def resolve_pr_number(
         if isinstance(explicit, int):
             return explicit if explicit > 0 else None
         n = extract_pr_number(str(explicit))
-        if n is None:
-            digits = str(explicit).strip()
-            if digits.isdigit():
-                n = int(digits)
         if n is None or n <= 0:
             return None
         return n

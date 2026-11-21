@@ -75,6 +75,7 @@ def test_extract_and_resolve_pr_number(monkeypatch):
     assert resolve_pr_number(explicit="PR #3") == 3
     assert resolve_pr_number(explicit="1") == 1
     assert resolve_pr_number(explicit="77") == 77
+    assert resolve_pr_number(explicit="  12  ") == 12
     assert resolve_pr_number(explicit="bad") is None
     assert resolve_pr_number(env={}) is None
     assert resolve_pr_number(env={"AGENTIZED_PR": "41"}) == 41
