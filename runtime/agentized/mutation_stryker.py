@@ -1,8 +1,4 @@
-"""Stryker (JS/TS) mutation gate helpers (AGE-34).
-
-Extracted from mutation.py so dispatch stays thin and this module is
-unit-tested to mutationScoreCovered 100% under full-cover globs.
-"""
+"""Stryker (JS/TS) mutation helpers (AGE-34)."""
 from __future__ import annotations
 
 import json
@@ -59,15 +55,15 @@ def read_stryker_covered(root: Path) -> dict | None:
             else round(10000 * (killed + timeout) / overall_den) / 100
         )
         metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
-        from_tool = (
-            data.get("mutationScoreOfCoveredCode")
-            or metrics.get("mutationScoreOfCoveredCode")
-            or computed_covered
-        )
-        overall = data.get("mutationScore") or metrics.get("mutationScore") or computed_overall
         return {
-            "mutationScoreCovered": from_tool,
-            "mutationScore": overall,
+            "mutationScoreCovered": (
+                data.get("mutationScoreOfCoveredCode")
+                or metrics.get("mutationScoreOfCoveredCode")
+                or computed_covered
+            ),
+            "mutationScore": (
+                data.get("mutationScore") or metrics.get("mutationScore") or computed_overall
+            ),
             "killed": killed,
             "survived": survived,
             "no_tests": no_coverage,
@@ -89,48 +85,9 @@ def run_stryker_gate(
     languages: list[str],
     write_summary: WriteSummary,
 ) -> int:
-    """Fail closed unless a project/template Stryker wrapper exists."""
-    print(
-        f"[mutation] stryker hard gate vs {base} ({len(changed)} files, "
-        f"langs={','.join(languages)}, min_score_covered={min_score})"
-    )
-    for path in changed:
-        print(f"  {path}")
-
+    """Fail closed unless project/template wrapper exists; wrapper owns the score gate."""
     wrapper = find_stryker_wrapper(root)
     if wrapper is None:
-        summary = write_summary(
-            root,
-            {
-                "schemaVersion": 1,
-                "mode": "incremental",
-                "base": base,
-                "gate": "hard",
-                "tool": "stryker",
-                "passed": False,
-                "reasons": ["no_stryker_runner"],
-                "changedFiles": changed,
-                "note": (
-                    "JS/TS changed but no run-mutation-js.cjs. "
-                    "Copy templates/quality/run-mutation-js.cjs.example."
-                ),
-            },
-        )
-        print(
-            f"[mutation] FAIL: no Stryker runner for changed JS/TS files (see {summary})",
-            flush=True,
-        )
-        return 1
-
-    env = {
-        **os.environ,
-        "MUTATION_BASE": base,
-        "STRYKER_BASE": base,
-        "MUTATION_MIN_SCORE_COVERED": str(min_score),
-    }
-    run = subprocess.run(["node", str(wrapper)], cwd=root, env=env)
-    stryker_rc = run.returncode or 0
-    if stryker_rc != 0:
         write_summary(
             root,
             {
@@ -140,56 +97,20 @@ def run_stryker_gate(
                 "gate": "hard",
                 "tool": "stryker",
                 "passed": False,
-                "reasons": [f"stryker_exit={stryker_rc}"],
-                "changedFiles": changed,
+                "reasons": ["no_stryker_runner"],
+                "changedFiles": list(changed),
+                "languages": list(languages),
+                "minScoreCovered": min_score,
             },
         )
-        print(f"[mutation] FAIL: stryker_exit={stryker_rc}", flush=True)
-        return stryker_rc
-
-    stats = read_stryker_covered(root)
-    reasons: list[str] = []
-    if stats is None:
-        reasons.append("missing_stryker_json")
-        stats = {
-            "mutationScoreCovered": None,
-            "mutationScore": None,
-            "killed": 0,
-            "survived": 0,
-            "no_tests": 0,
-            "timeout": 0,
-            "totalMutants": 0,
-            "files": [],
-        }
-    else:
-        score = stats["mutationScoreCovered"]
-        if score is None:
-            reasons.append("no_covered_mutants")
-        elif float(score) + 1e-9 < min_score:
-            reasons.append(f"score_covered={score}<{min_score}")
-        if mut.get("break_on_survived", True) and int(stats.get("survived", 0)) > 0:
-            reasons.append(f"survived={stats['survived']}")
-
-    passed = not reasons
-    write_summary(
-        root,
-        {
-            "schemaVersion": 1,
-            "mode": "incremental",
-            "base": base,
-            "gate": "hard",
-            "scope": "covered_changed_lines",
-            "tool": "stryker",
-            "languages": languages,
-            "minScoreCovered": min_score,
-            "changedFiles": changed,
-            "passed": passed,
-            "reasons": reasons,
-            **stats,
-        },
-    )
-    if not passed:
-        print(f"[mutation] FAIL: {', '.join(reasons)}", flush=True)
         return 1
-    print("[mutation] PASS hard gate (stryker)")
-    return 0
+    env = {
+        **os.environ,
+        "MUTATION_BASE": base,
+        "STRYKER_BASE": base,
+        "MUTATION_MIN_SCORE_COVERED": str(min_score),
+    }
+    # mut retained for API symmetry with callers; wrapper reads quality.json itself.
+    _ = mut
+    run = subprocess.run(["node", str(wrapper)], cwd=root, env=env)
+    return run.returncode or 0

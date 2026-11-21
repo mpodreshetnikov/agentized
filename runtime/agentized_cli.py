@@ -236,7 +236,7 @@ def cmd_quality(args: argparse.Namespace) -> int:
         from agentized.coverage_check import run_coverage_check
         from agentized.mutation_js_gate import run_mutation
         from agentized.quality import load_quality
-        from agentized.test_smells_js_gate import run_test_smells
+        from agentized.js_smells_gate import run_test_smells
 
         cfg = load_quality(root, ctx_rel)
         gate_names = list((cfg.get("gates") or {}).get("ci") or [])

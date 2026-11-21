@@ -9,7 +9,7 @@ from pathlib import Path
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
 from .test_smells import run_test_smells as run_python_smells
-from .test_smells_js import SKIP_DIR_PARTS, expand_brace_glob, scan_js_ts_file
+from .js_smells import SKIP_DIR_PARTS, expand_brace_glob, scan_js_ts_file
 
 _JS_SUFFIXES = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 

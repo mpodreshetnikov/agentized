@@ -145,7 +145,7 @@ def test_detect_languages_skips_non_files(tmp_path: Path, monkeypatch):
 def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
     paths = [
         "runtime/agentized/test_smells.py",
-        "runtime/agentized/test_smells_js.py",
+        "runtime/agentized/js_smells.py",
         "tests/unit/test_foo.py",
         "src/foo.test.ts",
         "src/__tests__/x.ts",
@@ -182,7 +182,7 @@ def test_is_test_path_and_changed_sources(tmp_path: Path, monkeypatch):
     ]
 
 
-def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
+def test_git_changed_names_fallback_and_fail(tmp_path: Path, monkeypatch):
     n = {"i": 0}
 
     class R1:
@@ -201,3 +201,15 @@ def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(gd.subprocess, "run", fake_run)
     assert gd.git_changed_names(tmp_path, "origin/main") == ["src/a.py"]
+
+    class RFail:
+        returncode = 2
+        stdout = ""
+        stderr = "boom"
+
+    monkeypatch.setattr(gd.subprocess, "run", lambda *a, **k: RFail())
+    try:
+        gd.git_changed_names(tmp_path, "origin/main")
+        raise AssertionError("expected SystemExit")
+    except SystemExit as exc:
+        assert exc.code == 2

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_SOURCE_TESTISH_NAMES = frozenset({"test_smells.py", "test_smells_js.py"})
+_SOURCE_TESTISH_NAMES = frozenset({"test_smells.py"})
 
 _EXT_LANG = {
     ".py": "python",

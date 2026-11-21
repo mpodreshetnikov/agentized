@@ -1,6 +1,7 @@
 """Multi-language mutation entry (AGE-34): Stryker for JS/TS, mutmut for Python."""
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 
@@ -37,8 +38,6 @@ def run_mutation(
     changed = changed_source_files(root, base, prefixes)
     include_globs = list(mut.get("include_globs") or [])
     if include_globs:
-        import fnmatch
-
         changed = [
             path
             for path in changed
@@ -47,8 +46,7 @@ def run_mutation(
 
     by_lang: dict[str, list[str]] = {}
     for path in changed:
-        lang = language_for_path(path) or "unknown"
-        by_lang.setdefault(lang, []).append(path)
+        by_lang.setdefault(language_for_path(path) or "unknown", []).append(path)
 
     js_files: list[str] = []
     js_langs: list[str] = []
@@ -56,15 +54,14 @@ def run_mutation(
     for lang, files in sorted(by_lang.items()):
         if lang == "python":
             continue
-        tool = mutation_tool_for_language(mut, lang)
-        if tool == "stryker":
+        if mutation_tool_for_language(mut, lang) == "stryker":
             js_files.extend(files)
             js_langs.append(lang)
-            continue
-        missing.append(f"{lang} ({len(files)} file(s))")
+        else:
+            missing.append(f"{lang}:{len(files)}")
 
     if missing:
-        path = _write_summary(
+        _write_summary(
             root,
             {
                 "schemaVersion": 1,
@@ -76,12 +73,6 @@ def run_mutation(
                 "missingRunners": missing,
                 "changedFiles": changed,
             },
-        )
-        print(
-            "[mutation] FAIL: no runner for changed files: "
-            + ", ".join(missing)
-            + f" (see {path.relative_to(root)})",
-            flush=True,
         )
         return 1
 

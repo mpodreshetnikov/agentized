@@ -28,10 +28,7 @@ def run_js_architecture(
                 {
                     "file": "(architecture)",
                     "kind": "no_architecture_runner",
-                    "detail": (
-                        f"No architecture tool for {lang}. Set architecture.tools.{lang} "
-                        "to dependency-cruiser or eslint-boundaries."
-                    ),
+                    "detail": f"missing architecture.tools.{lang}",
                 }
             )
             continue
@@ -45,7 +42,7 @@ def run_js_architecture(
                     {
                         "file": str(section.get("js_config") or ".dependency-cruiser.cjs"),
                         "kind": "dependency_cruiser",
-                        "detail": out or f"dependency-cruiser exit {rc}",
+                        "detail": out or f"exit {rc}",
                     }
                 )
         elif tool == "eslint-boundaries":
@@ -56,7 +53,7 @@ def run_js_architecture(
                     {
                         "file": str(section.get("eslint_config") or "eslint"),
                         "kind": "eslint_boundaries",
-                        "detail": out or f"eslint-boundaries exit {rc}",
+                        "detail": out or f"exit {rc}",
                     }
                 )
         else:
@@ -64,7 +61,7 @@ def run_js_architecture(
                 {
                     "file": "(architecture)",
                     "kind": "unknown_architecture_tool",
-                    "detail": f"Unsupported architecture tool {tool!r} for {lang}",
+                    "detail": str(tool),
                 }
             )
     return findings, tools_run
@@ -82,33 +79,28 @@ def run_architecture_gate(
         return run_python_architecture(root, context=context)
 
     py_rc = run_python_architecture(root, context=context)
-
     lang_section = cfg.get("languages") if isinstance(cfg.get("languages"), dict) else {}
-    exclude = list(lang_section.get("exclude_globs") or [])
-    detected = detect_languages(root, exclude_globs=exclude or None)
+    detected = detect_languages(root, exclude_globs=list(lang_section.get("exclude_globs") or []) or None)
     findings, tools_run = run_js_architecture(root, section, detected)
-
+    mode = str(section.get("mode") or "hard").lower()
     out_dir = root / "reports" / "architecture"
     out_dir.mkdir(parents=True, exist_ok=True)
-    mode = str(section.get("mode") or "hard").lower()
-    payload = {
-        "schemaVersion": 1,
-        "mode": mode,
-        "tool": "+".join(tools_run) if tools_run else "js-none",
-        "toolsRun": tools_run,
-        "detectedLanguages": sorted(detected),
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "findings": findings,
-        "passed": True if mode == "warn" else not findings,
-    }
     (out_dir / "architecture-js-summary.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mode": mode,
+                "toolsRun": tools_run,
+                "detectedLanguages": sorted(detected),
+                "generatedAt": datetime.now(timezone.utc).isoformat(),
+                "findings": findings,
+                "passed": (not findings) if mode != "warn" else True,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     if findings and mode != "warn":
-        print(f"[architecture-js] {len(findings)} finding(s) (mode={mode})")
-        for item in findings[:30]:
-            print(f"  {item['file']}: {item['kind']}: {item['detail'][:200]}")
         return 1
-    if findings and mode == "warn":
-        print("[architecture-js] warn mode — not failing the gate")
     return 0 if py_rc == 0 else py_rc
