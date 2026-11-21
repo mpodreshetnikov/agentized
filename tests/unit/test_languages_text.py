@@ -67,8 +67,10 @@ def test_result_and_messages_exact():
         "architecture.tools+config, test_smells include_globs per language, "
         "and JS/TS AGE-34 runners when those languages are present."
     )
-    assert t.msg_coverage_incomplete(["rust"], {}, {}, ("coverage",)).endswith(
-        "rust unsupported (e.g. ?). Configure modules/test_command/coverage, mutation.tools, "
+    assert t.msg_coverage_incomplete(["rust"], {}, {}, ("coverage",)) == (
+        "agentized: REFUSED — language coverage incomplete: "
+        "rust unsupported (e.g. ?). "
+        "Configure modules/test_command/coverage, mutation.tools, "
         "architecture.tools+config, test_smells include_globs per language, "
         "and JS/TS AGE-34 runners when those languages are present."
     )

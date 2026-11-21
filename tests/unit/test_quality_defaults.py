@@ -40,11 +40,8 @@ def test_default_quality_config_full_cover_globs_and_structure():
     assert lang["exclude_globs"] == list(DEFAULT_EXCLUDE_GLOBS)
     assert "packages/**" not in lang["exclude_globs"]
     assert "templates/**" not in lang["exclude_globs"]
-    # Fresh languages list is independent.
     lang["exclude_globs"].append("x/**")
-    assert default_quality_config()["languages"]["exclude_globs"] == list(
-        DEFAULT_EXCLUDE_GLOBS
-    )
+    assert default_quality_config()["languages"]["exclude_globs"] == list(DEFAULT_EXCLUDE_GLOBS)
     mut = cfg["mutation"]
     assert mut == {
         "enabled": True,

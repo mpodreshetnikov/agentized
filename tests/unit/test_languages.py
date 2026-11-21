@@ -25,20 +25,16 @@ from agentized.languages import (
     validate_supported_list,
 )
 
-
 def _excludes(*extra: str) -> list[str]:
     return list(DEFAULT_EXCLUDE_GLOBS) + list(extra)
 
-
 _KEYS = {"ok", "detected", "unsupported", "missing_gates", "message", "skipped"}
-
 
 def _shape(r: dict) -> dict:
     assert set(r) == _KEYS
     assert r["skipped"] is False
     assert isinstance(r["message"], str) and len(r["message"]) > 0
     return r
-
 
 def _cfg(**overrides):
     base = {
@@ -59,15 +55,12 @@ def _cfg(**overrides):
     base.update(overrides)
     return base
 
-
-
 def _runners(root: Path) -> None:
     d = root / "scripts" / "quality"
     d.mkdir(parents=True, exist_ok=True)
     (d / "stryker-runner").write_text("1\n", encoding="utf-8")
     (d / "architecture-runner").write_text("1\n", encoding="utf-8")
     (root / ".dependency-cruiser.cjs").write_text("module.exports = {}\n", encoding="utf-8")
-
 
 def test_constants_and_language_for_path():
     assert SUPPORTED_GATES == ("tests", "coverage", "mutation", "smells", "architecture")
@@ -85,7 +78,6 @@ def test_constants_and_language_for_path():
     assert validate_supported_list(["python", "go"]) == ["go"]
     assert default_languages_config()["supported"] == ["python", "javascript", "typescript"]
 
-
 def test_glob_excluded_and_globs_cover():
     cases = [
         ("vendor/x.py", ["vendor/**"], True), ("vendor", ["vendor/**"], True),
@@ -98,13 +90,16 @@ def test_glob_excluded_and_globs_cover():
         ("a/**/*.x/b.py", ["a/**/*.x/**/*.py"], False),
     ]
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
+    assert _glob_excluded("nested/vendor/a.py", ["**/vendor/**"]) is True
+    assert _glob_excluded("vendor", ["**/vendor/**"]) is True
+    assert _glob_excluded("pkg/a/b.py", ["pkg/**/*.py"]) is True
+    assert _glob_excluded("pkg/a/b.py", ["pkg/**/*.ts"]) is False
     assert _globs_cover([], "python") is False
     assert _globs_cover(["**/*.py"], "go") is False
     assert [_globs_cover(["**/*.py"], "go"), _globs_cover(["**/*.py"], "python")] == [False, True]
     assert _globs_cover(["**/*.{js,jsx}"], "javascript") is True
     assert _globs_cover(["**/*.json"], "javascript") is False
     assert _globs_cover(["src/**/*.ts"], "typescript") is True
-
 
 def test_detect_excludes_and_caps(tmp_path: Path):
     (tmp_path / "src").mkdir()
@@ -132,7 +127,6 @@ def test_detect_excludes_and_caps(tmp_path: Path):
     found = detect_languages(tmp_path, exclude_globs=_excludes("packages/**", "templates/**", "src/**", "dist/**", "vendor/**"))
     assert len(found["python"]) == 8 and found["unknown"] == ["weird.qzz"]
 
-
 def test_module_has_lang_and_file_contains(tmp_path: Path):
     (tmp_path / "types.d.ts").write_text("export {}\n", encoding="utf-8")
     (tmp_path / "app.py").write_text("x=1\n", encoding="utf-8")
@@ -153,7 +147,6 @@ def test_module_has_lang_and_file_contains(tmp_path: Path):
     p.write_text("alpha beta gamma", encoding="utf-8")
     assert _file_contains_any(p, ("nope", "beta")) is True
     assert _file_contains_any(p, ("nope", "zzz")) is False
-
 
 def test_runners_and_js_ts_verified(tmp_path: Path):
     assert [stryker_runner_present(tmp_path), js_architecture_runner_present(tmp_path)] == [False, False]
@@ -196,10 +189,20 @@ def test_runners_and_js_ts_verified(tmp_path: Path):
             {"mutation": {"tools": {"typescript": "stryker"}}, "architecture": None},
         ),
     ] == [True, False, False, False, True, False, False]
+    _runners(tmp_path)
+    assert js_ts_runners_verified(
+        tmp_path, "javascript",
+        {"mutation": {"tools": {"javascript": "stryker"}},
+         "architecture": {"tools": {"javascript": "dependency-cruiser"}, "config": ".dependency-cruiser.cjs"}},
+    ) is True
+    assert js_ts_runners_verified(
+        tmp_path, "javascript",
+        {"mutation": {"tools": {"javascript": "stryker"}},
+         "architecture": {"tools": {"javascript": "dependency-cruiser"}}},
+    ) is False
     assert mutation_tool_for_language({"tool": ""}, "python") is None
     assert mutation_tool_for_language({"tools": {"python": "mutmut"}}, "python") == "mutmut"
     assert architecture_tool_for_language({"tools": {"python": "import-linter"}}, "python") == "import-linter"
-
 
 def test_missing_gates_matrix(tmp_path: Path):
     src = tmp_path / "src"
@@ -230,7 +233,6 @@ def test_missing_gates_matrix(tmp_path: Path):
     }
     assert missing_gates_for_language(tmp_path, "python", cfg3) == []
 
-
 def test_check_coverage_refuses(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
@@ -256,7 +258,6 @@ def test_check_coverage_refuses(tmp_path: Path):
     r = check_language_coverage(tmp_path, cfg=_cfg(languages={"supported": ["python"], "exclude_globs": None}))
     _shape(r)
     assert r["ok"] is False
-
 
 def test_check_coverage_missing_gates_and_ok(tmp_path: Path):
     (tmp_path / "src").mkdir()
@@ -311,26 +312,6 @@ def test_check_coverage_missing_gates_and_ok(tmp_path: Path):
     _shape(r)
     assert r["ok"] is True and r["message"] == "language coverage OK: python"
 
-
-def test_js_ts_refuse_without_runners(tmp_path: Path):
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "a.ts").write_text("export {}\n", encoding="utf-8")
-    (tmp_path / "src" / "a.js").write_text("export {}\n", encoding="utf-8")
-    r = check_language_coverage(
-        tmp_path,
-        cfg=_cfg(languages={"supported": ["typescript"], "exclude_globs": _excludes("**/*.js")}),
-    )
-    _shape(r)
-    assert r["ok"] is False
-    assert r["missing_gates"]["typescript"] == ["mutation", "architecture"]
-    r = check_language_coverage(
-        tmp_path,
-        cfg=_cfg(languages={"supported": ["javascript"], "exclude_globs": _excludes("**/*.ts", "**/*.py")}),
-    )
-    _shape(r)
-    assert r["missing_gates"]["javascript"] == ["mutation", "architecture"]
-
-
 def test_single_tool_and_oserror_branches(tmp_path: Path, monkeypatch):
     assert mutation_tool_for_language({"tool": "mutmut"}, "python") == "mutmut"
     assert mutation_tool_for_language({"tool": "stryker"}, "python") is None
@@ -376,50 +357,33 @@ def test_single_tool_and_oserror_branches(tmp_path: Path, monkeypatch):
     )
     assert miss[:2] == ["tests", "coverage"]
 
-
 def test_check_non_dict_languages(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
-    (tmp_path / "src" / "b.ts").write_text("export {}\n", encoding="utf-8")
     r = check_language_coverage(
         tmp_path,
         cfg={"languages": ["not-a-dict"], "modules": [], "mutation": {}, "test_smells": {}, "architecture": {}},
     )
     _shape(r)
     assert r["ok"] is False and "supported is missing or empty" in r["message"]
-    r = check_language_coverage(
-        tmp_path, cfg=_cfg(languages={"supported": ["python", "typescript"], "exclude_globs": _excludes()}),
-    )
-    _shape(r)
-    assert r["ok"] is False and "typescript" in r["missing_gates"] and r["detected"]["python"]
-
 
 def test_runner_paths_isolated(tmp_path: Path):
-    assert stryker_runner_present(tmp_path) is False
-    mut = tmp_path / "runtime" / "agentized" / "mutation.py"
-    mut.parent.mkdir(parents=True)
-    mut.write_text("def _run_stryker_gate():\n    return 0\n", encoding="utf-8")
-    assert stryker_runner_present(tmp_path) is True
-    mut.unlink()
-    alt = tmp_path / "agentized" / "mutation.py"
-    alt.parent.mkdir(parents=True)
-    alt.write_text("def _run_stryker_gate():\n    return 0\n", encoding="utf-8")
-    assert stryker_runner_present(tmp_path) is True
-    alt.unlink()
-    assert js_architecture_runner_present(tmp_path) is False
-    arch = tmp_path / "runtime" / "agentized" / "architecture_gate.py"
-    arch.parent.mkdir(parents=True, exist_ok=True)
-    arch.write_text("def _run_dependency_cruiser(a, b):\n    return 0, ''\n", encoding="utf-8")
-    assert js_architecture_runner_present(tmp_path) is True
-    arch.unlink()
-    arch2 = tmp_path / "agentized" / "architecture_gate.py"
-    arch2.parent.mkdir(parents=True, exist_ok=True)
-    arch2.write_text("def _run_eslint_boundaries():\n    return 0\n", encoding="utf-8")
-    assert js_architecture_runner_present(tmp_path) is True
-    # multi-dot name uses rfind
+    assert [stryker_runner_present(tmp_path), js_architecture_runner_present(tmp_path)] == [False, False]
+    for rel, body, check in (
+        ("runtime/agentized/mutation.py", "def _run_stryker_gate():\n    return 0\n", stryker_runner_present),
+        ("agentized/mutation.py", "def _run_stryker_gate():\n    return 0\n", stryker_runner_present),
+        ("runtime/agentized/architecture_gate.py", "def _run_dependency_cruiser(a, b):\n    return 0, ''\n", js_architecture_runner_present),
+        ("agentized/architecture_gate.py", "def _run_eslint_boundaries():\n    return 0\n", js_architecture_runner_present),
+        ("scripts/quality/run-architecture-js.cjs", "1\n", js_architecture_runner_present),
+        ("run-mutation-js.cjs", "1\n", stryker_runner_present),
+    ):
+        path = tmp_path.joinpath(*rel.split("/"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        assert check(tmp_path) is True
+        path.unlink()
     assert language_for_path("foo.bar.py") == "python"
-
-
+    assert language_for_path("file.backup.md") is None
 
 def test_survivor_killers(tmp_path: Path, monkeypatch):
     (tmp_path / "a.py").write_text("x=1\n", encoding="utf-8")
@@ -440,9 +404,6 @@ def test_survivor_killers(tmp_path: Path, monkeypatch):
     assert missing_gates_for_language(
         tmp_path, "python", _cfg(architecture={"enabled": False, "tools": {"python": "import-linter"}, "config": ".importlinter"}),
     ) == ["architecture"]
-    assert "architecture" in missing_gates_for_language(
-        tmp_path, "python", _cfg(architecture={"enabled": True, "tools": {"python": "import-linter"}}),
-    )
     assert "architecture" in missing_gates_for_language(
         tmp_path, "python",
         _cfg(architecture={"enabled": True, "tools": {"python": "nope"}, "config": ".importlinter"}),

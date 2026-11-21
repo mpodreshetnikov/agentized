@@ -36,7 +36,6 @@ def default_quality_config() -> dict[str, Any]:
             }
         ],
         "languages": {
-            # detect:false refused (AGE-24).
             "supported": list(_lang_text.DEFAULT_SUPPORTED),
             "exclude_globs": list(_lang_text.DEFAULT_EXCLUDE_GLOBS),
         },

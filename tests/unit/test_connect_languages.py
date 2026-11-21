@@ -32,8 +32,7 @@ def _cfg(**lang_kw):
 def test_constants_and_refused():
     assert MANAGED_LANG_EXCLUDES == ("packages/**", "templates/**")
     exc = ConnectRefused("nope", details={"ok": False, "unsupported": ["go"]})
-    assert str(exc) == "nope" and exc.message == "nope"
-    assert exc.details == {"ok": False, "unsupported": ["go"]}
+    assert (str(exc), exc.message, exc.details) == ("nope", "nope", {"ok": False, "unsupported": ["go"]})
     assert ConnectRefused("x").details == {}
 
 
@@ -89,3 +88,32 @@ def test_merge_preserves_excludes_and_context(tmp_path: Path, monkeypatch):
     assert out["languages"]["supported"] == ["python", "javascript", "typescript"]
     assert out["languages"]["exclude_globs"] == ["packages/**", "templates/**"]
     assert saved["data"]["languages"]["exclude_globs"] == ["packages/**", "templates/**"]
+
+
+def test_refuse_forwards_kwargs(tmp_path: Path, monkeypatch):
+    seen: dict = {}
+
+    def fake_check(root, *, context, cfg, require_gates):
+        seen.update(context=context, cfg=cfg, require_gates=require_gates)
+        return {"message": "ok"}  # no ok key → default True must not raise
+
+    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_check)
+    refuse_incomplete_languages(tmp_path, "myctx")
+    assert seen == {"context": "myctx", "cfg": seen["cfg"], "require_gates": False}
+    assert seen["cfg"] is not None
+
+
+def test_merge_sets_supported_when_missing(tmp_path: Path, monkeypatch):
+    saved: dict = {}
+
+    def fake_load(root, context_rel):
+        return {"languages": {"exclude_globs": ["node_modules/**"], "supported": ["python"]}}
+
+    def fake_save(root, data, context_rel):
+        saved["data"] = data
+
+    monkeypatch.setattr("agentized.quality.load_quality", fake_load)
+    monkeypatch.setattr("agentized.quality.save_quality", fake_save)
+    out = merge_managed_language_excludes(tmp_path, "myctx")
+    assert out["languages"]["supported"] == ["python"]
+    assert out["languages"]["exclude_globs"] == ["node_modules/**", "packages/**", "templates/**"]
