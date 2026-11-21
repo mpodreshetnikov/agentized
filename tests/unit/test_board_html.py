@@ -334,9 +334,7 @@ def test_render_collect_write(tmp_path: Path):
         import json as _json
 
         policy = bad_ent / "merge_policy.json"
-        policy.write_text(
-            _json.dumps({"human_participants": [bad]}), encoding="utf-8"
-        )
+        policy.write_text(_json.dumps({"human_participants": [bad]}), encoding="utf-8")
         with pytest.raises(BoardError) as e_ent:
             load_human_participants(bad_ent)
         assert e_ent.value.path == str(policy)
