@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
-from agentized import mutation as mut
+from agentized import mutation_ast as mast
 
 BASE_SRC = "def f():\n    return 1 + 1\n"
 FORMAT_ONLY = "def f():\n  return 1+1\n"
@@ -15,10 +16,10 @@ BAD_SRC = "def f(\n"
 
 
 def test_ast_dump_format_equal_semantic_and_doc_differ():
-    assert mut._ast_dump(BASE_SRC) == mut._ast_dump(FORMAT_ONLY)
-    assert mut._ast_dump(BASE_SRC) != mut._ast_dump(SEMANTIC)
-    assert mut._ast_dump(DOC_A) != mut._ast_dump(DOC_B)
-    assert mut._ast_dump(BAD_SRC) is None
+    assert mast.ast_dump(BASE_SRC) == mast.ast_dump(FORMAT_ONLY)
+    assert mast.ast_dump(BASE_SRC) != mast.ast_dump(SEMANTIC)
+    assert mast.ast_dump(DOC_A) != mast.ast_dump(DOC_B)
+    assert mast.ast_dump(BAD_SRC) is None
 
 
 def test_exclude_a_format_only(tmp_path: Path, monkeypatch):
@@ -26,8 +27,8 @@ def test_exclude_a_format_only(tmp_path: Path, monkeypatch):
     rel = "runtime/agentized/sample.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(FORMAT_ONLY, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == []
     assert excluded == [rel]
 
@@ -37,8 +38,8 @@ def test_exclude_b_semantic_stays(tmp_path: Path, monkeypatch):
     rel = "runtime/agentized/sample.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(SEMANTIC, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
 
@@ -48,8 +49,8 @@ def test_exclude_c_docstring_stays(tmp_path: Path, monkeypatch):
     rel = "runtime/agentized/sample.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(DOC_B, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: DOC_A)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: DOC_A)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
 
@@ -59,8 +60,8 @@ def test_exclude_d_new_file_stays(tmp_path: Path, monkeypatch):
     rel = "runtime/agentized/newmod.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(BASE_SRC, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: None)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: None)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
 
@@ -70,14 +71,14 @@ def test_exclude_e_unparseable_fail_closed(tmp_path: Path, monkeypatch):
     rel = "runtime/agentized/broken.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(BAD_SRC, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
 
     (tmp_path / rel).write_text(BASE_SRC, encoding="utf-8")
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BAD_SRC)
-    kept2, excluded2 = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BAD_SRC)
+    kept2, excluded2 = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept2 == [rel]
     assert excluded2 == []
 
@@ -85,16 +86,14 @@ def test_exclude_e_unparseable_fail_closed(tmp_path: Path, monkeypatch):
 def test_exclude_head_unreadable_stays(tmp_path: Path, monkeypatch):
     """Fail-closed: head read error keeps file."""
     rel = "runtime/agentized/missing.py"
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mut._exclude_ast_equivalent(tmp_path, "origin/main", [rel])
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
 
 
 def test_git_show_blob_missing_and_ok(tmp_path: Path):
-    import subprocess
-
-    assert mut._git_show_blob(tmp_path, "origin/main", "no/such.py") is None
+    assert mast.git_show_blob(tmp_path, "origin/main", "no/such.py") is None
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -118,15 +117,15 @@ def test_git_show_blob_missing_and_ok(tmp_path: Path):
         check=True,
         capture_output=True,
     )
-    assert mut._git_show_blob(tmp_path, "HEAD", rel) == BASE_SRC
-    assert mut._git_show_blob(tmp_path, "HEAD", "gone.py") is None
+    assert mast.git_show_blob(tmp_path, "HEAD", rel) == BASE_SRC
+    assert mast.git_show_blob(tmp_path, "HEAD", "gone.py") is None
 
 
 def test_read_workdir_blob_ok_error_unicode(tmp_path: Path, monkeypatch):
     rel = "x.py"
     (tmp_path / rel).write_text("x = 1\n", encoding="utf-8")
-    assert mut._read_workdir_blob(tmp_path, rel) == "x = 1\n"
-    assert mut._read_workdir_blob(tmp_path, "absent.py") is None
+    assert mast.read_workdir_blob(tmp_path, rel) == "x = 1\n"
+    assert mast.read_workdir_blob(tmp_path, "absent.py") is None
 
     real = Path.read_text
 
@@ -136,8 +135,16 @@ def test_read_workdir_blob_ok_error_unicode(tmp_path: Path, monkeypatch):
         return real(self, *a, **k)
 
     monkeypatch.setattr(Path, "read_text", boom)
-    assert mut._read_workdir_blob(tmp_path, rel) is None
-    assert mut._read_workdir_blob(tmp_path, "absent.py") is None
+    assert mast.read_workdir_blob(tmp_path, rel) is None
+    assert mast.read_workdir_blob(tmp_path, "absent.py") is None
+
+
+def test_apply_include_globs_empty_and_filter():
+    paths = ["runtime/agentized/a.py", "runtime/other.py"]
+    assert mast._apply_include_globs(paths, []) == paths
+    assert mast._apply_include_globs(paths, ["runtime/agentized/*.py"]) == [
+        "runtime/agentized/a.py"
+    ]
 
 
 def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
@@ -146,6 +153,9 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
     rel = "runtime/agentized/fmt.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(FORMAT_ONLY, encoding="utf-8")
+
+    from agentized import mutation as mut
+
     monkeypatch.setattr(
         mut,
         "load_quality",
@@ -160,12 +170,13 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
         },
     )
     monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: [rel])
-    monkeypatch.setattr(mut, "_git_show_blob", lambda *a, **k: BASE_SRC)
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path)
     monkeypatch.chdir(tmp_path)
-    assert mut.run_mutation(tmp_path) == 0
+    assert mast.run_mutation(tmp_path) == 0
     summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
     assert summary["mode"] == "incremental-skip"
-    assert summary["changedFiles"] == []
+    assert summary.get("changedFiles", []) == []
     assert summary["astExcludedFiles"] == [rel]
     assert summary["passed"] is True
     out = capsys.readouterr().out
@@ -184,6 +195,8 @@ def test_run_mutation_f_logic_still_fails_survivors(tmp_path: Path, monkeypatch,
         (tmp_path / rel).write_text(body, encoding="utf-8")
     (tmp_path / "setup.cfg").write_text("[mutmut]\n", encoding="utf-8")
 
+    from agentized import mutation as mut
+
     monkeypatch.setattr(
         mut,
         "load_quality",
@@ -200,33 +213,28 @@ def test_run_mutation_f_logic_still_fails_survivors(tmp_path: Path, monkeypatch,
         },
     )
     monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: [fmt, logic])
-
-    def fake_git_show(root, ref, path):  # noqa: ARG001
-        return BASE_SRC if path in (fmt, logic) else None
-
-    monkeypatch.setattr(mut, "_git_show_blob", fake_git_show)
+    monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        mast,
+        "git_show_blob",
+        lambda root, ref, path: BASE_SRC if path in (fmt, logic) else None,
+    )
     monkeypatch.setattr(mut, "_ensure_agentized_link", lambda root: False)
-    monkeypatch.setattr(mut, "_write_setup", lambda root, only: None)
 
     mutmut_only: list[list[str]] = []
 
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        class R:
-            returncode = 0
-
-        if cmd[:3] == [__import__("sys").executable, "-m", "pytest"]:
-            return R()
-        if cmd[:3] == [__import__("sys").executable, "-m", "mutmut"]:
-            # Capture only_mutate via setup side-effect: re-read from write_setup arg.
-            return R()
-        return R()
-
-    # Capture only list by wrapping _write_setup
     def capture_setup(root, only):  # noqa: ARG001
         mutmut_only.append(list(only))
         (root / "setup.cfg").write_text("[mutmut]\n", encoding="utf-8")
 
     monkeypatch.setattr(mut, "_write_setup", capture_setup)
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        class R:
+            returncode = 0
+
+        return R()
+
     monkeypatch.setattr(mut.subprocess, "run", fake_run)
     monkeypatch.setattr(
         mut,
@@ -244,7 +252,7 @@ def test_run_mutation_f_logic_still_fails_survivors(tmp_path: Path, monkeypatch,
         },
     )
     monkeypatch.chdir(tmp_path)
-    rc = mut.run_mutation(tmp_path)
+    rc = mast.run_mutation(tmp_path)
     assert rc == 1
     assert mutmut_only == [["agentized/logic.py"]]
     summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
@@ -254,3 +262,17 @@ def test_run_mutation_f_logic_still_fails_survivors(tmp_path: Path, monkeypatch,
     assert any("survived=" in r for r in summary["reasons"])
     out = capsys.readouterr().out
     assert f"exclude {fmt}" in out
+
+
+def test_main_context_flag(monkeypatch):
+    called: list[str] = []
+
+    def fake_run(root=None, *, context=mast.DEFAULT_CONTEXT):  # noqa: ARG001
+        called.append(context)
+        return 0
+
+    monkeypatch.setattr(mast, "run_mutation", fake_run)
+    assert mast.main(["--context", "ctx"]) == 0
+    assert called == ["ctx"]
+    assert mast.main([]) == 0
+    assert called == ["ctx", mast.DEFAULT_CONTEXT]

@@ -6,7 +6,6 @@ Self-contained under runtime/agentized for connected foreign repos.
 """
 from __future__ import annotations
 
-import ast
 import fnmatch
 import json
 import os
@@ -90,62 +89,6 @@ def _changed_py_files(root: Path, base_ref: str, prefixes: list[str]) -> list[st
         if any(name == p or name.startswith(p.rstrip("/") + "/") for p in prefixes):
             out.append(name)
     return sorted(set(out))
-
-
-def _ast_dump(source: str) -> str | None:
-    """Stable AST fingerprint, or None on parse failure (fail-closed → keep file)."""
-    try:
-        return ast.dump(ast.parse(source), include_attributes=False)
-    except SyntaxError:
-        return None
-
-
-def _git_show_blob(root: Path, ref: str, path: str) -> str | None:
-    """Blob text at ref:path, or None on missing/git error (fail-closed → keep)."""
-    proc = subprocess.run(
-        ["git", "show", f"{ref}:{path}"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return None
-    return proc.stdout
-
-
-def _read_workdir_blob(root: Path, path: str) -> str | None:
-    """Working-tree file text, or None on read error (fail-closed → keep)."""
-    try:
-        return (root / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-
-
-def _exclude_ast_equivalent(
-    root: Path, base_ref: str, paths: list[str]
-) -> tuple[list[str], list[str]]:
-    """Drop files whose AST matches base; keep on missing base / parse / git errors.
-
-    Returns ``(kept, excluded)`` preserving input order within each list.
-    """
-    kept: list[str] = []
-    excluded: list[str] = []
-    for path in paths:
-        base_text = _git_show_blob(root, base_ref, path)
-        head_text = _read_workdir_blob(root, path)
-        if base_text is None or head_text is None:
-            kept.append(path)
-            continue
-        base_dump = _ast_dump(base_text)
-        head_dump = _ast_dump(head_text)
-        if base_dump is None or head_dump is None:
-            kept.append(path)
-            continue
-        if base_dump == head_dump:
-            excluded.append(path)
-        else:
-            kept.append(path)
-    return kept, excluded
 
 
 def _write_summary(root: Path, payload: dict) -> Path:
@@ -238,11 +181,6 @@ def run_mutation(
             for path in changed
             if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
         ]
-    changed, ast_excluded = _exclude_ast_equivalent(root, base, changed)
-    if ast_excluded:
-        print(f"[mutation] AST-equivalent excluded ({len(ast_excluded)}):")
-        for f in ast_excluded:
-            print(f"  exclude {f}")
     if not changed:
         path = _write_summary(
             root,
@@ -257,8 +195,6 @@ def run_mutation(
                 "killed": 0,
                 "no_tests": 0,
                 "files": [],
-                "changedFiles": [],
-                "astExcludedFiles": ast_excluded,
                 "gate": "hard",
                 "passed": True,
                 "note": f"No mutable source files changed vs {base}",
@@ -336,7 +272,6 @@ def run_mutation(
             "tool": "mutmut",
             "minScoreCovered": min_score,
             "changedFiles": changed,
-            "astExcludedFiles": ast_excluded,
             "passed": passed,
             "reasons": reasons,
             "mutmutExit": mutmut_rc,
