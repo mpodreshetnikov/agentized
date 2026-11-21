@@ -27,12 +27,12 @@ description: High-signal testing strategy and Agentized coverage/mutation hard g
 | Gate | Default | Metric |
 |------|---------|--------|
 | Coverage | hard 80% lines+branches | Uncovered lines limited by coverage — not by mutation |
-| Mutation | hard **`mutationScoreCovered = 100%`** | mutmut (Py) / Stryker JSON (JS/TS); never gate overall `mutationScore` |
-| Test smells | **hard** (blocking) | Py AST + JS/TS weak oracles / mock-call-only / `@patch` MUT |
-| Architecture | **hard** (blocking) | import-linter (Py) / dependency-cruiser or eslint-boundaries (JS/TS, error) |
+| Mutation | hard **`mutationScoreCovered = 100%`** | Zero surviving mutants on covered lines; do **not** gate overall `mutationScore` |
+| Test smells | **hard** (blocking) | Weak oracles / mock-call-only / `@patch` MUT |
+| Architecture | **hard** (blocking) | import-linter (Py) / dependency-cruiser (JS) |
 | Batch release | process | Reviewed PRs may share one CI; keep “up-to-date before merge” |
 
-Mutation is **incremental** (changed files vs base), dispatched by `mutation.tools` / language, required on CI + pre-push. If no relevant diff → skip **pass**. If changed files have **no runner** for their language → **fail** (not skip). Prefer project `scripts/quality/run-mutation-js.cjs` or `npx` Stryker; covered score from `reports/mutation/mutation.json` (`templates/quality/run-mutation-js.cjs.example`).
+Mutation is **incremental** (changed files vs base), one command, required on CI + pre-push. If no relevant diff → skip **pass** (never false-fail). Compute covered score from tool JSON when built-in thresholds use the wrong metric (see `templates/quality/run-mutation-js.cjs.example`).
 
 ## Commands
 

@@ -1,6 +1,6 @@
 # Quality (Agentized)
 
-Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture hard gates (blocking by default), pre-push/CI. JS/TS (AGE-34): Stryker `mutationScoreCovered=100`, test-smell lint, dependency-cruiser/eslint-boundaries. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
+Configurable multi-module coverage, incremental mutation hard gate, test-smell + architecture hard gates (blocking by default), pre-push/CI. JS/TS: Stryker + smells + dependency-cruiser/eslint-boundaries. Practices aligned with Orbit / Maxim (13–15.11.2026) — not Orbit product content.
 
 ## Config
 
@@ -15,6 +15,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | Field | Meaning |
 |-------|---------|
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
+
 
 | `mutation.gate` | `hard` on **`mutationScoreCovered`** for **whole changed files** matching `include_globs` (default **100**; never gate overall `mutationScore`; not hunk-only) |
 | `mutation.include_globs` | Which changed sources enter the mutation set. Default/dogfood: `runtime/agentized/*.py` (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested modules; a separate `**` glob is redundant) |
