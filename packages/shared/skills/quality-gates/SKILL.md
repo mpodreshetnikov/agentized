@@ -30,10 +30,8 @@ description: High-signal testing strategy and Agentized coverage/mutation hard g
 | Mutation | hard **`mutationScoreCovered = 100%`** | Zero surviving mutants on covered lines; do **not** gate overall `mutationScore` |
 | Test smells | **hard** (blocking) | Weak oracles / mock-call-only / `@patch` MUT |
 | Architecture | **hard** (blocking) | import-linter (Py) / dependency-cruiser (JS) |
-| Languages | **fail-closed** | Detected languages must have full suite (`SUPPORTED_GATES`: tests, coverage, mutation, smells, architecture). No `detect:false`. Only `python` / `javascript` / `typescript` may appear in `languages.supported`. |
+| Languages | **fail-closed** | AGE-24: detected langs need SUPPORTED_GATES; no detect:false; only py/js/ts |
 | Batch release | process | Reviewed PRs may share one CI; keep “up-to-date before merge” |
-
-`agentized quality check` and `agentized connect` refuse when language coverage is incomplete (AGE-24). JS/TS runners: AGE-34.
 
 Mutation is **incremental** (changed files vs base), one command, required on CI + pre-push. If no relevant diff → skip **pass** (never false-fail). Compute covered score from tool JSON when built-in thresholds use the wrong metric (see `templates/quality/run-mutation-js.cjs.example`).
 

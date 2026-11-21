@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agentized.languages import DEFAULT_EXCLUDE_GLOBS, DEFAULT_SUPPORTED
 from agentized.quality_defaults import (
     DEFAULT_COVERAGE_PCT,
     SCHEMA_VERSION,
@@ -35,11 +36,15 @@ def test_default_quality_config_full_cover_globs_and_structure():
         }
     ]
     lang = cfg["languages"]
-    assert lang["supported"] == ["python", "javascript", "typescript"]
+    assert lang["supported"] == list(DEFAULT_SUPPORTED)
+    assert lang["exclude_globs"] == list(DEFAULT_EXCLUDE_GLOBS)
     assert "packages/**" not in lang["exclude_globs"]
     assert "templates/**" not in lang["exclude_globs"]
-    assert "node_modules/**" in lang["exclude_globs"]
-    assert ".venv/**" in lang["exclude_globs"]
+    # Fresh languages list is independent.
+    lang["exclude_globs"].append("x/**")
+    assert default_quality_config()["languages"]["exclude_globs"] == list(
+        DEFAULT_EXCLUDE_GLOBS
+    )
     mut = cfg["mutation"]
     assert mut == {
         "enabled": True,

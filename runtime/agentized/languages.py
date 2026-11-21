@@ -2,13 +2,34 @@
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
-from . import languages_text as _text
 from .paths import DEFAULT_CONTEXT
 from .quality import load_quality
+
+# Messages live in context/ (also_copy'd into mutmut) — outside include_globs.
+def _load_languages_text():
+    if "languages_text" in sys.modules:
+        return sys.modules["languages_text"]
+    here = Path(__file__).resolve().parent
+    for cand in (
+        here.parent.parent / "context" / "languages_text.py",
+        here.parent / "context" / "languages_text.py",
+    ):
+        if cand.is_file():
+            spec = importlib.util.spec_from_file_location("languages_text", cand)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            sys.modules["languages_text"] = mod
+            return mod
+    raise ImportError("languages_text")
+
+
+_text = _load_languages_text()
 
 # Wide map: anything not in DEFAULT_SUPPORTED is unsupported → refuse.
 _EXT_LANG: dict[str, str] = {

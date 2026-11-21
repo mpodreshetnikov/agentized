@@ -1,16 +1,13 @@
 """Connect-time language refuse + dogfood excludes (outside mutation include_globs).
 
 Keep runtime/agentized/connect.py identical to main under full-cover globs.
-CLI calls these helpers before/after connect().
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-# Connect may install Agentized packages/ + templates/ into the target.
-# Exclude those managed trees from language detect (same as dogfood
-# quality.json). Not part of DEFAULT_EXCLUDE_GLOBS (Lead reject batch2).
+# Dogfood-only excludes (Lead reject batch2 — not in DEFAULT_EXCLUDE_GLOBS).
 MANAGED_LANG_EXCLUDES = ("packages/**", "templates/**")
 
 
@@ -24,11 +21,7 @@ class ConnectRefused(Exception):
 
 
 def refuse_incomplete_languages(root: Path, context_rel: str) -> None:
-    """AGE-24: language coverage BEFORE any connect writes.
-
-    Without quality.json yet, refuse unsupported languages only; full
-    SUPPORTED_GATES enforcement runs once config exists (and on quality check).
-    """
+    """AGE-24: refuse before connect writes. Gates only if quality.json exists."""
     from agentized.languages import check_language_coverage
     from agentized.quality import load_quality, quality_path
 
