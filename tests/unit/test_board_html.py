@@ -108,6 +108,7 @@ def test_status_gates_surface_and_columns():
     assert DEFAULT_LANG == "ru" and DEFAULT_TITLE.startswith("Доска")
     assert JOIN_NL == "\n" and OVERDUE_HOURS == 12
     assert for_review_note("ru", ["Maxim"]) == "только Maxim"
+    assert for_review_note("ru", ["Alice", "Bob"]) == "только Alice, Bob"
     assert ".card.overdue" in _CSS
     assert human_status("missing", "ru") == "missing"
 
@@ -321,6 +322,13 @@ def test_render_collect_write(tmp_path: Path):
         load_human_participants(bad_utf)
     assert e_utfp.value.path == str(bad_utf / "merge_policy.json")
     assert e_utfp.value.reason.startswith("invalid merge_policy:")
+    bad_obj = tmp_path / "bo"
+    bad_obj.mkdir()
+    (bad_obj / "merge_policy.json").write_text("[1,2]\n", encoding="utf-8")
+    with pytest.raises(BoardError) as e_obj:
+        load_human_participants(bad_obj)
+    assert e_obj.value.path == str(bad_obj / "merge_policy.json")
+    assert e_obj.value.reason == "merge_policy must be a JSON object"
 
     _write_task(tasks, "T-261116-aaa", "Alpha <xss>", goal="увидеть")
     _write_task(

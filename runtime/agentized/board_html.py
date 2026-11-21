@@ -15,7 +15,6 @@ from .board_html_ui import (
     CSS as _CSS,
     DEFAULT_LANG,
     DEFAULT_TITLE,
-    EMPTY_COLUMN_HTML,
     UI,
     for_review_note,
 )
@@ -238,6 +237,8 @@ def load_human_participants(context_dir: Path) -> list[str]:
         data = json.loads(path.read_bytes().decode(ENCODING))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise BoardError(str(path), f"invalid merge_policy: {exc}") from None
+    if not isinstance(data, dict):
+        raise BoardError(str(path), "merge_policy must be a JSON object")
     if "human_participants" not in data:
         return []
     raw = data["human_participants"]

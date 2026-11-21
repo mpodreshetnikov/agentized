@@ -7,12 +7,15 @@ from agentized import board_html_ui as ui
 def test_defaults_and_for_review_note():
     assert ui.DEFAULT_LANG == "ru"
     assert ui.DEFAULT_TITLE == "Доска задач Agentized"
-    assert ui.EMPTY_COLUMN_HTML == '<p class="empty">(пусто)</p>'
+    assert not hasattr(ui, "EMPTY_COLUMN_HTML")
     assert ui.for_review_note("ru", ["Maxim"]) == "только Maxim"
     assert ui.for_review_note("en", ["Maxim"]) == "only Maxim"
     assert ui.for_review_note("ru", []) == "только рецензент"
     assert ui.for_review_note("en", []) == "only reviewer"
-    assert ui.for_review_note("ru", ["Alice", "Bob"]) == "только Alice"
+    assert ui.for_review_note("ru", ["Alice", "Bob"]) == "только Alice, Bob"
+    assert ui.for_review_note("en", ["Alice", "Bob"]) == "only Alice, Bob"
+    assert ui.for_review_note("ru", ["Alice", "  ", "", "Bob"]) == "только Alice, Bob"
+    assert ui.for_review_note("en", ["", "Maxim", " "]) == "only Maxim"
 
 
 def test_ui_ru_en_exact_keys_and_values():
@@ -21,7 +24,7 @@ def test_ui_ru_en_exact_keys_and_values():
         "intro": "Канбан из context/tasks — статический HTML, без сети.",
         "status": "Статус", "claim": "Исполнитель", "blocked": "Блок",
         "deadline": "Дедлайн", "parent": "Родитель", "subtasks": "Подзадачи",
-        "age": "В статусе", "overdue": "Просрочено", "updated": "Обновлено",
+        "age": "В статусе", "overdue": "Просрочено",
         "generated": "Сгенерировано", "empty": "(пусто)",
         "col_open": "Открыто", "col_queue": "Очередь",
         "col_in_progress": "В работе", "col_for_review": "На ревью",
@@ -36,7 +39,7 @@ def test_ui_ru_en_exact_keys_and_values():
         "intro": "Kanban from context/tasks — static HTML, no network.",
         "status": "Status", "claim": "Claim", "blocked": "Blocked",
         "deadline": "Deadline", "parent": "Parent", "subtasks": "Subtasks",
-        "age": "In status", "overdue": "Overdue", "updated": "Updated",
+        "age": "In status", "overdue": "Overdue",
         "generated": "Generated", "empty": "(empty)",
         "col_open": "Open", "col_queue": "Queue",
         "col_in_progress": "In Progress", "col_for_review": "For Review",
@@ -47,6 +50,7 @@ def test_ui_ru_en_exact_keys_and_values():
         "st_blocked": "blocked", "st_done": "done",
         "st_canceled": "canceled", "hours_unit": "h",
     }
+    assert "updated" not in ui.UI["ru"] and "updated" not in ui.UI["en"]
 
 
 def test_css_exact_golden():
