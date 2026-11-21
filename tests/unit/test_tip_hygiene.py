@@ -333,6 +333,34 @@ def test_event_path_encoding_and_multi_block(tmp_path: Path, monkeypatch):
     assert seen["encoding"] == TEXT_ENCODING
 
 
+def test_event_path_plain_issue_falls_through_to_top_level(tmp_path: Path, monkeypatch):
+    """Issue without embedded pull_request must not win over top-level number."""
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"issue": {"number": 50}, "number": 99}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    for key in (
+        "TASKS_VALIDATE_PR",
+        "GITHUB_PR_NUMBER",
+        "PULL_REQUEST_NUMBER",
+        "GITHUB_REF",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    assert resolve_validate_pr_number() == 99
+
+
+def test_github_ref_empty_string_skips_to_event(tmp_path: Path, monkeypatch):
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"number": 42}), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_REF", "")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    for key in ("TASKS_VALIDATE_PR", "GITHUB_PR_NUMBER", "PULL_REQUEST_NUMBER"):
+        monkeypatch.delenv(key, raising=False)
+    assert resolve_validate_pr_number() == 42
+
+
 def test_apply_ready_releases_claim_and_status():
     base = _task("in-progress", claim="worker")
     out = apply_ready(base, pr="#76", review_note="CI green; tip hygiene")
@@ -410,3 +438,35 @@ def test_run_tip_hygiene_default_check_index(tmp_path: Path):
     assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is False
     _write_index(tmp_path)
     assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is True
+
+
+def test_empty_tasks_dir_index_match(tmp_path: Path):
+    """Missing INDEX on empty dir is stale; matching rebuild of empty dir is OK."""
+    assert validate_index_freshness(tmp_path) == GateResult(False, (MSG_INDEX_STALE,))
+    _write_index(tmp_path)
+    assert validate_index_freshness(tmp_path) == GateResult(True)
+
+
+def test_tip_hygiene_skip_continues_to_later_files(tmp_path: Path):
+    (tmp_path / "T-261121-aa.md").write_text(
+        _task("in-progress", claim="worker", pr="#76"),
+        encoding="utf-8",
+    )
+    (tmp_path / "T-261121-bb.md").write_text(
+        _task("in-progress", claim="worker", pr="#76"),
+        encoding="utf-8",
+    )
+    bad = validate_tip_hygiene(
+        tmp_path, pr_number=76, skip_stems=frozenset({"T-261121-aa"})
+    )
+    assert bad.ok is False
+    assert any("T-261121-bb.md" in e for e in bad.errors)
+    assert not any("T-261121-aa.md" in e for e in bad.errors)
+
+
+def test_tip_hygiene_placeholder_pr_ignored(tmp_path: Path):
+    (tmp_path / "T-261121-ph.md").write_text(
+        _task("in-progress", claim="worker", pr="_(пусто)_"),
+        encoding="utf-8",
+    )
+    assert validate_tip_hygiene(tmp_path, pr_number=76) == GateResult(True)
