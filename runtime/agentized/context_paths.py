@@ -1,8 +1,4 @@
-"""Public context-path confinement helpers (AGE-30).
-
-CLI/autopilot import from here — kept out of ``paths.py`` so incremental
-mutation does not re-tax the whole connect-state module.
-"""
+"""Public context-path confinement helpers (AGE-30; not paths.py — mutmut tax)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,7 +15,6 @@ def require_safe_rel(raw: object, *, field: str) -> str:
 
 
 def resolve_context_dir(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
-    """Context dir confined under ``root`` (rejects abs / ``..`` / symlink escape)."""
     root_res = root.resolve()
     rel = require_safe_rel(context_rel, field="context")
     ctx = (root_res / rel).resolve()
@@ -31,7 +26,6 @@ def resolve_context_dir(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 
 
 def path_under(base: Path, *parts: str) -> Path:
-    """Join ``parts`` under ``base``; refuse symlink/path escapes."""
     target = base.joinpath(*parts).resolve()
     try:
         target.relative_to(base.resolve())

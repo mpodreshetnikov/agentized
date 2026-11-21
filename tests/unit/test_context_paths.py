@@ -28,8 +28,9 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
     (tmp_path / "context" / "board").mkdir(parents=True)
     got = under_context(tmp_path, "context", "board", "m.json")
     assert got == (tmp_path / "context" / "board" / "m.json").resolve()
-    leak, out = tmp_path / "leak", tmp_path / "leak" / "out"
-    (leak / "context").mkdir(parents=True); out.mkdir(); (leak / "context" / "board").symlink_to(out)
+    leak = tmp_path / "leak"; out = leak / "out"
+    (leak / "context").mkdir(parents=True); out.mkdir()
+    (leak / "context" / "board").symlink_to(out)
     with pytest.raises(ValueError) as es:
         path_under(leak / "context", "board", "m.json")
     assert es.value.args == ("path escapes context directory",)

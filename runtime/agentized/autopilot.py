@@ -70,13 +70,11 @@ def default_board_config() -> dict[str, Any]:
 
 
 def _require_positive_int(value: Any, *, field: str) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field} must be >= 1") from exc
-    if number < 1:
-        raise ValueError(f"{field} must be >= 1")
-    return number
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer >= 1")
+    if value < 1:
+        raise ValueError(f"{field} must be an integer >= 1")
+    return value
 
 
 def _require_window_days(value: Any) -> int:
@@ -109,6 +107,8 @@ def _require_status_list(value: Any, *, field: str) -> list[str]:
 def _validate_metrics_rel(raw: Any) -> str:
     if raw is None:
         return DEFAULT_METRICS_REL
+    if not isinstance(raw, str):
+        raise ValueError("metrics.output must be a string")
     return require_safe_rel(raw, field="metrics.output")
 
 
@@ -119,9 +119,9 @@ def board_config_path(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 def metrics_path(
     root: Path, cfg: dict[str, Any], context_rel: str = DEFAULT_CONTEXT
 ) -> Path:
-    section = cfg.get("metrics")
-    if not isinstance(section, dict):
-        section = {}
+    if "metrics" in cfg and not isinstance(cfg.get("metrics"), dict):
+        raise ValueError("metrics must be an object")
+    section = cfg["metrics"] if isinstance(cfg.get("metrics"), dict) else {}
     rel = _validate_metrics_rel(section.get("output"))
     return under_context(root, context_rel, *Path(rel).parts)
 
@@ -162,12 +162,13 @@ def _normalize_board(base: dict[str, Any], data: dict[str, Any]) -> dict[str, An
     out["wip_limit"] = _require_positive_int(out.get("wip_limit"), field="wip_limit")
     out["autopilot"] = _normalize_autopilot(out.get("autopilot"))
     metrics_raw = out.get("metrics")
-    metrics_in = metrics_raw if isinstance(metrics_raw, dict) else {}
+    if not isinstance(metrics_raw, dict):
+        raise ValueError("metrics must be an object")
     out["metrics"] = {
         "throughput_window_days": _require_window_days(
-            metrics_in.get("throughput_window_days", DEFAULT_WINDOW_DAYS)
+            metrics_raw.get("throughput_window_days", DEFAULT_WINDOW_DAYS)
         ),
-        "output": _validate_metrics_rel(metrics_in.get("output")),
+        "output": _validate_metrics_rel(metrics_raw.get("output")),
     }
     return out
 
@@ -340,8 +341,9 @@ def compute_metrics(
     now: datetime,
 ) -> dict[str, Any]:
     tasks = list_tasks(tasks_dir)
-    metrics_cfg = cfg.get("metrics")
-    metrics_dict = metrics_cfg if isinstance(metrics_cfg, dict) else {}
+    if "metrics" in cfg and not isinstance(cfg.get("metrics"), dict):
+        raise ValueError("metrics must be an object")
+    metrics_dict = cfg["metrics"] if isinstance(cfg.get("metrics"), dict) else {}
     window_days = _require_window_days(
         metrics_dict.get("throughput_window_days", DEFAULT_WINDOW_DAYS)
     )
