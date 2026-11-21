@@ -65,7 +65,8 @@ def test_extract_and_resolve_pr_number(monkeypatch):
     assert extract_pr_number("pr#9") == 9
     assert extract_pr_number("https://github.com/mpodreshetnikov/agentized/pull/46") == 46
     assert extract_pr_number("https://github.com/mpodreshetnikov/agentized/pull/46?x=1") == 46
-    assert resolve_pr_number(explicit=None) is None
+    # Isolate from CI GITHUB_REF (refs/pull/N/merge) — empty env, not os.environ.
+    assert resolve_pr_number(explicit=None, env={}) is None
     assert resolve_pr_number(explicit=0) is None
     assert resolve_pr_number(explicit=-3) is None
     assert resolve_pr_number(explicit=1) == 1
