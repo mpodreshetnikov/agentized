@@ -24,6 +24,7 @@ from agentized.leases import (
 )
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
+from agentized.status_gates import run_tasks_validate
 from agentized.tasks import (
     ACTIVE_STATUSES,
     ALL_STATUSES,
@@ -363,6 +364,25 @@ def cmd_status(args: argparse.Namespace) -> int:
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
+    return 0
+
+
+def cmd_tasks_validate(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    try:
+        ref, result = run_tasks_validate(
+            _ctx(root, args) / "tasks",
+            repo_root=root,
+            base_ref=getattr(args, "base", None) or None,
+        )
+    except RuntimeError as exc:
+        print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
+        return 1
+    if not result.ok:
+        print("tasks-validate FAIL", file=sys.stderr)
+        print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
+        return 1
+    print(f"tasks-validate OK (base={ref})")
     return 0
 
 
@@ -751,6 +771,11 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--status", required=True, choices=list(ALL_STATUSES))
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
+
+    tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
+    tv.add_argument("--context", default=None)
+    tv.add_argument("--base", default=None)
+    tv.set_defaults(func=cmd_tasks_validate)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
     ix.add_argument("--context", default=None)
