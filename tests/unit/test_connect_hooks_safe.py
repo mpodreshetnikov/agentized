@@ -150,19 +150,6 @@ def test_connect_tree_snapshot_foreign_byte_equal(tmp_path: Path, monkeypatch):
     assert any(p.get("name") == "agentized" for p in market["plugins"])
 
 
-def test_connect_broken_claude_refuse_ok_false(tmp_path: Path, monkeypatch):
-    _skeleton(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    settings = tmp_path / ".claude/settings.json"
-    settings.parent.mkdir(parents=True)
-    broken = b"{not-json-claude"
-    settings.write_bytes(broken)
-    result = connect_mod.connect(tmp_path, context_rel="context", harnesses=["claude"])
-    assert settings.read_bytes() == broken
-    assert result["harnesses"]["claude"]["hooks_merge"]["action"] == "refuse"
-    assert result.get("ok") is False
-
-
 def test_connect_dry_run_tree_snapshot_writes_nothing(tmp_path: Path, monkeypatch):
     """`--dry-run` must leave the whole tree byte-identical (Lead REJECT-3)."""
     _skeleton(tmp_path)

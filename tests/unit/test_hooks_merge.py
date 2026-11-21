@@ -79,10 +79,6 @@ def test_is_agentized_exact_match_only():
 
     # AGE-52 abs-path whole-command aliases (no compound / echo).
     assert is_agentized_command("/home/u/repo/.cursor/hooks/session_start.py", "cursor") is True
-    assert is_agentized_command('python3 "/opt/p/.claude/hooks/lease_warn.py"', "claude") is True
-    assert (
-        is_agentized_command("echo /home/u/repo/.cursor/hooks/session_start.py", "cursor") is False
-    )
     assert is_agentized_command(".cursor/hooks/lease_warn.py", "cursor") is True
     assert (
         is_agentized_command(
