@@ -53,16 +53,10 @@ def _glob_excluded(rel: str, patterns: list[str]) -> bool:
     for pat in patterns:
         if fnmatch.fnmatch(rel, pat):
             return True
-        # Exact dir name for `foo/**` (fnmatch does not match bare `foo`).
         if pat.endswith("/**") and rel == pat[:-3]:
             return True
-        if pat.startswith("**/"):
-            rest = pat[3:]
-            if fnmatch.fnmatch(rel, rest):
-                return True
-            for i, ch in enumerate(rel):
-                if ch == "/" and fnmatch.fnmatch(rel[i + 1 :], rest):
-                    return True
+        if pat.startswith("**/") and fnmatch.fnmatch(rel, pat[3:]):
+            return True
     return False
 
 def language_for_path(rel: str) -> str | None:
@@ -81,20 +75,17 @@ def detect_languages(
     if not root.exists():
         return found
     for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:
-            continue
-        if _glob_excluded(rel, patterns):
-            continue
-        lang = language_for_path(rel)
-        if not lang:
-            continue
-        bucket = found.setdefault(lang, [])
-        if len(bucket) < 8:
-            bucket.append(rel)
+        if path.is_file():
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                rel = None
+            if rel and not _glob_excluded(rel, patterns):
+                lang = language_for_path(rel)
+                if lang:
+                    bucket = found.setdefault(lang, [])
+                    if len(bucket) < 8:
+                        bucket.append(rel)
     return found
 
 def mutation_tool_for_language(mut_cfg: dict[str, Any], language: str) -> str | None:
@@ -148,13 +139,15 @@ def git_changed_names(root: Path, base_ref: str) -> list[str]:
 
 def changed_source_files(root: Path, base_ref: str, prefixes: list[str]) -> list[str]:
     names = git_changed_names(root, base_ref)
-    out = [
-        name
-        for name in names
-        if not is_test_path(name)
-        and language_for_path(name)
-        and any(name == p or name.startswith(p.rstrip("/") + "/") for p in prefixes)
-    ]
+    out = []
+    for name in names:
+        if is_test_path(name) or not language_for_path(name):
+            continue
+        for p in prefixes:
+            root_p = p.removesuffix("/")
+            if name == root_p or name.startswith(root_p + "/"):
+                out.append(name)
+                break
     return sorted(set(out))
 
 def combine_gate_rc(mode: str, has_findings: bool, py_rc: int) -> int:

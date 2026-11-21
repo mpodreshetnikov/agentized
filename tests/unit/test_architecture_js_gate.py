@@ -7,7 +7,6 @@ from pathlib import Path
 
 from agentized import architecture_js_gate as gate
 
-
 def test_run_js_architecture_branches(tmp_path: Path, monkeypatch):
     detected = {"typescript": ["a.ts"], "javascript": ["a.js"]}
     seen: list = []
@@ -84,7 +83,6 @@ def test_run_js_architecture_branches(tmp_path: Path, monkeypatch):
         tmp_path, {"tools": {"javascript": "eslint-boundaries"}}, {"javascript": ["a.js"]}
     )[0] == [{"file": "eslint", "kind": "eslint_boundaries", "detail": "eslint-out"}]
     assert gate.run_js_architecture(tmp_path, {"tools": {}}, {}) == ([], [])
-
 
 def test_architecture_gate_payload_and_args(tmp_path: Path, monkeypatch):
     fixed = datetime(2020, 1, 2)

@@ -26,15 +26,12 @@ def glob_match(rel: str, pattern: str) -> bool:
 def iter_js_test_files(root: Path, globs: list[str]) -> list[Path]:
     out: list[Path] = []
     for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in _JS_SUFFIXES:
-            continue
-        rel = path.relative_to(root).as_posix()
-        if SKIP_DIR_PARTS.intersection(rel.split("/")):
-            continue
-        if any(glob_match(rel, g) for g in globs):
-            out.append(path)
+        if path.is_file() and path.suffix.lower() in _JS_SUFFIXES:
+            rel = path.relative_to(root).as_posix()
+            if not SKIP_DIR_PARTS.intersection(rel.split("/")) and any(
+                glob_match(rel, g) for g in globs
+            ):
+                out.append(path)
     return sorted(out)
 
 

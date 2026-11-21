@@ -7,12 +7,10 @@ from pathlib import Path
 from agentized import mutation as mut
 from agentized import mutation_stryker as ms
 
-
 def _report(tmp_path: Path, payload: dict, name: str = "mutation.json") -> None:
     d = tmp_path / "reports" / "mutation"
     d.mkdir(parents=True, exist_ok=True)
     (d / name).write_text(json.dumps(payload))
-
 
 def test_read_stryker_covered_matrix(tmp_path: Path):
     _report(
@@ -71,7 +69,6 @@ def test_read_stryker_covered_matrix(tmp_path: Path):
     (tmp_path / "run-mutation-js.cjs").write_text("y\n")
     assert ms.find_stryker_wrapper(tmp_path) == preferred
     assert ms.find_stryker_wrapper(tmp_path / "empty") is None
-
 
 def test_run_stryker_gate_wrapper_only(tmp_path: Path, monkeypatch):
     assert (

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from agentized import js_smells_gate as gate
 
-
 def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
     assert gate.glob_match("a/b/c.test.ts", "**/*.{test,spec}.ts") is True
     assert gate.glob_match("a/b/c.ts", "**/*.{test,spec}.ts") is False
@@ -22,13 +21,8 @@ def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
     (skipped / "nested.test.ts").write_text("expect(1).toBeTruthy()\n")
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.test.js").write_text("expect(1).toBeTruthy()\n")
-    assert [p.name for p in gate.iter_js_test_files(tmp_path, ["**/*.{test,spec}.ts"])] == [
-        "a.test.ts",
-        "b.spec.ts",
-    ]
-    assert not any(p.name == "nested.test.ts" for p in gate.iter_js_test_files(
-        tmp_path, ["**/*.{test,spec}.ts"]
-    ))
+    names = [p.name for p in gate.iter_js_test_files(tmp_path, ["**/*.{test,spec}.ts"])]
+    assert names == ["a.test.ts", "b.spec.ts"]
     findings, scanned = gate.run_js_smells(tmp_path, {})
     assert len(scanned) >= 1 and findings[0]["kind"] == "weak_primary_oracle"
     fixed = datetime(2021, 2, 3)
