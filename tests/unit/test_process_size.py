@@ -537,6 +537,8 @@ def test_size_check_levels_and_message(tmp_path: Path, monkeypatch):
     (tmp_path / "context" / "process-control.json").write_text(
         '{"reviewable_lines": 100, "warn_at_pct": 50}\n', encoding="utf-8"
     )
+    # CI sets PROCESS_BASE to the PR base sha — clear so default origin/main applies.
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
     monkeypatch.setattr("agentized.process_size.validate_process_base", lambda *a, **k: None)
     monkeypatch.setattr("agentized.process_size.limit_from_base_ref", lambda *a, **k: None)
     monkeypatch.setattr("agentized.process_size.diff_insertions", lambda *a, **k: 60)
