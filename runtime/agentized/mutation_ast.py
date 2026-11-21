@@ -1,8 +1,9 @@
 """AST-equivalent exclusion for the incremental mutation gate (AGE-55).
 
 Files whose ``ast.dump(ast.parse(x), include_attributes=False)`` matches the
-base blob are dropped from the mutation set (format/wrap/quote noops). Missing
-base, parse errors, and git/read errors stay in scope (fail-closed).
+base blob are dropped from the mutation set (format/wrap/quote noops). Blobs are
+raw bytes so the encoding cookie is respected. Missing base, decode/parse
+errors, and git/read errors stay in scope (fail-closed).
 
 Wired from ``agentized quality check`` so ``mutation.py`` stays untouched
 (whole-file mutation would otherwise re-open the full gate surface).
@@ -16,33 +17,38 @@ from pathlib import Path
 
 from .paths import DEFAULT_CONTEXT
 
+# Fail-closed: any of these while fingerprinting → keep file in mutation scope.
+_AST_FAIL = (SyntaxError, ValueError, LookupError, UnicodeError)
 
-def ast_dump(source: str) -> str | None:
-    """Stable AST fingerprint, or None on parse failure (fail-closed → keep)."""
+
+def ast_dump(source: bytes | str) -> str | None:
+    """Stable AST fingerprint, or None on decode/parse failure (fail-closed → keep).
+
+    Prefer raw ``bytes`` so ``ast.parse`` honors the file's encoding cookie.
+    """
     try:
         return ast.dump(ast.parse(source), include_attributes=False)
-    except SyntaxError:
+    except _AST_FAIL:
         return None
 
 
-def git_show_blob(root: Path, ref: str, path: str) -> str | None:
-    """Blob text at ref:path, or None on missing/git error (fail-closed → keep)."""
+def git_show_blob(root: Path, ref: str, path: str) -> bytes | None:
+    """Raw blob bytes at ref:path, or None on missing/git error (fail-closed → keep)."""
     proc = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
         cwd=root,
         capture_output=True,
-        text=True,
     )
     if proc.returncode != 0:
         return None
     return proc.stdout
 
 
-def read_workdir_blob(root: Path, path: str) -> str | None:
-    """Working-tree file text, or None on read error (fail-closed → keep)."""
+def read_workdir_blob(root: Path, path: str) -> bytes | None:
+    """Working-tree file bytes, or None on read error (fail-closed → keep)."""
     try:
-        return (root / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
+        return (root / path).read_bytes()
+    except OSError:
         return None
 
 
@@ -56,16 +62,16 @@ def exclude_ast_equivalent(
     kept: list[str] = []
     excluded: list[str] = []
     for path in paths:
-        base_text = git_show_blob(root, base_ref, path)
-        head_text = read_workdir_blob(root, path)
-        if base_text is None or head_text is None:
+        base_blob = git_show_blob(root, base_ref, path)
+        head_blob = read_workdir_blob(root, path)
+        if base_blob is None or head_blob is None:
             kept.append(path)
             continue
-        base_key = ast_dump(base_text)
+        base_key = ast_dump(base_blob)
         if base_key is None:
             kept.append(path)
             continue
-        head_key = ast_dump(head_text)
+        head_key = ast_dump(head_blob)
         if head_key is None:
             kept.append(path)
             continue
@@ -99,7 +105,12 @@ def run_mutation(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
         return kept
 
     def write_summary_with_ast(root_: Path, payload: dict) -> Path:
-        enriched = {**payload, "astExcludedFiles": list(excluded_holder)}
+        enriched = {
+            **payload,
+            "astExcludedFiles": list(excluded_holder),
+            # Truth: gate mutates whole changed files (not hunk-only / covered lines).
+            "scope": "whole_changed_files",
+        }
         return orig_summary(root_, enriched)
 
     m._changed_py_files = changed_with_ast

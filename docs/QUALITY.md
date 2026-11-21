@@ -17,7 +17,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | `modules[]` | `source`, `test_command`, coverage artifacts, optional local thresholds |
 | `mutation.gate` | `hard` on **`mutationScoreCovered`** for **whole changed files** matching `include_globs` (default **100**; never gate overall `mutationScore`; not hunk-only) |
 | `mutation.include_globs` | Which changed sources enter the mutation set. Default/dogfood: `runtime/agentized/*.py` (Python `fnmatch` `*` matches `/`, so one pattern covers flat and nested modules; a separate `**` glob is redundant) |
-| AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head blob (format/wrap/quote). Missing base, parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
+| AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head **raw bytes** (encoding cookie respected). Missing base, decode/parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |
