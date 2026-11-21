@@ -32,6 +32,7 @@ from agentized.status_gates import (
     prepare_status_text,
     rebuild_task_index_active,
     run_tasks_validate,
+    validate_tasks_dir,
 )
 from agentized.tasks import (
     allocate_task_id,
@@ -482,13 +483,20 @@ def cmd_check(args: argparse.Namespace) -> int:
         if t.status in INDEX_ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
 
-    # Hard status gates (AGE-22) — snapshot fields + transition vs PR base
+    # Hard status gates (AGE-22) — transitions vs PR base when git works;
+    # empty-.git connect fixtures fall back to snapshot field gates only.
     try:
         _ref, gates = run_tasks_validate(ctx / "tasks", repo_root=root)
         if not gates.ok:
             errors.extend(gates.errors)
     except RuntimeError as exc:
-        errors.append(str(exc))
+        detail = str(exc)
+        if "not a git repository" in detail.lower():
+            gates = validate_tasks_dir(ctx / "tasks")
+            if not gates.ok:
+                errors.extend(gates.errors)
+        else:
+            errors.append(detail)
 
     # harness wiring
     for label, path in (
