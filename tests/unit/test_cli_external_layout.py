@@ -311,7 +311,7 @@ def test_check_fails_without_nav_md(
 def test_local_to_external_migration_documented_procedure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    """docs Local→external: copy → delete local (not --cached) → connect+index; task in external INDEX."""
+    """docs Local→external: copy → git rm --ignore-unmatch → connect+index; task in external INDEX."""
     import shutil
 
     from agentized.context_layout import BRIDGE_NAMES
@@ -320,12 +320,24 @@ def test_local_to_external_migration_documented_procedure(
     code = tmp_path / "code"
     code.mkdir()
     _git_init(code)
+    subprocess.run(
+        ["git", "config", "user.email", "mig@example.com"],
+        cwd=code,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "mig"],
+        cwd=code,
+        check=True,
+        capture_output=True,
+    )
     ctx = code / "context"
     ctx.mkdir()
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
 
-    # Nested/local connected repo + 1 task.
+    # Nested/local connected repo + 1 task (tracked so documented git rm deletes disk).
     assert cli.cmd_connect(_ns()) == 0
     capsys.readouterr()
     task_id = "T-261121-mig1"
@@ -335,8 +347,15 @@ def test_local_to_external_migration_documented_procedure(
     )
     assert (ctx / "tasks" / f"{task_id}.md").is_file()
     assert not (ctx / "tasks").is_symlink()
+    subprocess.run(["git", "add", "context"], cwd=code, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "nested context + task"],
+        cwd=code,
+        check=True,
+        capture_output=True,
+    )
 
-    # Documented procedure: copy into clone → set external → delete local → connect.
+    # Documented procedure: copy into clone → set external → git rm → connect.
     ext = tmp_path / "ext"
     ext.mkdir()
     _git_init(ext)
@@ -359,13 +378,27 @@ def test_local_to_external_migration_documented_procedure(
         + "\n",
         encoding="utf-8",
     )
-    # Living local dirs block bridges — must delete (rm), not --cached-only.
-    for name in BRIDGE_NAMES:
-        path = ctx / name
-        if path.is_symlink() or path.is_file():
-            path.unlink()
-        elif path.is_dir():
-            shutil.rmtree(path)
+    # Exact documented delete (not shutil) — --ignore-unmatch so missing pathspecs ≠ exit 128.
+    rm = subprocess.run(
+        [
+            "git",
+            "rm",
+            "-r",
+            "--ignore-unmatch",
+            "context/tasks",
+            "context/leases",
+            "context/decisions",
+            "context/goals",
+            "context/digests",
+            "context/NAV.md",
+        ],
+        cwd=code,
+        capture_output=True,
+        text=True,
+    )
+    assert rm.returncode == 0, rm.stderr
+    for name in ("tasks", "leases", "NAV.md"):
+        assert not (ctx / name).exists()
 
     assert cli.cmd_connect(_ns()) == 0
     out = capsys.readouterr().out

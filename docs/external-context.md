@@ -30,9 +30,10 @@ Order matters: **connect after local trees are gone**. Living local dirs under `
 2. Copy living registry content from the code-repo `context/` into that clone (`NAV.md`, `tasks/`, `leases/`, `decisions/`, `goals/`, `digests/` as present); commit **in the Context repo**.
 3. Set `context/context.json` to `placement: external` with `path` / `remote`.
 4. **Delete** the local trees from the code repo (disk + index), not merely untrack:
-   - tracked: `git rm -r context/tasks context/leases context/decisions context/goals context/digests context/NAV.md`
-   - or untracked: `rm -rf context/tasks context/leases context/decisions context/goals context/digests context/NAV.md`
-   - Do **not** use `git rm -r --cached` alone — files left on disk still block bridges.
+   ```bash
+   git rm -r --ignore-unmatch context/tasks context/leases context/decisions context/goals context/digests context/NAV.md
+   ```
+   Use `--ignore-unmatch`: a fresh connect may only have `NAV.md` / `tasks` / `leases` — bare pathspecs for missing dirs exit **128** and block the rest of the procedure. Untracked/absent pathspecs are OK (ignored). Do **not** use `git rm -r --cached` alone — files left on disk still block bridges.
 5. Run `agentized connect` (seeds missing empty indexes if needed; creates relative bridges + `.gitignore` for the six bridge paths).
 6. Commit in the code repo **only**: `context/context.json`, `.gitignore` (bridge rules), and CI/config pins that stay nested. Do **not** commit the bridge symlinks.
 7. Confirm bridges are ignored; re-run `agentized env-check` and `agentized index` (task rows live in the external `tasks/INDEX.md`).

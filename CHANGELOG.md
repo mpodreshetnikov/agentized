@@ -9,4 +9,4 @@
 ### Changed
 
 - `agentized check`: missing `context/process-control.json` is a **hard error** (required code-repo config). Documented in `docs/connect-contract.md` and README.
-- External Context: **local→external migration is manual** — copy registry into the external clone, set `context.json`, **delete** local `context/{tasks,leases,…,NAV.md}` (`git rm -r` or `rm -rf`; not `--cached` alone), then `connect`. Living local dirs block bridges. See `docs/external-context.md`.
+- External Context: **local→external migration is manual** — copy registry into the external clone, set `context.json`, then `git rm -r --ignore-unmatch context/tasks context/leases context/decisions context/goals context/digests context/NAV.md` (missing pathspecs OK; not `--cached` alone), then `connect`. Living local dirs block bridges. See `docs/external-context.md`.
