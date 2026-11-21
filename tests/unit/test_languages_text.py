@@ -48,23 +48,27 @@ def test_result_and_messages_exact():
     )
     assert t.msg_ok({"python": ["a.py"], "go": ["b.go"]}) == "language coverage OK: go, python"
     assert t.msg_ok({}) == "language coverage OK: (none)"
-    assert t.msg_illegal_supported(["go"], ["python"], ["mutation"]) == (
+    assert t.msg_illegal_supported(["go", "rust"], ["python", "javascript"], ["mutation", "coverage"]) == (
         "agentized: REFUSED — languages.supported contains language(s) "
-        "without a gate suite: go. "
-        "Allowed: python. "
-        "Required gates: mutation."
+        "without a gate suite: go, rust. "
+        "Allowed: python, javascript. "
+        "Required gates: mutation, coverage."
     )
     assert t.msg_coverage_incomplete(
         ["go"],
-        {"python": ["mutation"]},
+        {"python": ["mutation", "smells"]},
         {"go": ["x.go"], "python": ["a.py"]},
         ("coverage", "mutation"),
     ) == (
         "agentized: REFUSED — language coverage incomplete: "
         "go unsupported (e.g. x.go); "
-        "python missing gates [mutation] (e.g. a.py; need coverage, mutation). "
+        "python missing gates [mutation, smells] (e.g. a.py; need coverage, mutation). "
         "Configure modules/test_command/coverage, mutation.tools, "
         "architecture.tools+config, test_smells include_globs per language, "
         "and JS/TS AGE-34 runners when those languages are present."
     )
-    assert "e.g. ?" in t.msg_coverage_incomplete(["rust"], {}, {}, ("coverage",))
+    assert t.msg_coverage_incomplete(["rust"], {}, {}, ("coverage",)).endswith(
+        "rust unsupported (e.g. ?). Configure modules/test_command/coverage, mutation.tools, "
+        "architecture.tools+config, test_smells include_globs per language, "
+        "and JS/TS AGE-34 runners when those languages are present."
+    )

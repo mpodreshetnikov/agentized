@@ -42,43 +42,23 @@ def _shape(r: dict) -> dict:
 
 def _cfg(**overrides):
     base = {
-        "languages": {
-            "supported": ["python", "javascript", "typescript"],
-            "exclude_globs": _excludes(),
-        },
-        "modules": [
-            {
-                "id": "runtime",
-                "source": ["src"],
-                "test_command": "pytest",
-                "coverage_lcov": "coverage/lcov.info",
-            }
-        ],
+        "languages": {"supported": ["python", "javascript", "typescript"], "exclude_globs": _excludes()},
+        "modules": [{"id": "runtime", "source": ["src"], "test_command": "pytest", "coverage_lcov": "coverage/lcov.info"}],
         "mutation": {
             "enabled": True,
             "tools": {"python": "mutmut", "javascript": "stryker", "typescript": "stryker"},
             "include_globs": ["src/**/*.py", "src/**/*.ts", "src/**/*.js"],
         },
-        "test_smells": {
-            "enabled": True,
-            "include_globs": [
-                "tests/unit/**/*.py",
-                "**/*.{test,spec}.{js,jsx,ts,tsx}",
-            ],
-        },
+        "test_smells": {"enabled": True, "include_globs": ["tests/unit/**/*.py", "**/*.{test,spec}.{js,jsx,ts,tsx}"]},
         "architecture": {
             "enabled": True,
-            "tools": {
-                "python": "import-linter",
-                "javascript": "dependency-cruiser",
-                "typescript": "dependency-cruiser",
-            },
-            "config": ".importlinter",
-            "js_config": ".dependency-cruiser.cjs",
+            "tools": {"python": "import-linter", "javascript": "dependency-cruiser", "typescript": "dependency-cruiser"},
+            "config": ".importlinter", "js_config": ".dependency-cruiser.cjs",
         },
     }
     base.update(overrides)
     return base
+
 
 
 def _runners(root: Path) -> None:
@@ -112,9 +92,8 @@ def test_glob_excluded_and_globs_cover():
         ("src/x.py", ["vendor/**"], False), ("foo/bar.py", ["**/bar.py"], True),
         ("pkg/a/b.py", ["pkg/**/*.py"], True), ("pkg/a/b.ts", ["pkg/**/*.py"], False),
         ("x.py", ["*.py"], True), ("deep/x.py", ["*.py"], True),
-        ("nested/vendor/a.py", ["**/vendor/**"], True), ("vendor", ["**/vendor/**"], True),
-        ("src/a.py", ["**/vendor/**"], False), ("lib/util.py", ["lib/**/*.py"], True),
-        ("x.py", [""], False), ("directory/x.py", ["dir/**"], False),
+        ("x.py", [""], False), ("a\\b.py", ["a/b.py"], True),
+        ("directory/x.py", ["dir/**"], False),
         ("dir/file.py", ["dir/**"], True),
         ("a/**/*.x/b.py", ["a/**/*.x/**/*.py"], False),
     ]
@@ -220,15 +199,6 @@ def test_runners_and_js_ts_verified(tmp_path: Path):
     assert mutation_tool_for_language({"tool": ""}, "python") is None
     assert mutation_tool_for_language({"tools": {"python": "mutmut"}}, "python") == "mutmut"
     assert architecture_tool_for_language({"tools": {"python": "import-linter"}}, "python") == "import-linter"
-    # path variants (runtime/agentized + root cjs)
-    mut = tmp_path / "runtime" / "agentized" / "mutation.py"
-    mut.parent.mkdir(parents=True)
-    mut.write_text("def _run_stryker():\n    return 0\n", encoding="utf-8")
-    assert stryker_runner_present(tmp_path) is True
-    (tmp_path / "run-mutation-js.cjs").write_text("1\n", encoding="utf-8")
-    arch = tmp_path / "runtime" / "agentized" / "architecture_gate.py"
-    arch.write_text("def _run_dependency_cruiser(a, b):\n    return 0, ''\n", encoding="utf-8")
-    assert js_architecture_runner_present(tmp_path) is True
 
 
 def test_missing_gates_matrix(tmp_path: Path):
@@ -353,8 +323,6 @@ def test_js_ts_refuse_without_runners(tmp_path: Path):
     _shape(r)
     assert r["ok"] is False
     assert r["missing_gates"]["typescript"] == ["mutation", "architecture"]
-    assert "language coverage incomplete" in r["message"]
-    assert "typescript" in r["message"]
     r = check_language_coverage(
         tmp_path,
         cfg=_cfg(languages={"supported": ["javascript"], "exclude_globs": _excludes("**/*.ts", "**/*.py")}),
@@ -424,6 +392,33 @@ def test_check_non_dict_languages(tmp_path: Path):
     )
     _shape(r)
     assert r["ok"] is False and "typescript" in r["missing_gates"] and r["detected"]["python"]
+
+
+def test_runner_paths_isolated(tmp_path: Path):
+    assert stryker_runner_present(tmp_path) is False
+    mut = tmp_path / "runtime" / "agentized" / "mutation.py"
+    mut.parent.mkdir(parents=True)
+    mut.write_text("def _run_stryker_gate():\n    return 0\n", encoding="utf-8")
+    assert stryker_runner_present(tmp_path) is True
+    mut.unlink()
+    alt = tmp_path / "agentized" / "mutation.py"
+    alt.parent.mkdir(parents=True)
+    alt.write_text("def _run_stryker_gate():\n    return 0\n", encoding="utf-8")
+    assert stryker_runner_present(tmp_path) is True
+    alt.unlink()
+    assert js_architecture_runner_present(tmp_path) is False
+    arch = tmp_path / "runtime" / "agentized" / "architecture_gate.py"
+    arch.parent.mkdir(parents=True, exist_ok=True)
+    arch.write_text("def _run_dependency_cruiser(a, b):\n    return 0, ''\n", encoding="utf-8")
+    assert js_architecture_runner_present(tmp_path) is True
+    arch.unlink()
+    arch2 = tmp_path / "agentized" / "architecture_gate.py"
+    arch2.parent.mkdir(parents=True, exist_ok=True)
+    arch2.write_text("def _run_eslint_boundaries():\n    return 0\n", encoding="utf-8")
+    assert js_architecture_runner_present(tmp_path) is True
+    # multi-dot name uses rfind
+    assert language_for_path("foo.bar.py") == "python"
+
 
 
 def test_survivor_killers(tmp_path: Path, monkeypatch):

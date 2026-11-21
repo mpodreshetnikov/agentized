@@ -40,14 +40,11 @@ def merge_managed_language_excludes(root: Path, context_rel: str) -> dict[str, A
         lang = {}
         data["languages"] = lang
     excludes = [str(x) for x in (lang.get("exclude_globs") or [])]
-    dirty = False
     for pat in MANAGED_LANG_EXCLUDES:
         if pat not in excludes:
             excludes.append(pat)
-            dirty = True
-    if dirty:
-        lang["exclude_globs"] = excludes
-        if not lang.get("supported"):
-            lang["supported"] = ["python", "javascript", "typescript"]
-        save_quality(root, data, context_rel)
+    lang["exclude_globs"] = excludes
+    if not lang.get("supported"):
+        lang["supported"] = ["python", "javascript", "typescript"]
+    save_quality(root, data, context_rel)
     return data
