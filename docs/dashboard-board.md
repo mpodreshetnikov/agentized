@@ -8,4 +8,4 @@ Participants: `process-control.json` → `merge_policy.human_participants` (full
 ```bash
 ./bin/agentized board [--lang en] [-o path] [--stamp]
 ```
-CI artifact `board.html`; Pages = deploy static file. Metrics: `agentized autopilot` (#19).
+CI artifact contains `board.html` — download/publish it in your CI/CD (Pages or static host). Metrics: `agentized autopilot` (#19).

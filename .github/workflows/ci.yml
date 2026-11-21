@@ -65,6 +65,15 @@ jobs:
           "${CLI[@]}" process size
           "${CLI[@]}" quality check
 
+      - name: Generate task board
+        if: always()
+        run: |
+          if [[ -x ./bin/agentized ]]; then CLI=(./bin/agentized)
+          elif [[ -f runtime/agentized_cli.py ]]; then CLI=(python3 runtime/agentized_cli.py)
+          elif command -v agentized >/dev/null 2>&1; then CLI=(agentized)
+          else echo "agentized CLI not found" >&2; exit 1; fi
+          "${CLI[@]}" board -o board.html
+
       - name: Upload coverage + mutation + gate summaries
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,4 +85,5 @@ jobs:
             reports/mutation/mutation-summary.json
             reports/test-smells/test-smells-summary.json
             reports/architecture/architecture-summary.json
+            board.html
           if-no-files-found: warn
