@@ -245,6 +245,10 @@ def test_defaults_helpers_normalize():
     assert custom["wip_limit"] == 4
     assert custom["autopilot"] == {"enabled": False, "pick_from": ["idea"], "count_as_wip": ["blocked"]}
     assert custom["metrics"] == {"throughput_window_days": 5, "output": "deep/out.json"}
+    assert set(custom) == {"version", "wip_limit", "autopilot", "metrics"}
+    bare_m = _normalize_board(default_board_config(), {"metrics": {"throughput_window_days": 5}})
+    assert bare_m["metrics"] == {"throughput_window_days": 5, "output": DEFAULT_METRICS_REL}
+    assert set(bare_m) == {"version", "wip_limit", "autopilot", "metrics"}
 
 def test_board_io_fail_closed(tmp_path: Path):
     assert load_board(tmp_path, "context") == EXPECTED_DEFAULT
@@ -294,6 +298,7 @@ def test_board_io_fail_closed(tmp_path: Path):
         tmp_path / "context" / "board" / "metrics.json"
     ).resolve()
     assert metrics_path(tmp_path, {"metrics": {"output": None}}, "context").name == "metrics.json"
+    assert metrics_path(tmp_path, {}, "context").name == "metrics.json"
     with pytest.raises(ValueError) as e_mp:
         metrics_path(tmp_path, {"metrics": "bad"}, "context")
     assert e_mp.value.args == ("metrics must be an object",)
@@ -550,11 +555,7 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert metrics["next_task"]["id"] == "T-261114-open"
     assert metrics["autopilot"] == {"enabled": True, "reason": "picked oldest open under WIP"}
     # omitted defaults + non-dict sections
-    bare = compute_metrics(
-        tasks,
-        {"autopilot": {}, "metrics": {"output": "board/metrics.json"}},
-        now=NOW,
-    )
+    bare = compute_metrics(tasks, {"autopilot": {}}, now=NOW)
     assert bare["wip"]["limit"] == DEFAULT_WIP_LIMIT
     assert bare["throughput"]["window_days"] == DEFAULT_WINDOW_DAYS
     assert bare["autopilot"]["enabled"] is True
