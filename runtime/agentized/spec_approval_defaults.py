@@ -1,4 +1,4 @@
-"""Defaults + constant lexemes for spec-approval ."""
+"""Defaults + constant lexemes for spec-approval."""
 
 from __future__ import annotations
 

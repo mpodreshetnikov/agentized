@@ -69,8 +69,11 @@ def evaluate_task_spec(
 ) -> dict[str, Any]:
     """Pure check for one task file body. `policy` must be normalized via from_config.
 
-    Pass when an approver is on human_participants (full email) OR the approval
-    line was committed by a non-owner (``approval_by_non_owner``).
+    Pass when a non-owner approver is on ``human_participants`` (full email), or when
+    ``approval_by_non_owner`` is true **and** there is at least one non-owner
+    ``approved-by`` line. Self-only approval never passes — even if an agent commit
+    looks like a non-owner (caller must treat agent identities as owner before
+    setting ``approval_by_non_owner``).
     """
     complex_tag = str(policy[CFG_COMPLEX_TAG])
     if not task_needs_spec(tags, complex_tag):
@@ -101,21 +104,7 @@ def evaluate_task_spec(
         if s:
             allow.append(s)
 
-    if approval_by_non_owner:
-        if other:
-            label = other[0]
-            approvers_out = list(other)
-        else:
-            label = "non-owner-commit"
-            approvers_out = [label]
-        return {
-            KEY_OK: True,
-            KEY_MODE: MODE_OK,
-            KEY_TASK_ID: task_id,
-            KEY_MESSAGE: ok_message(task_id, label),
-            KEY_APPROVERS: approvers_out,
-        }
-
+    # Self-approval cannot be laundered via agent/non-owner commit alone.
     if len(other) == 0:
         return {
             KEY_OK: False,
@@ -136,6 +125,16 @@ def evaluate_task_spec(
             KEY_MESSAGE: ok_message(task_id, matched[0]),
             KEY_APPROVERS: matched,
         }
+
+    if approval_by_non_owner:
+        return {
+            KEY_OK: True,
+            KEY_MODE: MODE_OK,
+            KEY_TASK_ID: task_id,
+            KEY_MESSAGE: ok_message(task_id, other[0]),
+            KEY_APPROVERS: list(other),
+        }
+
     return {
         KEY_OK: False,
         KEY_MODE: MODE_REFUSE,

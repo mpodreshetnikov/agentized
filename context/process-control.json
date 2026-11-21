@@ -21,11 +21,5 @@
     "context/digests/**",
     "**/__pycache__/**",
     ".artifacts/**"
-  ],
-  "spec_approval": {
-    "enabled": false,
-    "complex_tag": "complex",
-    "spec_heading": "## Spec",
-    "approval_heading": "## Approval"
-  }
+  ]
 }

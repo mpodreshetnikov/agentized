@@ -1,4 +1,4 @@
-"""Text helpers for spec-approval ."""
+"""Text helpers for spec-approval."""
 
 from __future__ import annotations
 
@@ -6,11 +6,40 @@ import re
 
 APPROVED_BY_RE = re.compile(r"(?im)^\s*approved-by:\s*(.+?)\s*$")
 EMAIL_RE = re.compile(r"<([^>]+)>")
-PLACEHOLDER_BODIES = frozenset({"todo", "tbd", "...", "…", "todo.", "tbd."})
+PLACEHOLDER_BODIES = frozenset({"todo", "tbd", "...", "…", "todo.", "tbd.", "x", "."})
 TODO_PREFIX = "todo"
 TBD_PREFIX = "tbd"
 ITALIC_PLACEHOLDER_MARK = "_("
 HEADING_PREFIX = "## "
+FILL_MARKERS = ("<fill>", "fill-me", "fillme")
+UNCHECKED_BOX = "[ ]"
+
+# Agent / bot commit locals treated as the claim owner for blame (not human approvers).
+AGENT_COMMIT_LOCALS = frozenset(
+    {
+        "cursoragent",
+        "github-actions",
+        "dependabot",
+        "renovate",
+    }
+)
+
+
+class SpecApprovalUtf8Error(ValueError):
+    """Task file bytes are not valid UTF-8."""
+
+
+def decode_utf8_text(data: bytes | str, *, path: str = "") -> str:
+    """Decode task file content as UTF-8; raise SpecApprovalUtf8Error on failure."""
+    if isinstance(data, str):
+        return data
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        where = f" ({path})" if path else ""
+        raise SpecApprovalUtf8Error(
+            f"spec-approval: task file is not valid UTF-8{where}: {exc}"
+        ) from exc
 
 
 def section_body(text: str, heading: str) -> str | None:
@@ -46,11 +75,21 @@ def parse_approvers(approval_body: str) -> list[str]:
 
 
 def is_placeholder_spec(spec: str) -> bool:
-    """TODO / TBD / … / _(…) lines and empty bodies are not real Spec content."""
+    """TODO / TBD / … / _(…) / trivial / fill markers are not real Spec content."""
     if spec is None:
         return True
     s = spec.strip()
     if not s:
+        return True
+    if len(s) <= 1:
+        return True
+    if not any(ch.isalnum() for ch in s):
+        return True
+    low_full = s.lower()
+    for marker in FILL_MARKERS:
+        if marker in low_full:
+            return True
+    if UNCHECKED_BOX in s:
         return True
     for line in s.splitlines():
         stripped = line.strip()
@@ -102,6 +141,23 @@ def _email_local_matches_claim(email: str, claim_locals: set[str]) -> bool:
     return False
 
 
+def is_agent_commit_identity(identity: str) -> bool:
+    """True for known agent/bot commit addresses (e.g. cursoragent@…)."""
+    if identity is None:
+        return False
+    ident = identity.strip()
+    if not ident:
+        return False
+    low = ident.lower()
+    if low in AGENT_COMMIT_LOCALS:
+        return True
+    emails = identity_emails(ident)
+    for email in emails:
+        if _email_local_part(email) in AGENT_COMMIT_LOCALS:
+            return True
+    return False
+
+
 def is_claim_owner_identity(identity: str, claim: str) -> bool:
     """True when identity is the claim owner (exact, full-email, or claim local-part)."""
     if identity is None or claim is None:
@@ -124,6 +180,11 @@ def is_claim_owner_identity(identity: str, claim: str) -> bool:
     if not id_emails:
         return False
     return any(_email_local_matches_claim(e, {claim_s}) for e in id_emails)
+
+
+def is_owner_or_agent_identity(identity: str, claim: str) -> bool:
+    """Claim owner or agent commit identity — neither counts as a human non-owner."""
+    return is_agent_commit_identity(identity) or is_claim_owner_identity(identity, claim)
 
 
 def participant_email_matches(identity: str, allowlist: list[str]) -> bool:

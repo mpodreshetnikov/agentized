@@ -61,23 +61,9 @@ def test_claim_ok_and_refuse(tmp_path: Path, monkeypatch):
 
 
 def test_load_defaults_when_missing(tmp_path: Path):
-    from agentized.spec_approval import spec_approval_from_config
-
     cfg = load_process_config(tmp_path)
     assert cfg["reviewable_lines"] == 1500
     assert cfg["warn_at_pct"] == 75
-    assert "spec_approval" not in default_process_config()
-    assert spec_approval_from_config(cfg)["enabled"] is False
-    (tmp_path / "context").mkdir()
-    (tmp_path / "context" / "process-control.json").write_text(
-        '{"spec_approval": {"enabled": true, "complex_tag": "hard"}}\n',
-        encoding="utf-8",
-    )
-    loaded = load_process_config(tmp_path)
-    policy = spec_approval_from_config(loaded)
-    assert policy["enabled"] is True
-    assert policy["complex_tag"] == "hard"
-    assert policy["spec_heading"] == "## Spec"
 
 
 def test_size_check_levels(tmp_path: Path, monkeypatch):

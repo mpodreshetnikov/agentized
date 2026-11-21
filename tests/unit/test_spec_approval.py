@@ -115,7 +115,7 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: missing_spec_message("T-2", DEFAULT_SPEC_HEADING),
     }
 
-    for body in (
+    trivial_bodies = (
         "_(todo)_",
         "TODO",
         "…",
@@ -124,7 +124,15 @@ def test_evaluate_task_spec_matrix():
         "TODO: write the spec",
         "See _(TBD)_",
         "… fill in later",
-    ):
+        "x",
+        ".",
+        "<fill>",
+        "Please <fill> this in",
+        "fill-me later",
+        "- [ ] fill-me",
+        "!!!",
+    )
+    for body in trivial_bodies:
         placeholder = evaluate_task_spec(
             task_id="T-3",
             claim="alice",
@@ -175,6 +183,23 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: self_approval_message("T-6", "Alice"),
     }
 
+    # Lead REJECT: claim worker-a + approved-by worker-a + agent/non-owner commit → refuse
+    agent_launder = evaluate_task_spec(
+        task_id="T-6a",
+        claim="worker-a",
+        tags="complex",
+        text="# T-6a\n\n## Spec\n\nReal plan.\n\n## Approval\n\napproved-by: worker-a\n",
+        policy=policy,
+        human_participants=["bob@x.test"],
+        approval_by_non_owner=True,
+    )
+    assert agent_launder == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-6a",
+        KEY_MESSAGE: self_approval_message("T-6a", "worker-a"),
+    }
+
     owner_on_allow = evaluate_task_spec(
         task_id="T-6b",
         claim="Alice <alice@corp.com>",
@@ -189,6 +214,7 @@ def test_evaluate_task_spec_matrix():
         KEY_TASK_ID: "T-6b",
         KEY_MESSAGE: self_approval_message("T-6b", "Alice <alice@corp.com>"),
     }
+
     bare_owner_email = evaluate_task_spec(
         task_id="T-6c",
         claim="alice",
@@ -230,23 +256,6 @@ def test_evaluate_task_spec_matrix():
         KEY_APPROVERS: ["Bob <b@x>"],
     }
 
-    via_git = evaluate_task_spec(
-        task_id="T-10",
-        claim="alice",
-        tags="complex",
-        text="# T-10\n\n## Spec\n\nReal plan.\n\n## Approval\n\napproved-by: alice\n",
-        policy=policy,
-        human_participants=[],
-        approval_by_non_owner=True,
-    )
-    assert via_git == {
-        KEY_OK: True,
-        KEY_MODE: MODE_OK,
-        KEY_TASK_ID: "T-10",
-        KEY_MESSAGE: ok_message("T-10", "non-owner-commit"),
-        KEY_APPROVERS: ["non-owner-commit"],
-    }
-
     none_claim = evaluate_task_spec(
         task_id="T-11",
         claim=None,  # type: ignore[arg-type]
@@ -275,6 +284,7 @@ def test_evaluate_task_spec_matrix():
     assert not_listed[KEY_MESSAGE] == approver_not_allowlisted_message("T-12")
     assert "T-12" in not_listed[KEY_MESSAGE]
 
+    # Non-owner approver line + non-owner commit flag → OK even if not allowlisted yet
     via_other = evaluate_task_spec(
         task_id="T-13",
         claim="alice",

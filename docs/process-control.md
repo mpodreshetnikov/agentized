@@ -27,6 +27,20 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 ./bin/agentized process size --base origin/main --json
 ```
 
+## Spec approval gate (AGE-28) — core
+
+Optional `spec_approval` policy (defaults off). Pure evaluation lives in
+`runtime/agentized/spec_approval*.py` (text + defaults + decisions):
+
+- Complex-tagged tasks need a real `## Spec` (not `TODO` / `…` / `_(…)` / trivial
+  `x` / `.` / `<fill>` / unchecked fill-me).
+- `## Approval` must list `approved-by:` someone **other than** the claim owner.
+- That approver must match `merge_policy.human_participants` (full email), or a
+  later IO layer may accept a non-owner human commit of the approval line.
+- Agent commit addresses (`cursoragent@…`) count as the claim owner — they must
+  not launder self-approval.
+
+CLI / CI / pre-push wiring for `process spec-approval` ships in a follow-up PR.
 
 ## Spec / decision hygiene
 

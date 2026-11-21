@@ -195,7 +195,6 @@ def cmd_reporting(args: argparse.Namespace) -> int:
 
 def cmd_process(args: argparse.Namespace) -> int:
     from agentized.process_control import claim_check, size_check
-    from agentized.spec_approval_io import spec_approval_check
 
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
@@ -215,15 +214,7 @@ def cmd_process(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
-    if args.process_cmd == "spec-approval":
-        result = spec_approval_check(root, context_rel=ctx_rel)
-        stream = sys.stdout if result["ok"] else sys.stderr
-        if result.get("message"):
-            stream.write(result["message"] + "\n")
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if result["ok"] else 1
-    print("usage: agentized process size|claim|spec-approval", file=sys.stderr)
+    print("usage: agentized process size|claim", file=sys.stderr)
     return 2
 
 
@@ -737,12 +728,6 @@ def build_parser() -> argparse.ArgumentParser:
     pcc.add_argument("paths", nargs="*", help="paths that would be edited")
     pcc.add_argument("--context", default=None)
     pcc.add_argument("--json", action="store_true")
-    pcsa = pc_sub.add_parser(
-        "spec-approval",
-        help="Gate complex in-progress tasks on Spec + approved-by (off by default)",
-    )
-    pcsa.add_argument("--context", default=None)
-    pcsa.add_argument("--json", action="store_true")
     pc.set_defaults(func=cmd_process)
 
     q = sub.add_parser("quality", help="Пороги coverage / mutation / quality.json")

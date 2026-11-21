@@ -63,7 +63,6 @@ jobs:
             exit 1
           fi
           "${CLI[@]}" process size
-          "${CLI[@]}" process spec-approval
           "${CLI[@]}" quality check
 
       - name: Upload coverage + mutation + gate summaries

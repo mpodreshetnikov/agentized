@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agentized.spec_approval_text import (
+    SpecApprovalUtf8Error,
     _email_local_matches_claim,
     _email_local_part,
+    decode_utf8_text,
     identity_emails,
+    is_agent_commit_identity,
     is_claim_owner_identity,
+    is_owner_or_agent_identity,
     is_placeholder_spec,
     parse_approvers,
     parse_tags,
@@ -36,7 +42,7 @@ def test_section_tags_approvers():
     assert parse_tags(None) == set()  # type: ignore[arg-type]
 
 
-def test_placeholder_and_email_match():
+def test_placeholder_trivial_and_fill():
     placeholders = {
         "none": is_placeholder_spec(None),  # type: ignore[arg-type]
         "": is_placeholder_spec(""),
@@ -52,6 +58,12 @@ def test_placeholder_and_email_match():
         "ellipsis_fill": is_placeholder_spec("… fill in later"),
         "dots_fill": is_placeholder_spec("... fill in later"),
         "blank_then_todo": is_placeholder_spec("Real plan\n\nTODO: later"),
+        "x": is_placeholder_spec("x"),
+        "dot": is_placeholder_spec("."),
+        "fill_tag": is_placeholder_spec("<fill>"),
+        "fill_me": is_placeholder_spec("fill-me"),
+        "unchecked": is_placeholder_spec("- [ ] do the thing"),
+        "punct_only": is_placeholder_spec("!!!"),
         "Ship the gate.": is_placeholder_spec("Ship the gate."),
         "multi\nline": is_placeholder_spec("Real plan\nmore"),
     }
@@ -70,9 +82,18 @@ def test_placeholder_and_email_match():
         "ellipsis_fill": True,
         "dots_fill": True,
         "blank_then_todo": True,
+        "x": True,
+        "dot": True,
+        "fill_tag": True,
+        "fill_me": True,
+        "unchecked": True,
+        "punct_only": True,
         "Ship the gate.": False,
         "multi\nline": False,
     }
+
+
+def test_emails_owners_agents_utf8():
     emails = {
         "angle": identity_emails("Alice <alice@x.test>"),
         "bare": identity_emails("bob@example.com"),
@@ -93,6 +114,7 @@ def test_placeholder_and_email_match():
         "lt_no_angle_email": set(),
         "bare_with_space": set(),
     }
+
     allow = ["bob@example.com", "Alice <alice@x.test>"]
     matches = {
         "bob_email": participant_email_matches("bob@example.com", allow),
@@ -110,6 +132,7 @@ def test_placeholder_and_email_match():
         "eve": False,
         "empty_allow": False,
     }
+
     owners = {
         "exact": is_claim_owner_identity("alice", "Alice"),
         "email_vs_angle": is_claim_owner_identity("alice@corp.com", "Alice <alice@corp.com>"),
@@ -143,6 +166,19 @@ def test_placeholder_and_email_match():
         "empty_ident": False,
         "xxxx_trap": False,
     }
+
+    assert is_agent_commit_identity("cursoragent") is True
+    assert is_agent_commit_identity("cursoragent@cursor.com") is True
+    assert is_agent_commit_identity("Cursor Agent <cursoragent@cursor.com>") is True
+    assert is_agent_commit_identity("github-actions@github.com") is True
+    assert is_agent_commit_identity("bob@example.com") is False
+    assert is_agent_commit_identity("") is False
+    assert is_agent_commit_identity(None) is False  # type: ignore[arg-type]
+
+    assert is_owner_or_agent_identity("cursoragent@cursor.com", "worker-a") is True
+    assert is_owner_or_agent_identity("worker-a", "worker-a") is True
+    assert is_owner_or_agent_identity("bob@x.test", "worker-a") is False
+
     assert _email_local_part("alice@corp.com") == "alice"
     assert _email_local_part("a@b@c.com") == "a"
     match_got = {
@@ -159,3 +195,8 @@ def test_placeholder_and_email_match():
         "noreply": True,
         "miss": False,
     }
+
+    assert decode_utf8_text("already text") == "already text"
+    assert decode_utf8_text("привет".encode("utf-8")) == "привет"
+    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8"):
+        decode_utf8_text(b"\xff\xfe bad", path="task.md")
