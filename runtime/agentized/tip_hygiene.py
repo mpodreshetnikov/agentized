@@ -59,6 +59,8 @@ def extract_pr_number(value: str | None) -> int | None:
     raw = value.strip()
     if not raw:
         return None
+    if raw.isdigit():
+        return int(raw)
     m = _PR_NUM_RE.search(raw)
     if not m:
         return None
@@ -89,8 +91,7 @@ def resolve_pr_number(
         raw = raw.strip()
         if not raw:
             continue
-        candidate = raw if not raw.isdigit() else f"#{raw}"
-        n = extract_pr_number(candidate)
+        n = extract_pr_number(raw)
         if n is not None and n > 0:
             return n
     ref_raw = e.get("GITHUB_REF")

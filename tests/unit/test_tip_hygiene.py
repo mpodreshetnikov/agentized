@@ -78,8 +78,12 @@ def test_extract_and_resolve_pr_number(monkeypatch):
     assert resolve_pr_number(explicit="bad") is None
     assert resolve_pr_number(env={}) is None
     assert resolve_pr_number(env={"AGENTIZED_PR": "41"}) == 41
+    assert resolve_pr_number(env={"AGENTIZED_PR": "1"}) == 1
+    assert resolve_pr_number(env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "44"}) == 44
     assert resolve_pr_number(env={"TIP_HYGIENE_PR": "#8"}) == 8
     assert resolve_pr_number(env={"GITHUB_PR_NUMBER": "15"}) == 15
+    assert extract_pr_number("1") == 1
+    assert extract_pr_number("01") == 1
     assert resolve_pr_number(env={"GITHUB_REF": "refs/pull/52/merge"}) == 52
     assert resolve_pr_number(env={"GITHUB_REF": "refs/pull/1/head"}) == 1
     assert resolve_pr_number(env={"GITHUB_REF": "refs/pull/0/merge"}) is None
@@ -210,6 +214,20 @@ def test_continue_not_break_on_unreadable(tmp_path: Path):
     assert unread.startswith("T-261121-aaa.md: tip hygiene: unreadable task file: ")
     assert "None" not in unread
     assert "utf-8" in unread or "UTF" in unread or "codec" in unread
+
+    # Non-matching first file must continue (not break) into a later match.
+    tasks2 = tmp_path / "tasks2"
+    tasks2.mkdir()
+    (tasks2 / "T-261121-aaa.md").write_text(
+        _task("in-progress", claim="x", extra="pr: #1", task_id="T-261121-aaa"),
+        encoding="utf-8",
+    )
+    (tasks2 / "T-261121-zzz.md").write_text(
+        _task("in-progress", claim="c", extra="pr: #3", task_id="T-261121-zzz"),
+        encoding="utf-8",
+    )
+    res2 = validate_pr_linked_tasks(tasks2, 3)
+    assert MSG_TIP_STATUS.format(name="T-261121-zzz.md", pr=3, st="in-progress") in res2.errors
 
 
 def test_validate_tip_hygiene_combines(tmp_path: Path, monkeypatch):

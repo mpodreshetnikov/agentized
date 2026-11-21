@@ -441,11 +441,7 @@ def run_tasks_validate(
     result = validate_tasks_dir(tasks_dir, previous_by_name=previous)
     if not tip_hygiene:
         return (ref, result)
-    tip = validate_tip_hygiene(
-        tasks_dir,
-        pr_number=resolve_pr_number(explicit=pr),
-        check_index=True,
-    )
+    tip = validate_tip_hygiene(tasks_dir, pr_number=resolve_pr_number(explicit=pr))
     if tip.ok:
         return (ref, result)
     merged = tuple(result.errors) + tuple(tip.errors)
