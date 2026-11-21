@@ -908,7 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     apn = ap_sub.add_parser("next", help="Recommend next queue/open task under WIP")
     apn.add_argument("--context", default=None)
     apn.add_argument("--json", action="store_true")
-    apm = ap_sub.add_parser("metrics", help="Show board/metrics.json (refresh if missing)")
+    apm = ap_sub.add_parser("metrics", help="Show board/metrics.json (--refresh to recompute)")
     apm.add_argument("--context", default=None)
     apm.add_argument("--refresh", action="store_true")
     apr = ap_sub.add_parser("refresh", help="Write context/board/metrics.json")

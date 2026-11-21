@@ -111,3 +111,31 @@ def test_autopilot_cli_reads_writes(
     monkeypatch.setattr("sys.stderr", err)
     assert cli.cmd_autopilot(_ctx_ns(autopilot_cmd="set-wip", limit=0)) == 1
     assert "wip_limit must be an integer >= 1" in err.getvalue()
+
+
+def test_autopilot_next_happy_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    from agentized.tasks import render_task_file
+
+    repo = _repo(tmp_path, "next-happy")
+    ctx = repo / "context"
+    tasks = ctx / "tasks"
+    tasks.mkdir(parents=True)
+    (ctx / "leases").mkdir(parents=True)
+    tid, title = "T-261121-next", "Pick Me"
+    (tasks / f"{tid}.md").write_text(render_task_file(tid, title, status="queue"), encoding="utf-8")
+    monkeypatch.setattr(cli, "find_repo_root", lambda: repo)
+
+    assert cli.cmd_autopilot(_ctx_ns(autopilot_cmd="next", json=False)) == 0
+    text = capsys.readouterr().out
+    assert text.strip() == f"next: {tid} — {title} (WIP 0/3)"
+    assert not (ctx / "board.json").exists()
+
+    assert cli.cmd_autopilot(_ctx_ns(autopilot_cmd="next", json=True)) == 0
+    pick = json.loads(capsys.readouterr().out)
+    assert pick["ok"] is True
+    assert pick["task"]["id"] == tid
+    assert pick["task"]["title"] == title
+    assert pick["wip_current"] == 0 and pick["wip_limit"] == 3
+    assert not (ctx / "board.json").exists()
