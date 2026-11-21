@@ -50,8 +50,9 @@ jobs:
           fi
           "${CLI[@]}" tasks-validate
           "${CLI[@]}" index
-          if ! git diff --exit-code -- context/tasks/INDEX.md context/leases/INDEX.md; then
-            echo "INDEX.md out of date — run agentized index and commit" >&2
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "INDEX out of date — run agentized index and commit" >&2
+            git status --porcelain >&2
             exit 1
           fi
 
