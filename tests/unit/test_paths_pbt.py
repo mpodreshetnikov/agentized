@@ -10,9 +10,12 @@ from hypothesis import given, strategies as st
 from agentized.paths import (
     DEFAULT_CONTEXT,
     context_dir,
+    find_repo_root,
+    load_state,
     path_under,
     require_safe_rel,
     resolve_context_dir,
+    save_state,
     state_path,
     under_context,
 )
@@ -68,3 +71,17 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
     with pytest.raises(ValueError):
         under_context(leak, "context", "board", "m.json")
     assert list(out.iterdir()) == []
+
+
+def test_find_repo_root_and_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / ".git").mkdir()
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    assert find_repo_root() == tmp_path.resolve()
+    (tmp_path / "AGENTS.md").write_text("# x\n", encoding="utf-8")
+    assert load_state(tmp_path) == {}
+    save_state(tmp_path, {"version": "0.1.0", "context": "context"})
+    assert load_state(tmp_path)["version"] == "0.1.0"
+    assert load_state(tmp_path)["context"] == "context"
+    assert state_path(tmp_path).parent.name == ".agentized"
