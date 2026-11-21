@@ -43,9 +43,9 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
 
-On reconnect, `ensure_quality_config` flips leftover smells/arch `warn`→`hard` (AGE-19). AGE-29: CLI `persist_secrets_policy` + `pin_gitleaks_config` inject missing `secrets`/gate entry, warn→hard, force-enable without valid `disable_decision`, pin `.gitleaks.toml`. Other fields stay; managed-hash pins skip user edits.
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
-New projects: smells/arch/secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80. CI installs gitleaks **8.21.2** (SHA256) before `quality check`; local pre-push needs `gitleaks` on `PATH`.
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80.
 
 ## Strong reviewer (AGE-11)
 
