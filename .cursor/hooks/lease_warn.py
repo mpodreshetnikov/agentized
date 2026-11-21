@@ -49,7 +49,7 @@ def main() -> int:
 
     try:
         from agentized.context_layout import session_lease_warn as warn_fn
-    except Exception:  # noqa: BLE001 — layout module absent until AGE-25 22a
+    except ImportError:
         from agentized.hook_common import lease_warn_for_paths as warn_fn
 
     root = resolve_root(payload) if payload else workspace

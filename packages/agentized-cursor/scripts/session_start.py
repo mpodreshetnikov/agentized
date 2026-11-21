@@ -25,7 +25,7 @@ def _nav_fn():
         from agentized.context_layout import session_nav_reminder
 
         return session_nav_reminder
-    except Exception:  # noqa: BLE001 — layout module absent until AGE-25 22a
+    except ImportError:
         from agentized.hook_common import nav_reminder
 
         return nav_reminder
