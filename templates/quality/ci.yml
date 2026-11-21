@@ -27,6 +27,29 @@ jobs:
             echo "no requirements-dev.txt — skip"
           fi
 
+      - name: Ruff format (changed files)
+        run: |
+          set -euo pipefail
+          if ! command -v ruff >/dev/null 2>&1; then
+            pip install 'ruff>=0.8'
+          fi
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            if [[ -z "${BASE}" || "${BASE}" == "0000000000000000000000000000000000000000" ]]; then
+              BASE="$(git rev-parse HEAD^)"
+            fi
+          fi
+          mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "${BASE}"...HEAD -- '*.py' || true)
+          if ((${#FILES[@]} == 0)); then
+            echo "no changed Python files — skip ruff format"
+            exit 0
+          fi
+          echo "ruff format --check (${#FILES[@]} file(s) vs ${BASE})"
+          printf '  %s\n' "${FILES[@]}"
+          ruff format --check -- "${FILES[@]}"
+
       - name: Mechanical checks (if present)
         run: |
           if [[ -x ./tests/test_mechanical.sh ]]; then

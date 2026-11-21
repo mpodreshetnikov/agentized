@@ -31,3 +31,10 @@ fail_under = 0
 
 [tool.coverage.paths]
 source = ["runtime/agentized"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
