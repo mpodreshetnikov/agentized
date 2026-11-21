@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -46,8 +46,8 @@ def test_utc_now_stamp_format_and_tz(monkeypatch):
     class Fixed(datetime):
         @classmethod
         def now(cls, tz=None):
-            assert tz is timezone.utc
-            return datetime(2026, 11, 16, 12, 0, 0, tzinfo=timezone.utc)
+            assert tz is UTC
+            return datetime(2026, 11, 16, 12, 0, 0, tzinfo=UTC)
 
     monkeypatch.setattr(tasks_mod, "datetime", Fixed)
     assert utc_now_stamp() == "261116"
@@ -351,8 +351,8 @@ def test_append_progress_exact_with_frozen_time(monkeypatch):
     class Fixed(datetime):
         @classmethod
         def now(cls, tz=None):
-            assert tz is timezone.utc
-            return datetime(2026, 11, 16, 9, 41, 0, tzinfo=timezone.utc)
+            assert tz is UTC
+            return datetime(2026, 11, 16, 9, 41, 0, tzinfo=UTC)
 
     monkeypatch.setattr(tasks_mod, "datetime", Fixed)
     stamp = "2026-11-16 09:41 UTC"
@@ -496,8 +496,9 @@ def test_rebuild_skips_underscore_orbit_id(tmp_path: Path):
     assert "_hidden" not in index
 
 
-def test_claim_refuse_self_review_not_active(tmp_path: Path):
-    """self-review claim must not satisfy refuse claim_check (CLAIM_STATUSES only)."""
+@pytest.mark.parametrize("status", ["self-review", "queue", "for-review"])
+def test_claim_refuse_non_claim_status_not_active(tmp_path: Path, status: str):
+    """Non-CLAIM_STATUSES claims must not satisfy refuse claim_check."""
     from agentized.process_control import active_claims, claim_check
 
     tasks = tmp_path / "context" / "tasks"
@@ -508,7 +509,7 @@ def test_claim_refuse_self_review_not_active(tmp_path: Path):
     )
     _write(
         tasks / "T-261116-srcl.md",
-        "# T-261116-srcl — SR\n\nстатус: self-review\nтеги:\nродитель:\nclaim: alice\n",
+        f"# T-261116-srcl — SR\n\nстатус: {status}\nтеги:\nродитель:\nclaim: alice\n",
     )
     assert active_claims(tmp_path) == []
     refused = claim_check(tmp_path, ["runtime/x.py"], env={"CURSOR_AGENT": "1"})
@@ -528,8 +529,9 @@ def test_tasks_reexports_match_schema():
 
 
 def test_tasks_getattr_unknown_message():
-    from agentized import tasks as tasks_mod
     import pytest
+
+    from agentized import tasks as tasks_mod
 
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'") as ei:
         _ = tasks_mod.not_a_real_export

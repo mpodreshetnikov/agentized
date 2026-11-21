@@ -7,9 +7,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Claim / INDEX section list (main layout). ACTIVE_STATUSES is lazy → INDEX_ACTIVE.
-CLAIM_STATUSES: tuple[str, ...] = ("open", "in-progress", "blocked")
-
 _STATUS_GATE_EXPORTS = frozenset(
     {
         "ALL_STATUSES",
