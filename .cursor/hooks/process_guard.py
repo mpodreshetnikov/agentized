@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Claim-before-edits + AGE-38 status_guard (fail-closed) before claim check."""
+"""Claim-before-edits + AGE-38 status_guard (fail-closed) before claim check.
+
+Import failure of status_guard / runtime → deny ALL edits (fail-closed).
+"""
 from __future__ import annotations
 
 import json
@@ -46,17 +49,22 @@ def main() -> int:
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
         from agentized.status_guard import decide_from_stdin
-    except Exception as exc:  # noqa: BLE001 — status path fail-closed
+    except Exception as exc:  # noqa: BLE001 — deny all edits on import failure
+        msg = f"[status-guard] REFUSED: import failure: {exc}"
         print(
             json.dumps(
                 {
                     "permission": "deny",
                     "continue": False,
-                    "agent_message": f"[status-guard] REFUSED: import failure: {exc}",
+                    "agent_message": msg,
+                    "additional_context": msg,
                     "hookSpecificOutput": {
                         "hookEventName": event,
                         "permissionDecision": "deny",
+                        "permissionDecisionReason": msg,
                     },
+                    "hookEventName": event,
+                    "systemMessage": msg,
                 },
                 ensure_ascii=False,
             )
@@ -69,9 +77,28 @@ def main() -> int:
         sys.path.insert(0, str(runtime))
 
     ctx = context_rel(root)
-    status_out = decide_from_stdin(
-        raw, root=root, context_rel=ctx, extract_paths=extract_paths
-    )
+    try:
+        status_out = decide_from_stdin(
+            raw, root=root, context_rel=ctx, extract_paths=extract_paths
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed
+        msg = f"[status-guard] REFUSED: evaluation error: {exc}"
+        print(
+            json.dumps(
+                {
+                    "permission": "deny",
+                    "continue": False,
+                    "agent_message": msg,
+                    "hookSpecificOutput": {
+                        "hookEventName": event,
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": msg,
+                    },
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
     if status_out.get("permission") == "deny":
         print(json.dumps(status_out, ensure_ascii=False))
         return 0

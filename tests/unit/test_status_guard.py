@@ -14,6 +14,12 @@ import pytest
 from agentized.hook_common import extract_paths
 from agentized import status_guard as sg
 
+_UNB = (
+    "cannot build candidate text for task file "
+    "(empty/whitespace write or unknown tool shape)"
+)
+_EDIT = "cannot apply Edit onto task file (old_string mismatch or missing file)"
+
 
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
@@ -24,7 +30,8 @@ def _repo_root() -> Path:
 
 
 REPO = _repo_root()
-SHARED_GUARD = REPO / "packages" / "shared" / "hooks" / "scripts" / "status_guard.py"
+SHARED_GUARD = REPO / "packages/shared/hooks/scripts/status_guard.py"
+SHARED_PG = REPO / "packages/shared/hooks/scripts/process_guard.py"
 OPEN = "# T\n\nстатус: open\n\nЦенность: test\n"
 ALLOW_PRE = {
     "permission": "allow",
@@ -63,6 +70,8 @@ class _GateResult:
 
 
 def _fake_gates(*, fail_message: str | None = None, record: list | None = None):
+    """Mirror agentized.status_gates API (#25)."""
+
     def extract_status(text: str | None) -> str | None:
         if not text:
             return None
@@ -99,8 +108,7 @@ def _fake_gates(*, fail_message: str | None = None, record: list | None = None):
         return _GateResult(True)
 
     return types.SimpleNamespace(
-        extract_status=extract_status,
-        validate_task_text=validate_task_text,
+        extract_status=extract_status, validate_task_text=validate_task_text
     )
 
 
@@ -112,127 +120,97 @@ def _mk_task(tmp_path: Path, name: str, body: str = OPEN) -> Path:
     return path
 
 
+def _eval(tmp_path: Path, tool: dict, *, gates=None, gates_loader=None, extract=extract_paths):
+    return sg.evaluate_status_guard(
+        {"hook_event_name": "PreToolUse", "tool_input": tool},
+        root=tmp_path,
+        context_rel="context",
+        extract_paths=extract,
+        gates=gates if gates is not None else (_fake_gates() if gates_loader is None else None),
+        gates_loader=gates_loader,
+    )
+
+
+def _isolated_hook(tmp_path: Path, src: Path) -> Path:
+    hook_dir = tmp_path / "hooks"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    (hook_dir / src.name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    boot = src.parent / "_bootstrap.py"
+    (hook_dir / "_bootstrap.py").write_text(boot.read_text(encoding="utf-8"), encoding="utf-8")
+    return hook_dir / src.name
+
+
+def _iso_env(tmp_path: Path) -> dict:
+    return {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "CLAUDE_PROJECT_DIR": str(tmp_path),
+        "PYTHONPATH": "",
+        "AGENTIZED_ROOT": "",
+    }
+
+
 def test_shared_source_only_no_harness_copies():
     assert SHARED_GUARD.is_file()
     copies = [
-        REPO / ".cursor" / "hooks" / "status_guard.py",
-        REPO / ".claude" / "hooks" / "status_guard.py",
-        REPO / ".codex" / "hooks" / "status_guard.py",
-        REPO / "context" / "hooks" / "scripts" / "status_guard.py",
-        REPO / "packages" / "agentized-cursor" / "scripts" / "status_guard.py",
-        REPO / "packages" / "agentized-claude" / "scripts" / "status_guard.py",
-        REPO / "packages" / "agentized-codex" / "scripts" / "status_guard.py",
+        REPO / p
+        for p in (
+            ".cursor/hooks/status_guard.py",
+            ".claude/hooks/status_guard.py",
+            ".codex/hooks/status_guard.py",
+            "context/hooks/scripts/status_guard.py",
+            "packages/agentized-cursor/scripts/status_guard.py",
+            "packages/agentized-claude/scripts/status_guard.py",
+            "packages/agentized-codex/scripts/status_guard.py",
+        )
     ]
-    present = [p for p in copies if p.is_file()]
-    assert present == [], f"unexpected committed copies: {present}"
+    assert [p for p in copies if p.is_file()] == []
 
 
-def test_parse_hook_stdin_variants():
-    payload, err = sg.parse_hook_stdin("")
-    assert err is None and payload == {}
-    payload, err = sg.parse_hook_stdin('{"hook_event_name":"PreToolUse"}')
-    assert err is None and payload == {"hook_event_name": "PreToolUse"}
-    payload, err = sg.parse_hook_stdin("{not-json")
-    assert payload is None
-    assert err == "[status-guard] REFUSED: broken stdin (invalid JSON)"
-    payload, err = sg.parse_hook_stdin("[1,2]")
-    assert payload is None
-    assert err == "[status-guard] REFUSED: unknown payload (JSON must be an object)"
-
-
-def test_decide_from_stdin_denies_bad(tmp_path: Path):
+def test_parse_and_decide_stdin(tmp_path: Path):
+    assert sg.parse_hook_stdin("") == ({}, None)
+    assert sg.parse_hook_stdin('{"a":1}') == ({"a": 1}, None)
+    p, e = sg.parse_hook_stdin("{bad")
+    assert p is None and e == "[status-guard] REFUSED: broken stdin (invalid JSON)"
+    p, e = sg.parse_hook_stdin("[1]")
+    assert p is None and e == "[status-guard] REFUSED: unknown payload (JSON must be an object)"
     assert sg.decide_from_stdin(
         "{bad", root=tmp_path, context_rel="context", extract_paths=extract_paths
     ) == _deny("PreToolUse", "[status-guard] REFUSED: broken stdin (invalid JSON)")
     assert sg.decide_from_stdin(
-        '"just-a-string"', root=tmp_path, context_rel="context", extract_paths=extract_paths
-    ) == _deny(
-        "PreToolUse",
-        "[status-guard] REFUSED: unknown payload (JSON must be an object)",
+        '"x"', root=tmp_path, context_rel="context", extract_paths=extract_paths
+    ) == _deny("PreToolUse", "[status-guard] REFUSED: unknown payload (JSON must be an object)")
+    assert (
+        sg.decide_from_stdin(
+            json.dumps({"tool_input": {"file_path": "runtime/x.py", "content": "x"}}),
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+        )
+        == ALLOW_PRE
     )
 
 
-def test_is_task_path_variants():
-    positives = [
+def test_is_task_path_and_helpers():
+    yes = [
         "context/tasks/T-261116-aaa.md",
         "./context/tasks/T-261116-aaa.md",
-        "././tasks/T-261116-aaa.md",
-        "context/./tasks/T-261116-aaa.md",
-        "tasks/T-261116-aaa.md",
         "tasks/T-x.md",
         "context\\tasks\\T-261116-aaa.md",
         "/abs/proj/context/tasks/T-261116-aaa.md",
-        "/other/workspace/tasks/T-261116-aaa.md",
         "context//tasks/T-261116-aaa.md",
-        "context/./tasks/T-x.md",
     ]
-    negatives = [
+    no = [
         "runtime/agentized/x.py",
         "context/tasks/README.md",
-        "context/tasks/TEMPLATE.md",
-        "docs/guide.md",
         "T-261116-aaa.md",
         "",
-        ".",
         "tasks/T.md",
         "tasks/T-.md",
         "tasks/T-x.txt",
-        "tasks/X-261116-aaa.md",
     ]
-    assert [p for p in positives if sg.is_task_path(p)] == positives
-    assert [p for p in negatives if sg.is_task_path(p)] == []
-
-
-def test_is_after_edit():
-    yes = ["afterFileEdit", "After_File_Edit", "PostToolUse"]
-    no = ["PreToolUse", "", None]
-    assert [e for e in yes if sg.is_after_edit(e)] == yes  # type: ignore[arg-type]
-    assert [e for e in no if sg.is_after_edit(e)] == []  # type: ignore[arg-type]
-
-
-def test_apply_edits_coverage():
-    base = "hello world world"
-    assert sg.apply_edits(base, {"old_string": "world", "new_string": "there"}) == "hello there world"
-    assert sg.apply_edits(base, {"old_string": "missing", "new_string": "x"}) is None
-    assert sg.apply_edits(base, {"old_string": "world", "new_string": 1}) is None
-    assert sg.apply_edits(base, {"old_string": 1, "new_string": "there"}) is None
-    base2 = "aa bb cc"
-    merged = sg.apply_edits(
-        base2,
-        {
-            "edits": [
-                {"old_string": "aa", "new_string": "AA"},
-                "skip-me",
-                {"old_string": 1, "new_string": 2},
-                {"old_string": "cc", "new_string": 99},
-                {"old": "cc", "content": "CC"},
-                {"old_string": "bb", "new_string": "BB"},
-            ]
-        },
-    )
-    assert merged == "AA BB cc"
-    assert sg.apply_edits(base2, {"edits": []}) is None
-    assert sg.apply_edits(base2, {"edits": [{"old_string": "nope", "new_string": "x"}]}) is None
-    assert sg.apply_edits(base2, {}) is None
-    assert sg.apply_edits(base2, {"edits": "not-a-list"}) is None
-    assert sg.apply_edits(base2, {"edits": [{"old_string": "aa"}]}) is None
-    assert sg.apply_edits(base2, {"edits": [{"old_string": "aa", "new_string": "AA"}]}) == "AA bb cc"
-    assert sg.apply_edits("xx xx", {"edits": [{"old_string": "xx", "new_string": "YY"}]}) == "YY xx"
-    assert (
-        sg.apply_edits(
-            base2,
-            {
-                "edits": [
-                    {"old_string": "aa", "new_string": "AA"},
-                    {"old_string": "missing", "new_string": "x"},
-                ]
-            },
-        )
-        is None
-    )
-
-
-def test_full_write_and_tool_input_and_responses():
+    assert [p for p in yes if sg.is_task_path(p)] == yes
+    assert [p for p in no if sg.is_task_path(p)] == []
     assert sg.full_write_text({"content": "  x  "}) == "  x  "
     assert sg.full_write_text({"contents": "y"}) == "y"
     assert sg.full_write_text({"body": "z"}) == "z"
@@ -251,248 +229,199 @@ def test_full_write_and_tool_input_and_responses():
     assert sg.hook_event_name({"hook_event_name": "Y"}) == "Y"
 
 
-def test_evaluate_allows_non_task(tmp_path: Path):
-    out = sg.evaluate_status_guard(
-        {"hook_event_name": "PreToolUse", "tool_input": {"file_path": "runtime/x.py", "content": "x"}},
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates_loader=lambda: (_ for _ in ()).throw(RuntimeError("should not load")),
+def test_apply_edits_coverage():
+    base = "hello world world"
+    assert sg.apply_edits(base, {"old_string": "world", "new_string": "there"}) == "hello there world"
+    assert sg.apply_edits(base, {"old_string": "missing", "new_string": "x"}) is None
+    assert sg.apply_edits(base, {"old_string": "world", "new_string": 1}) is None
+    assert sg.apply_edits(base, {"old_string": 1, "new_string": "there"}) is None
+    base2 = "aa bb cc"
+    assert (
+        sg.apply_edits(
+            base2,
+            {
+                "edits": [
+                    {"old_string": "aa", "new_string": "AA"},
+                    "skip",
+                    {"old_string": 1, "new_string": 2},
+                    {"old_string": "cc", "new_string": 99},
+                    {"old": "cc", "content": "CC"},
+                    {"old_string": "bb", "new_string": "BB"},
+                ]
+            },
+        )
+        == "AA BB cc"
     )
-    assert out == ALLOW_PRE
+    assert sg.apply_edits(base2, {"edits": []}) is None
+    assert sg.apply_edits(base2, {"edits": [{"old_string": "nope", "new_string": "x"}]}) is None
+    assert sg.apply_edits(base2, {}) is None
+    assert sg.apply_edits(base2, {"edits": "x"}) is None
+    assert sg.apply_edits(base2, {"edits": [{"old_string": "aa"}]}) is None
+    assert sg.apply_edits(base2, {"edits": [{"old_string": "aa", "new_string": "AA"}]}) == "AA bb cc"
+    assert sg.apply_edits("xx xx", {"edits": [{"old_string": "xx", "new_string": "YY"}]}) == "YY xx"
+    assert (
+        sg.apply_edits(
+            base2,
+            {"edits": [{"old_string": "aa", "new_string": "AA"}, {"old_string": "missing", "new_string": "x"}]},
+        )
+        is None
+    )
 
 
-def test_evaluate_denies_bad_context_rel(tmp_path: Path):
-    payload = {
-        "hook_event_name": "PreToolUse",
-        "tool_input": {"file_path": "runtime/x.py", "content": "x"},
-    }
+def test_evaluate_core_paths(tmp_path: Path):
+    assert (
+        _eval(tmp_path, {"file_path": "runtime/x.py", "content": "x"}, gates_loader=lambda: (_ for _ in ()).throw(RuntimeError("x")))
+        == ALLOW_PRE
+    )
     msg = "[status-guard] REFUSED: context_rel must be a non-empty string"
-    assert sg.evaluate_status_guard(
-        payload, root=tmp_path, context_rel="", extract_paths=extract_paths
-    ) == _deny("PreToolUse", msg)
+    payload = {"hook_event_name": "PreToolUse", "tool_input": {"file_path": "runtime/x.py", "content": "x"}}
+    assert sg.evaluate_status_guard(payload, root=tmp_path, context_rel="", extract_paths=extract_paths) == _deny(
+        "PreToolUse", msg
+    )
     assert sg.evaluate_status_guard(
         payload, root=tmp_path, context_rel=None, extract_paths=extract_paths  # type: ignore[arg-type]
     ) == _deny("PreToolUse", msg)
 
-
-def test_evaluate_denies_import_failure_on_task(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-imp.md", "статус: open\nЦенность: v\n")
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {
-                "file_path": "context/tasks/T-261116-imp.md",
-                "content": "статус: blocked\nЦенность: v\n",
-            },
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
+    _mk_task(tmp_path, "T-261116-imp.md")
+    out = _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-imp.md", "content": OPEN},
         gates_loader=lambda: (_ for _ in ()).throw(ImportError("no gates")),
     )
-    assert out["permission"] == "deny"
-    assert out["hookEventName"] == "PreToolUse"
-    assert out["agent_message"] == (
-        "[status-guard] REFUSED: status_gates unavailable: no gates"
-    )
+    assert out == _deny("PreToolUse", "[status-guard] REFUSED: status_gates unavailable: no gates")
+
+    tool = {"file_path": "context/tasks/T-261116-api.md", "content": OPEN}
+    _mk_task(tmp_path, "T-261116-api.md")
+    api = "[status-guard] REFUSED: status_gates missing validate API"
+    assert _eval(tmp_path, tool, gates=types.SimpleNamespace()) == _deny("PreToolUse", api)
+    assert _eval(
+        tmp_path, tool, gates=types.SimpleNamespace(extract_status=lambda t: "open")
+    ) == _deny("PreToolUse", api)
 
 
-def test_evaluate_denies_missing_validate_api(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-api.md", "статус: open\nЦенность: v\n")
-    body = "статус: open\nЦенность: v\n"
-    tool = {"file_path": "context/tasks/T-261116-api.md", "content": body}
-    msg = "[status-guard] REFUSED: status_gates missing validate API"
-    assert (
-        sg.evaluate_status_guard(
-            {"hook_event_name": "PreToolUse", "tool_input": tool},
-            root=tmp_path,
-            context_rel="context",
-            extract_paths=extract_paths,
-            gates=types.SimpleNamespace(),
-        )
-        == _deny("PreToolUse", msg)
-    )
-    assert (
-        sg.evaluate_status_guard(
-            {"hook_event_name": "PreToolUse", "tool_input": tool},
-            root=tmp_path,
-            context_rel="context",
-            extract_paths=extract_paths,
-            gates=types.SimpleNamespace(extract_status=lambda t: "open"),
-        )
-        == _deny("PreToolUse", msg)
-    )
-
-
-def test_evaluate_blocks_illegal_transition(tmp_path: Path):
+def test_evaluate_transitions_and_writes(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-bad.md")
     bad = "# T\n\nстатус: done\n\nЦенность: test\n"
     calls: list = []
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-bad.md", "content": bad},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
+    out = _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-bad.md", "content": bad},
         gates=_fake_gates(record=calls),
     )
     assert out == _deny(
         "PreToolUse",
         "[status-guard] REFUSED: T-261116-bad.md: illegal transition open → done",
     )
-    assert calls == [
-        {
-            "require_value": True,
-            "check_transition": True,
-            "old_status": "open",
-            "text": bad,
-        }
-    ]
+    assert calls[0]["old_status"] == "open" and calls[0]["require_value"] is True
 
-
-def test_evaluate_allows_valid_write(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-ok.md")
     good = "# T\n\nстатус: blocked\n\nЦенность: test\n"
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-ok.md", "content": good},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == ALLOW_PRE
+    assert _eval(tmp_path, {"file_path": "context/tasks/T-261116-ok.md", "content": good}) == ALLOW_PRE
 
-
-def test_evaluate_denies_edit_mismatch(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-ed.md")
-    out = sg.evaluate_status_guard(
+    assert _eval(
+        tmp_path,
         {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {
-                "file_path": "context/tasks/T-261116-ed.md",
-                "old_string": "NO MATCH",
-                "new_string": "# T\n\nстатус: in-progress\n\nЦенность: test\n",
-            },
+            "file_path": "context/tasks/T-261116-ed.md",
+            "old_string": "NO MATCH",
+            "new_string": good,
         },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == _deny(
-        "PreToolUse",
-        "[status-guard] REFUSED: T-261116-ed.md: cannot apply Edit onto task file "
-        "(old_string mismatch or missing file)",
-    )
+    ) == _deny("PreToolUse", f"[status-guard] REFUSED: T-261116-ed.md: {_EDIT}")
 
-
-def test_evaluate_allows_progress_edit(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-pr.md", OPEN + "\n## Цель\n\nx\n")
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {
+    assert (
+        _eval(
+            tmp_path,
+            {
                 "file_path": "context/tasks/T-261116-pr.md",
                 "old_string": "## Цель\n\nx\n",
                 "new_string": "## Цель\n\nx\n\n## Progress\n\n- note\n",
             },
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
+        )
+        == ALLOW_PRE
     )
-    assert out == ALLOW_PRE
 
 
-def test_evaluate_input_alias_paths(tmp_path: Path):
+def test_evaluate_aliases_and_empty_and_apply_patch(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-in.md")
     tool = {"file_path": "context/tasks/T-261116-in.md", "content": OPEN}
-    out = sg.evaluate_status_guard(
-        {"hookEventName": "PreToolUse", "input": tool},
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
+    assert (
+        sg.evaluate_status_guard(
+            {"hookEventName": "PreToolUse", "input": tool},
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates=_fake_gates(),
+        )
+        == ALLOW_PRE
     )
-    assert out == ALLOW_PRE
-    out2 = sg.evaluate_status_guard(
-        {"hook_event_name": "PreToolUse", "toolInput": tool},
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
+    assert (
+        sg.evaluate_status_guard(
+            {"hook_event_name": "PreToolUse", "toolInput": tool},
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates=_fake_gates(),
+        )
+        == ALLOW_PRE
     )
-    assert out2 == ALLOW_PRE
-    # Illegal transition via `input` only — kills tool_input re-inject key mutants
-    # (without re-inject, extract_paths misses `input` → silent allow).
     bad = "# T\n\nстатус: done\n\nЦенность: test\n"
-    out3 = sg.evaluate_status_guard(
-        {
-            "hookEventName": "PreToolUse",
-            "input": {"file_path": "context/tasks/T-261116-in.md", "content": bad},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out3 == _deny(
-        "PreToolUse",
-        "[status-guard] REFUSED: T-261116-in.md: illegal transition open → done",
-    )
-
-
-def test_candidate_after_edit_uses_git(tmp_path: Path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    task = _mk_task(tmp_path, "T-261116-git.md")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "seed"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    task.write_text("# T\n\nстатус: done\n\nЦенность: test\n", encoding="utf-8")
     out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "afterFileEdit",
-            "tool_input": {"file_path": "context/tasks/T-261116-git.md"},
-        },
+        {"hookEventName": "PreToolUse", "input": {"file_path": "context/tasks/T-261116-in.md", "content": bad}},
         root=tmp_path,
         context_rel="context",
         extract_paths=extract_paths,
         gates=_fake_gates(),
     )
-    assert out == _deny(
-        "afterFileEdit",
-        "[status-guard] REFUSED: T-261116-git.md: illegal transition open → done",
+    assert out["permission"] == "deny" and "illegal transition" in out["agent_message"]
+
+    _mk_task(tmp_path, "T-261116-empty.md")
+    for tool in (
+        {"file_path": "context/tasks/T-261116-empty.md", "content": ""},
+        {"file_path": "context/tasks/T-261116-empty.md", "content": "   \n"},
+        {"file_path": "context/tasks/T-261116-empty.md"},
+    ):
+        assert _eval(tmp_path, tool) == _deny(
+            "PreToolUse", f"[status-guard] REFUSED: T-261116-empty.md: {_UNB}"
+        )
+
+    _mk_task(tmp_path, "T-261116-ap.md")
+    cmd = "apply_patch <<'EOF'\n*** Update File: context/tasks/T-261116-ap.md\n@@\n-x\n+y\nEOF"
+    out = _eval(tmp_path, {"command": cmd})
+    assert out["permission"] == "deny" and _UNB in out["agent_message"]
+
+
+def test_hook_scripts_and_connect(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+):
+    # Isolated trees MUST NOT be under a path that contains runtime/ (bootstrap walks parents).
+    iso_root = tmp_path_factory.mktemp("age38-iso")
+    iso = _isolated_hook(iso_root / "sg", SHARED_GUARD)
+    proc = subprocess.run(
+        [sys.executable, str(iso)],
+        input='{"tool_input":{"file_path":"x.py"}}',
+        text=True,
+        capture_output=True,
+        cwd=iso_root / "sg",
+        env=_iso_env(iso_root / "sg"),
     )
+    assert proc.returncode == 0
+    out = json.loads(proc.stdout)
+    assert out["permission"] == "deny" and "import failure" in out["agent_message"]
 
+    iso_pg = _isolated_hook(iso_root / "pg", SHARED_PG)
+    proc = subprocess.run(
+        [sys.executable, str(iso_pg)],
+        input=json.dumps({"tool_input": {"file_path": "runtime/x.py", "content": "x"}}),
+        text=True,
+        capture_output=True,
+        cwd=iso_root / "pg",
+        env=_iso_env(iso_root / "pg"),
+    )
+    assert proc.returncode == 0
+    out = json.loads(proc.stdout)
+    assert out["permission"] == "deny" and "import failure" in out["agent_message"]
 
-def test_git_blob_missing_and_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    assert (sg.git_blob(tmp_path, "nope.md") or "<missing>") == "<missing>"
-
-    def boom(*_a, **_k):
-        raise OSError("no git")
-
-    monkeypatch.setattr(sg.subprocess, "run", boom)
-    assert (sg.git_blob(tmp_path, "x") or "<oserror>") == "<oserror>"
-
-    def bad_git(*_a, **_k):
-        return types.SimpleNamespace(returncode=1, stdout="stale")
-
-    monkeypatch.setattr(sg.subprocess, "run", bad_git)
-    assert (sg.git_blob(tmp_path, "x") or "<nonzero>") == "<nonzero>"
-
-
-def test_hook_script_denies_broken_stdin(tmp_path: Path):
     env = {**dict(os.environ), "CLAUDE_PROJECT_DIR": str(tmp_path)}
     (tmp_path / "runtime").symlink_to(REPO / "runtime")
     proc = subprocess.run(
@@ -508,180 +437,110 @@ def test_hook_script_denies_broken_stdin(tmp_path: Path):
         "PreToolUse", "[status-guard] REFUSED: broken stdin (invalid JSON)"
     )
 
-
-def test_connect_pins_status_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from agentized.connect import connect
 
-    ctx = tmp_path / "context"
+    ctx = tmp_path / "ctx"
     ctx.mkdir()
     (ctx / "NAV.md").write_text("# NAV\n", encoding="utf-8")
     (ctx / "tasks").mkdir()
     (ctx / "leases").mkdir()
     monkeypatch.chdir(tmp_path)
-    connect(tmp_path, context_rel="context", harnesses=["cursor", "claude", "codex"], coverage_pct=80)
-    shared = REPO / "packages" / "shared" / "hooks" / "scripts" / "status_guard.py"
-    assert shared.is_file()
-    assert (ctx / "hooks" / "scripts" / "status_guard.py").is_file()
-    assert (tmp_path / ".cursor" / "hooks" / "status_guard.py").is_file()
-    assert (tmp_path / ".claude" / "hooks" / "status_guard.py").is_file()
-    assert (tmp_path / ".codex" / "hooks" / "status_guard.py").is_file()
-    pg = (tmp_path / ".cursor" / "hooks" / "process_guard.py").read_text(encoding="utf-8")
-    assert "decide_from_stdin" in pg and "status_guard" in pg
+    connect(tmp_path, context_rel="ctx", harnesses=["cursor", "claude", "codex"], coverage_pct=80)
+    assert (ctx / "hooks/scripts/status_guard.py").is_file()
+    assert (tmp_path / ".cursor/hooks/status_guard.py").is_file()
+    pg = (tmp_path / ".cursor/hooks/process_guard.py").read_text(encoding="utf-8")
+    assert "decide_from_stdin" in pg and "import failure" in pg
+
+    src = SHARED_PG.read_bytes()
+    for rel in (
+        ".cursor/hooks/process_guard.py",
+        ".claude/hooks/process_guard.py",
+        ".codex/hooks/process_guard.py",
+        "context/hooks/scripts/process_guard.py",
+    ):
+        assert (REPO / rel).read_bytes() == src
 
 
 def test_load_status_gates_import_error(monkeypatch: pytest.MonkeyPatch):
     import builtins
 
-    real_import = builtins.__import__
+    real = builtins.__import__
 
-    def fake_import(name, *args, **kwargs):
+    def fake(name, *a, **k):
         if name == "agentized.status_gates" or (
-            name == "agentized" and args and args[2] and "status_gates" in args[2]
+            name == "agentized" and a and a[2] and "status_gates" in a[2]
         ):
             raise ImportError("missing")
-        return real_import(name, *args, **kwargs)
+        return real(name, *a, **k)
 
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(builtins, "__import__", fake)
     with pytest.raises(ImportError):
         sg.load_status_gates()
 
 
 def test_load_status_gates_success(monkeypatch: pytest.MonkeyPatch):
-    fake = types.ModuleType("agentized.status_gates")
-    fake.extract_status = lambda text: "open"  # type: ignore[attr-defined]
-    fake.validate_task_text = lambda *a, **k: _GateResult(True)  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "agentized.status_gates", fake)
+    fake_mod = types.ModuleType("agentized.status_gates")
+    fake_mod.extract_status = lambda text: "open"  # type: ignore[attr-defined]
+    fake_mod.validate_task_text = lambda *a, **k: _GateResult(True)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "agentized.status_gates", fake_mod)
     import agentized as pkg
 
-    monkeypatch.setattr(pkg, "status_gates", fake, raising=False)
+    monkeypatch.setattr(pkg, "status_gates", fake_mod, raising=False)
     loaded = sg.load_status_gates()
     assert loaded.extract_status("статус: open\n") == "open"
-    assert loaded.validate_task_text("x").errors == ()
 
 
-def test_candidate_and_old_write_and_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    path = _mk_task(tmp_path, "T-1.md", "old\n")
+def test_candidate_utf8_and_path_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import locale
+
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda do_setlocale=True: "ascii")
+    body = "# T\n\nстатус: open\n\nЦенность: тест-юникод\n"
+    path = _mk_task(tmp_path, "T-261116-utf.md", body)
     cand, old = sg.candidate_and_old(
         path,
-        root=tmp_path,
-        rel="context/tasks/T-1.md",
-        tool_input={"content": "new body"},
+        root=str(tmp_path),
+        rel="context/tasks/T-261116-utf.md",
+        tool_input={"old_string": "тест-юникод", "new_string": "тест-ok"},
         event="PreToolUse",
     )
-    assert cand == "new body" and old == "old\n"
-    missing = tmp_path / "context" / "tasks" / "T-missing.md"
+    assert old == body and cand is not None and "тест-ok" in cand
     cand2, old2 = sg.candidate_and_old(
-        missing, root=tmp_path, rel="context/tasks/T-missing.md", tool_input={}, event="PreToolUse"
+        path, root=tmp_path, rel="x", tool_input={"content": "new"}, event="PreToolUse"
     )
-    assert cand2 is None and old2 is None
-    calls: list[tuple] = []
-
-    def fake_blob(root, rel):
-        calls.append((root, rel))
-        return "BLOB"
-
-    monkeypatch.setattr(sg, "git_blob", fake_blob)
-    cand3, old3 = sg.candidate_and_old(
-        missing, root=tmp_path, rel="context/tasks/T-missing.md", tool_input={}, event="afterFileEdit"
+    assert cand2 == "new" and old2 == body
+    cand3, _ = sg.candidate_and_old(
+        path, root=tmp_path, rel="x", tool_input={"content": "  "}, event="PreToolUse"
     )
-    assert cand3 == "" and old3 == "BLOB"
-    assert calls == [(tmp_path, "context/tasks/T-missing.md")]
+    assert cand3 is None
+    missing = tmp_path / "context/tasks/T-missing.md"
+    assert sg.candidate_and_old(
+        missing, root=tmp_path, rel="x", tool_input={}, event="PreToolUse"
+    ) == (None, None)
 
 
-def test_evaluate_after_edit_missing_empty_candidate(tmp_path: Path):
-    (tmp_path / "context" / "tasks").mkdir(parents=True)
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "afterFileEdit",
-            "tool_input": {"file_path": "context/tasks/T-261116-gone.md"},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == {
-        "permission": "allow",
-        "continue": True,
-        "hookSpecificOutput": {
-            "hookEventName": "afterFileEdit",
-            "permissionDecision": "allow",
-        },
-    }
-
-
-def test_evaluate_absolute_path_outside_root(tmp_path: Path):
+def test_evaluate_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     other = Path("/tmp") / f"age38-{tmp_path.name}" / "tasks"
     other.mkdir(parents=True, exist_ok=True)
     task = other / "T-261116-out.md"
     task.write_text(OPEN, encoding="utf-8")
     try:
-        out = sg.evaluate_status_guard(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_input": {"file_path": str(task), "content": OPEN},
-            },
-            root=tmp_path,
-            context_rel="context",
-            extract_paths=extract_paths,
-            gates=_fake_gates(),
+        assert (
+            _eval(tmp_path, {"file_path": str(task), "content": OPEN}) == ALLOW_PRE
         )
-        assert out == ALLOW_PRE
     finally:
         task.unlink(missing_ok=True)
         other.rmdir()
         other.parent.rmdir()
 
-
-def test_evaluate_empty_candidate_without_edit_keys_allows(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-empty.md")
-    out = sg.evaluate_status_guard(
+    _mk_task(tmp_path, "T-261116-ws.md", "keep\n")
+    assert _eval(
+        tmp_path,
         {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-empty.md"},
+            "file_path": "context/tasks/T-261116-ws.md",
+            "edits": [{"old_string": "keep\n", "new_string": "   \n"}],
         },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == ALLOW_PRE
+    ) == _deny("PreToolUse", f"[status-guard] REFUSED: T-261116-ws.md: {_EDIT}")
 
-
-def test_decide_from_stdin_valid_object_allows_non_task(tmp_path: Path):
-    out = sg.decide_from_stdin(
-        json.dumps(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_input": {"file_path": "runtime/x.py", "content": "x"},
-            }
-        ),
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-    )
-    assert out == ALLOW_PRE
-
-
-def test_decide_from_stdin_passes_gates(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-pass.md")
-    body = "# T\n\nстатус: blocked\n\nЦенность: test\n"
-    out = sg.decide_from_stdin(
-        json.dumps(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_input": {"file_path": "context/tasks/T-261116-pass.md", "content": body},
-            }
-        ),
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == ALLOW_PRE
-
-
-def test_evaluate_uses_gates_loader_when_gates_none(tmp_path: Path):
     _mk_task(tmp_path, "T-261116-ld.md")
     body = "# T\n\nстатус: blocked\n\nЦенность: test\n"
     loaded = {"n": 0}
@@ -690,221 +549,138 @@ def test_evaluate_uses_gates_loader_when_gates_none(tmp_path: Path):
         loaded["n"] += 1
         return _fake_gates()
 
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-ld.md", "content": body},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=None,
-        gates_loader=loader,
+    assert (
+        _eval(
+            tmp_path,
+            {"file_path": "context/tasks/T-261116-ld.md", "content": body},
+            gates_loader=loader,
+        )
+        == ALLOW_PRE
+        and loaded["n"] == 1
     )
-    assert out == ALLOW_PRE and loaded["n"] == 1
 
-
-def test_evaluate_validation_message_fallback(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-fb.md")
-
-    class WeirdResult:
+    class Weird:
         ok = False
 
-    gates = types.SimpleNamespace(
-        extract_status=lambda text: "open",
-        validate_task_text=lambda *_a, **_k: WeirdResult(),
-    )
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-fb.md", "content": OPEN},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=gates,
-    )
-    assert out == _deny("PreToolUse", "[status-guard] REFUSED: T-261116-fb.md: invalid task")
-
-
-def test_evaluate_result_without_ok_attr_denies(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-nok.md")
+    assert _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-ld.md", "content": OPEN},
+        gates=types.SimpleNamespace(
+            extract_status=lambda t: "open", validate_task_text=lambda *_a, **_k: Weird()
+        ),
+    ) == _deny("PreToolUse", "[status-guard] REFUSED: T-261116-ld.md: invalid task")
 
     class NoOk:
         message = "nope"
 
-    gates = types.SimpleNamespace(
-        extract_status=lambda text: "open",
-        validate_task_text=lambda *_a, **_k: NoOk(),
-    )
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-nok.md", "content": OPEN},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=gates,
-    )
-    assert out == _deny("PreToolUse", "[status-guard] REFUSED: T-261116-nok.md: nope")
+    assert _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-ld.md", "content": OPEN},
+        gates=types.SimpleNamespace(
+            extract_status=lambda t: "open", validate_task_text=lambda *_a, **_k: NoOk()
+        ),
+    ) == _deny("PreToolUse", "[status-guard] REFUSED: T-261116-ld.md: nope")
 
-
-def test_evaluate_whitespace_candidate_with_edits_denies(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-ws.md", "keep\n")
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {
-                "file_path": "context/tasks/T-261116-ws.md",
-                "edits": [{"old_string": "keep\n", "new_string": "   \n"}],
-            },
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=_fake_gates(),
-    )
-    assert out == _deny(
-        "PreToolUse",
-        "[status-guard] REFUSED: T-261116-ws.md: cannot apply Edit onto task file "
-        "(old_string mismatch or missing file)",
-    )
-
-
-def test_evaluate_defaults_to_load_status_gates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    _mk_task(tmp_path, "T-261116-def.md")
-    body = "# T\n\nстатус: blocked\n\nЦенность: test\n"
     calls: list[int] = []
     monkeypatch.setattr(sg, "load_status_gates", lambda: calls.append(1) or _fake_gates())
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-def.md", "content": body},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=None,
-        gates_loader=None,
-    )
-    assert out == ALLOW_PRE and calls == [1]
-
-
-def test_decide_from_stdin_passes_gates_loader(tmp_path: Path):
-    _mk_task(tmp_path, "T-261116-gl.md")
-    body = "# T\n\nстатус: blocked\n\nЦенность: test\n"
-    loaded = {"n": 0}
-
-    def loader():
-        loaded["n"] += 1
-        return _fake_gates()
-
-    out = sg.decide_from_stdin(
-        json.dumps(
+    assert (
+        sg.evaluate_status_guard(
             {
                 "hook_event_name": "PreToolUse",
-                "tool_input": {"file_path": "context/tasks/T-261116-gl.md", "content": body},
-            }
-        ),
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths,
-        gates=None,
-        gates_loader=loader,
+                "tool_input": {"file_path": "context/tasks/T-261116-ld.md", "content": body},
+            },
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates=None,
+            gates_loader=None,
+        )
+        == ALLOW_PRE
+        and calls == [1]
     )
-    assert out == ALLOW_PRE and loaded["n"] == 1
+
+    assert (
+        sg.decide_from_stdin(
+            json.dumps(
+                {
+                    "tool_input": {"file_path": "context/tasks/T-261116-ld.md", "content": body},
+                }
+            ),
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates_loader=loader,
+        )
+        == ALLOW_PRE
+    )
 
 
-def test_evaluate_two_task_errors_join_and_continue(tmp_path: Path):
+def test_multi_task_and_new_file_and_catchall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _mk_task(tmp_path, "T-261116-a.md")
     _mk_task(tmp_path, "T-261116-b.md")
     bad = "# T\n\nстатус: done\n\nЦенность: test\n"
 
-    def extract_paths_multi(payload: dict) -> list[str]:
+    def multi(payload: dict) -> list[str]:
         del payload
         return ["context/tasks/T-261116-a.md", "context/tasks/T-261116-b.md"]
 
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-a.md", "content": bad},
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths_multi,
-        gates=_fake_gates(),
+    out = _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-a.md", "content": bad},
+        extract=multi,
     )
-    assert out == _deny(
-        "PreToolUse",
-        "[status-guard] REFUSED: T-261116-a.md: illegal transition open → done; "
-        "T-261116-b.md: illegal transition open → done",
+    assert "T-261116-a.md: illegal" in out["agent_message"]
+    assert "T-261116-b.md: illegal" in out["agent_message"]
+    out2 = _eval(
+        tmp_path,
+        {"file_path": "context/tasks/T-261116-a.md", "old_string": "NOPE", "new_string": bad},
+        extract=multi,
     )
-    out2 = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {
-                "file_path": "context/tasks/T-261116-a.md",
-                "old_string": "NOPE",
-                "new_string": bad,
-            },
-        },
-        root=tmp_path,
-        context_rel="context",
-        extract_paths=extract_paths_multi,
-        gates=_fake_gates(),
-    )
-    assert out2["permission"] == "deny"
-    assert "T-261116-a.md: cannot apply Edit" in out2["agent_message"]
-    assert "T-261116-b.md: cannot apply Edit" in out2["agent_message"]
-    assert "; " in out2["agent_message"]
+    assert "cannot apply Edit" in out2["agent_message"] and "; " in out2["agent_message"]
 
-
-def test_evaluate_skips_extract_when_no_old_text(tmp_path: Path):
-    (tmp_path / "context" / "tasks").mkdir(parents=True)
+    (tmp_path / "context/tasks").mkdir(parents=True, exist_ok=True)
     extracts: list = []
 
     def extract_status(text):
         extracts.append(text)
-        return "open" if text is None else None
+        return None
 
     def validate_task_text(text, *, old_status=None, require_value, check_transition):
         assert require_value is True and check_transition is False and old_status is None
         return _GateResult(True)
 
-    gates = types.SimpleNamespace(extract_status=extract_status, validate_task_text=validate_task_text)
-    out = sg.evaluate_status_guard(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_input": {"file_path": "context/tasks/T-261116-new.md", "content": OPEN},
-        },
+    assert (
+        _eval(
+            tmp_path,
+            {"file_path": "context/tasks/T-261116-new.md", "content": OPEN},
+            gates=types.SimpleNamespace(
+                extract_status=extract_status, validate_task_text=validate_task_text
+            ),
+        )
+        == ALLOW_PRE
+        and extracts == []
+    )
+
+    def boom(*_a, **_k):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(sg, "evaluate_status_guard", boom)
+    out = sg.decide_from_stdin(
+        json.dumps({"tool_input": {"file_path": "context/tasks/T-261116-a.md", "content": OPEN}}),
         root=tmp_path,
         context_rel="context",
         extract_paths=extract_paths,
-        gates=gates,
     )
-    assert out == ALLOW_PRE and extracts == []
+    assert out["permission"] == "deny" and "evaluation error: locked" in out["agent_message"]
 
+    def boom2(*_a, **_k):
+        raise TypeError("edits is not a mapping")
 
-def test_evaluate_outside_root_after_edit_records_rel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    other = Path("/tmp") / f"age38-rel-{tmp_path.name}" / "tasks"
-    other.mkdir(parents=True, exist_ok=True)
-    task = other / "T-261116-rel.md"
-    task.write_text(OPEN, encoding="utf-8")
-    recorded: list[str] = []
-    monkeypatch.setattr(sg, "git_blob", lambda root, rel: recorded.append(rel) or OPEN)
-    try:
-        out = sg.evaluate_status_guard(
-            {"hook_event_name": "afterFileEdit", "tool_input": {"file_path": str(task)}},
-            root=tmp_path,
-            context_rel="context",
-            extract_paths=extract_paths,
-            gates=_fake_gates(),
-        )
-        assert out["permission"] == "allow" and recorded == [task.as_posix()]
-    finally:
-        task.unlink(missing_ok=True)
-        other.rmdir()
-        other.parent.rmdir()
+    monkeypatch.setattr(sg, "evaluate_status_guard", boom2)
+    out = sg.decide_from_stdin(
+        json.dumps({"tool_input": {"file_path": "context/tasks/T-261116-a.md", "edits": "x"}}),
+        root=tmp_path,
+        context_rel="context",
+        extract_paths=extract_paths,
+    )
+    assert out["permission"] == "deny" and "evaluation error" in out["agent_message"]

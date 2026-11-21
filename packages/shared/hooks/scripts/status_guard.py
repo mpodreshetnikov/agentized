@@ -19,20 +19,35 @@ except ImportError:
             return Path.cwd()
 
 
+def _inline_deny(event: str, msg: str) -> dict:
+    """Deny JSON without importing deny_response (import failure must still deny)."""
+    return {
+        "permission": "deny",
+        "continue": False,
+        "agent_message": msg,
+        "additional_context": msg,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "permissionDecision": "deny",
+            "permissionDecisionReason": msg,
+        },
+        "hookEventName": event,
+        "systemMessage": msg,
+    }
+
+
 def main() -> int:
     workspace = ensure_runtime_on_path(_HERE)
     raw = sys.stdin.read()
+    event = "PreToolUse"
 
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
-        from agentized.status_guard import decide_from_stdin, deny_response
-    except Exception as exc:  # noqa: BLE001 — fail closed
+        from agentized.status_guard import decide_from_stdin
+    except Exception as exc:  # noqa: BLE001 — fail closed; never call deny_response here
         print(
             json.dumps(
-                deny_response(
-                    "PreToolUse",
-                    f"[status-guard] REFUSED: import failure: {exc}",
-                ),
+                _inline_deny("PreToolUse", f"[status-guard] REFUSED: import failure: {exc}"),
                 ensure_ascii=False,
             )
         )
@@ -41,10 +56,13 @@ def main() -> int:
     # Prefer payload cwd when present; fall back after a successful parse inside decide.
     root = workspace
     try:
-        import json as _json
-
-        peek = _json.loads(raw) if raw.strip() else {}
+        peek = json.loads(raw) if raw.strip() else {}
         if isinstance(peek, dict):
+            event = (
+                peek.get("hook_event_name")
+                or peek.get("hookEventName")
+                or "PreToolUse"
+            )
             root = resolve_root(peek) if peek else workspace
     except Exception:  # noqa: BLE001
         root = workspace
@@ -54,12 +72,15 @@ def main() -> int:
         sys.path.insert(0, str(runtime))
 
     ctx = context_rel(root)
-    out = decide_from_stdin(
-        raw,
-        root=root,
-        context_rel=ctx,
-        extract_paths=extract_paths,
-    )
+    try:
+        out = decide_from_stdin(
+            raw,
+            root=root,
+            context_rel=ctx,
+            extract_paths=extract_paths,
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed
+        out = _inline_deny(str(event), f"[status-guard] REFUSED: evaluation error: {exc}")
     print(json.dumps(out, ensure_ascii=False))
     return 0
 

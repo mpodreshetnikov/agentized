@@ -1,13 +1,13 @@
 """Harness status-gate decisions for context/tasks edits (AGE-38).
 
-Fail-closed: broken stdin, unknown payload shape, or status_gates import
-failure while touching a task file → deny. Non-task paths allow without
-loading status_gates (AGE-22 may land separately).
+Fail-closed: broken stdin, unknown payload shape, unbuildable/empty task
+candidate, or status_gates import failure while touching a task file → deny.
+Non-task paths allow without loading status_gates (AGE-22 may land separately).
+PreToolUse only (process_guard); no afterFileEdit path.
 """
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
@@ -20,7 +20,13 @@ _MSG_UNKNOWN_FALLBACK = "[status-guard] REFUSED: unknown payload"
 _MSG_GATES_API = "[status-guard] REFUSED: status_gates missing validate API"
 _MSG_CONTEXT = "[status-guard] REFUSED: context_rel must be a non-empty string"
 _MSG_EDIT = "cannot apply Edit onto task file (old_string mismatch or missing file)"
+_MSG_UNBUILDABLE = (
+    "cannot build candidate text for task file "
+    "(empty/whitespace write or unknown tool shape)"
+)
+_MSG_EVAL = "[status-guard] REFUSED: evaluation error: {exc}"
 _EVENT_PRE = "PreToolUse"
+_TEXT_ENCODING = "utf-8"
 
 
 def allow_response(event: str) -> dict[str, Any]:
@@ -89,31 +95,6 @@ def is_task_path(path: str) -> bool:
     return "tasks" in parts[:-1]
 
 
-def is_after_edit(event: str) -> bool:
-    if not event:
-        return False
-    e = str(event).lower().replace("_", "")
-    if e == "afterfileedit":
-        return True
-    if e == "posttooluse":
-        return True
-    return False
-
-
-def git_blob(root: Path, rel: str) -> str | None:
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "show", f"HEAD:{rel}"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if proc.returncode != 0:
-        return None
-    return proc.stdout
-
-
 def apply_edits(base: str, tool_input: dict[str, Any]) -> str | None:
     """Apply Cursor-style Edit payload onto ``base``. None if not an edit payload."""
     old_s = tool_input.get("old_string")
@@ -172,28 +153,41 @@ def tool_input_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _has_write_key(tool_input: dict[str, Any]) -> bool:
+    for key in ("content", "contents", "body", "text"):
+        if key in tool_input:
+            return True
+    return False
+
+
+def _has_edit_keys(tool_input: dict[str, Any]) -> bool:
+    if tool_input.get("new_string") is not None:
+        return True
+    if tool_input.get("edits") is not None:
+        return True
+    return False
+
+
 def candidate_and_old(
     path: Path,
     *,
-    root: Path,
+    root: Path | str,
     rel: str,
     tool_input: dict[str, Any],
     event: str,
 ) -> tuple[str | None, str | None]:
-    """Return (candidate_text, old_text_for_transition)."""
-    # Locale text mode (no encoding= lexeme) — utf-8/UTF-8/None mutants collapse.
-    if not isinstance(root, Path):
-        return None, None
-    on_disk = path.read_text() if path.exists() else None
-    if is_after_edit(event):
-        blob = git_blob(root, rel)
-        if on_disk is None:
-            return "", blob
-        return on_disk, blob
+    """Return (candidate_text, old_text_for_transition). PreToolUse only."""
+    del event, rel  # PreToolUse: no afterFileEdit / git blob path
+    root = Path(root)
+    on_disk = path.read_text(encoding=_TEXT_ENCODING) if path.exists() else None
 
     full = full_write_text(tool_input)
     if full is not None:
         return full, on_disk
+
+    if _has_write_key(tool_input):
+        # Explicit empty/whitespace Write → unbuildable (deny at caller).
+        return None, on_disk
 
     if on_disk is not None:
         merged = apply_edits(on_disk, tool_input)
@@ -223,6 +217,7 @@ def evaluate_status_guard(
     if type(context_rel) is not str or len(context_rel) == 0:
         return deny_response(event, _MSG_CONTEXT)
 
+    root = Path(root)
     tool_input = tool_input_from_payload(payload)
     # Always feed tool_input explicitly so Codex/Claude `input` alias is covered.
     # `input`-only illegal-transition tests kill tool_input key mutants.
@@ -253,7 +248,7 @@ def evaluate_status_guard(
         path = Path(rel)
         if not path.is_absolute():
             path = root / rel
-        # Prefer repo-relative path for git; fall back to normalized input path.
+        # Prefer repo-relative path for display; fall back to normalized input.
         try:
             rel_for_git = path.resolve().relative_to(root.resolve()).as_posix()
         except ValueError:
@@ -268,8 +263,10 @@ def evaluate_status_guard(
         )
         blank = candidate is None or str(candidate).strip() == ""
         if blank:
-            if tool_input.get("new_string") is not None or tool_input.get("edits") is not None:
+            if _has_edit_keys(tool_input):
                 errors.append(f"{Path(rel).name}: {_MSG_EDIT}")
+            else:
+                errors.append(f"{Path(rel).name}: {_MSG_UNBUILDABLE}")
             continue
 
         if old_text:
@@ -302,16 +299,19 @@ def decide_from_stdin(
     gates: ModuleType | None = None,
     gates_loader: Callable[[], ModuleType] | None = None,
 ) -> dict[str, Any]:
-    """Parse stdin then evaluate. Broken/unknown payload → deny."""
+    """Parse stdin then evaluate. Broken/unknown payload / eval errors → deny."""
     payload, err = parse_hook_stdin(raw)
     if payload is None:
         # parse_hook_stdin always pairs None payload with a str error message.
         return deny_response(_EVENT_PRE, err or _MSG_UNKNOWN_FALLBACK)
-    return evaluate_status_guard(
-        payload,
-        root=root,
-        context_rel=context_rel,
-        extract_paths=extract_paths,
-        gates=gates,
-        gates_loader=gates_loader,
-    )
+    try:
+        return evaluate_status_guard(
+            payload,
+            root=root,
+            context_rel=context_rel,
+            extract_paths=extract_paths,
+            gates=gates,
+            gates_loader=gates_loader,
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed (PermissionError, bad edits, …)
+        return deny_response(_EVENT_PRE, _MSG_EVAL.format(exc=exc))
