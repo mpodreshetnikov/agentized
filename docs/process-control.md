@@ -32,6 +32,26 @@ PROCESS_BASE=<pr-base-sha> ./bin/agentized process size
 
 Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` is false (not only `level == over`).
 
+## Tip hygiene (AGE-76)
+
+Hard gate inside `agentized tasks-validate` (dogfood pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.) Template quality CI/pre-push do **not** run tip hygiene until that seed lands.
+
+When a PR number is known, **at least one** task must have `pr:` pointing at that PR, status `self-review` or `done`, and claim released (`claim:` empty or `_(пусто)_` only — the template `_(пусто или кто ведёт)_` counts as **held**). Template `родитель` (`_(пусто для корневой задачи; …)_`) is also held — use a real parent id or `_(пусто)_`. `agentized new` defaults parent to `_(пусто)_` and requires `--value` for `Ценность:`.
+
+PR number resolution:
+
+- On GitHub Actions `pull_request`, `GITHUB_REF` (`refs/pull/N/…`) wins.
+- `AGENTIZED_PR` / `TIP_HYGIENE_PR` / `GITHUB_PR_NUMBER` / `--pr` must **agree** with that N or the gate fails (blocks override dodges).
+- Missing PR number on `pull_request` → fail.
+- `push` / local without a PR number → skip linked-task checks (INDEX still required).
+
+```bash
+./bin/agentized tasks-validate
+./bin/agentized ready <TASK_ID> --review-note "…" [--pr '#N']
+```
+
+`ready` only from `in-progress` → `self-review` + claim `_(пусто)_`. Already `self-review` → no-op (no writes). Other statuses refused.
+
 ## Spec approval gate (AGE-28) — core
 
 Optional `spec_approval` policy (defaults off). Pure evaluation lives in

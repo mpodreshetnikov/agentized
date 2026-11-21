@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### AGE-76 — PR tip hygiene gate
+
+- Hard `tasks-validate` tip hygiene: INDEX freshness; PR-linked tasks must be `self-review`/`done` with claim `_(пусто)_` or empty; template `родитель` placeholder held; every PR needs a matching `pr:` task.
+- In CI `pull_request`, `GITHUB_REF` wins; env/`--pr` overrides must agree.
+- `agentized ready`: `in-progress` → self-review + claim release; self-review is a no-op; other statuses refused.
+- Wired in **dogfood** CI + `.githooks/pre-push` only. Template `templates/quality/{ci.yml,pre-push}` tip-hygiene wiring waits for AGE-68 connect INDEX seeds (REJECT r3 choice b).
+- `agentized new` requires `--value` (writes `Ценность:`) and defaults `родитель` to `_(пусто)_` (not the TEMPLATE placeholder).
+- `connect` INDEX seed → `rebuild_task_index` remains AGE-68.
+
 ### Fixed
 
 - External `agentized connect`: preflight bridge conflicts before seeding empty registry (NAV + tasks/leases indexes + decisions/goals/digests dirs); atomic UTF-8 writes; bridges before connect with rollback on connect failure; `under_context` allows tasks/leases/… bridge escapes so `agentized index` / write_metrics work. Empty external INDEX seed uses `rebuild_task_index` / `rebuild_lease_index` (coord Lead REJECT #55 MINIMAL_* delete). Honest `connect.py` external skip waits AGE-68 A-final.

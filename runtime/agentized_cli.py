@@ -44,6 +44,7 @@ from agentized.tasks import (
     render_task_file,
     set_field,
 )
+from agentized.tip_hygiene import write_ready
 
 
 def _context_rel(root: Path, args) -> str:
@@ -362,10 +363,17 @@ def cmd_quality(args: argparse.Namespace) -> int:
 
 
 def cmd_new(args: argparse.Namespace) -> int:
+    from agentized.task_schema import PLACEHOLDER_EMPTY
+
     root = find_repo_root()
     ctx = _ctx(root, args, require_ready=True)
     tasks_dir = ctx / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    value = (getattr(args, "value", None) or "").strip()
+    if not value:
+        print("new FAIL: --value is required (non-empty Ценность)", file=sys.stderr)
+        return 1
 
     if not args.yes:
         reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
@@ -374,7 +382,8 @@ def cmd_new(args: argparse.Namespace) -> int:
             return 2
 
     task_id = allocate_task_id(tasks_dir)
-    parent = args.parent or ""
+    # Default parent is _(пусто)_ — not the TEMPLATE placeholder (tip hygiene holds that).
+    parent = (args.parent or "").strip() or PLACEHOLDER_EMPTY
     text = render_task_file(
         task_id,
         args.title,
@@ -382,6 +391,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         tags=args.tags or "",
         parent=parent,
         goal=args.goal or "Что должно быть сделано.",
+        value=value,
     )
     path = tasks_dir / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
@@ -449,6 +459,7 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
             _ctx(root, args) / "tasks",
             repo_root=root,
             base_ref=getattr(args, "base", None) or None,
+            pr=getattr(args, "pr", None) or None,
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
@@ -458,6 +469,34 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
         print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
         return 1
     print(f"tasks-validate OK (base={ref})")
+    return 0
+
+
+def cmd_ready(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    tasks_dir = _ctx(root, args) / "tasks"
+    note = (args.review_note or "").strip()
+    if not note:
+        print("ready FAIL: --review-note is required", file=sys.stderr)
+        return 1
+    try:
+        path, changed = write_ready(
+            tasks_dir,
+            args.task_id,
+            review_note=note,
+            pr=getattr(args, "pr", None) or None,
+        )
+    except FileNotFoundError as exc:
+        print(f"ready FAIL: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"ready FAIL: {exc}", file=sys.stderr)
+        return 1
+    rel = path.relative_to(root)
+    if not changed:
+        print(f"ready {args.task_id}: no-op (already self-review) → {rel}")
+        return 0
+    print(f"ready {args.task_id}: self-review, claim released → {rel}")
     return 0
 
 
@@ -953,7 +992,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("new", help="Создать задачу (по умолчанию с подтверждением человека)")
     n.add_argument("--title", required=True)
-    n.add_argument("--parent", default="")
+    n.add_argument(
+        "--value",
+        required=True,
+        help="обязательная Ценность (business one-liner; written as Ценность: …)",
+    )
+    n.add_argument(
+        "--parent",
+        default="",
+        help="родитель id; default _(пусто)_ (not the TEMPLATE placeholder)",
+    )
     n.add_argument("--tags", default="")
     n.add_argument("--goal", default="")
     n.add_argument("--context", default=None)
@@ -982,10 +1030,25 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
 
-    tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
+    tv = sub.add_parser("tasks-validate", help="Hard status gates + tip hygiene on context/tasks")
     tv.add_argument("--context", default=None)
     tv.add_argument("--base", default=None)
+    tv.add_argument(
+        "--pr",
+        default=None,
+        help="PR number/#N/URL (must agree with GITHUB_REF in CI pull_request)",
+    )
     tv.set_defaults(func=cmd_tasks_validate)
+
+    rd = sub.add_parser(
+        "ready",
+        help="in-progress → self-review + release claim (self-review no-op)",
+    )
+    rd.add_argument("task_id")
+    rd.add_argument("--review-note", required=True)
+    rd.add_argument("--pr", default=None, help="Set pr: field (#N or URL)")
+    rd.add_argument("--context", default=None)
+    rd.set_defaults(func=cmd_ready)
 
     bd = sub.add_parser("board", help="Render static board.html from context/tasks")
     bd.add_argument("--output", "-o", default="board.html")

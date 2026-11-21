@@ -15,7 +15,7 @@ description: Create, claim, and update Agentized tasks with human confirmation, 
 ## Instructions
 
 1. **Create** with human confirmation by default:
-   - `python3 runtime/agentized_cli.py new --title "…"`
+   - `python3 runtime/agentized_cli.py new --title "…" --value "…"`
    - Do **not** pass `--yes` in normal human sessions (autotests only).
 2. Task status is a field at the start of the task file (`статус:`). **Do not move files** when status changes.
 3. Lifecycle: `idea → open → in-progress → blocked → done | dropped`.

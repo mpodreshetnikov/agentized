@@ -21,3 +21,14 @@ Quality gates: [`docs/QUALITY.md`](docs/QUALITY.md).
 Project Context: [`context/NAV.md`](context/NAV.md). Coverage defaults live in [`context/quality.json`](context/quality.json) (80% lines/branches; `connect --coverage <pct>`).
 
 `context/process-control.json` is **required**: `agentized check` fails hard if it is missing (fail-closed). See [`docs/connect-contract.md`](docs/connect-contract.md).
+
+### Tip hygiene (AGE-76)
+
+Before opening a PR for Lead review:
+
+```bash
+./bin/agentized ready <TASK_ID> --review-note "…" --pr '#N'
+./bin/agentized tasks-validate
+```
+
+Dogfood CI/`tasks-validate` hard-fails when INDEX is stale, or (on a pull request) when no task links `pr:` to this PR / status is not `self-review|done` / claim is not released / template `родитель` placeholder remains. Template quality hooks defer tip hygiene until AGE-68 connect INDEX seeds. `agentized new` needs `--value` and defaults parent to `_(пусто)_`. Details: [`docs/process-control.md`](docs/process-control.md) (Tip hygiene).

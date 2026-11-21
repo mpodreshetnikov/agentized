@@ -427,8 +427,19 @@ def validate_tasks_dir(
 
 
 def run_tasks_validate(
-    tasks_dir: Path, *, repo_root: Path, base_ref: str | None = None
+    tasks_dir: Path,
+    *,
+    repo_root: Path,
+    base_ref: str | None = None,
+    pr: int | str | None = None,
 ) -> tuple[str, GateResult]:
+    from .tip_hygiene import validate_tip_hygiene
+
     ref = resolve_validate_base_ref(repo_root, explicit=base_ref)
     previous = previous_task_texts_from_git(tasks_dir, repo_root=repo_root, ref=ref)
-    return (ref, validate_tasks_dir(tasks_dir, previous_by_name=previous))
+    result = validate_tasks_dir(tasks_dir, previous_by_name=previous)
+    tip = validate_tip_hygiene(tasks_dir, pr=pr)
+    if tip.ok:
+        return (ref, result)
+    merged = tuple(result.errors) + tuple(tip.errors)
+    return (ref, GateResult(ok=False, errors=merged))
