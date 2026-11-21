@@ -59,10 +59,11 @@ def test_mkdir_kwargs_parents_and_exist_ok(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(Path, "mkdir", wrapped)
     ensure_context_skeleton(tmp_path, "context")
-    for name in ("context", "tasks", "leases"):
-        assert name in seen, name
-        assert seen[name].get("parents") is True, name
-        assert seen[name].get("exist_ok") is True, name
+    expected = {"parents": True, "exist_ok": True}
+    assert len(seen) == 3
+    assert seen["context"] == expected
+    assert seen["tasks"] == expected
+    assert seen["leases"] == expected
 
 
 def test_preexisting_tasks_dir_requires_exist_ok(tmp_path: Path):
