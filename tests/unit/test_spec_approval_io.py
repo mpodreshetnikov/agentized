@@ -265,7 +265,8 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     )
     still = spec_approval_check(root, policy=policy)
     assert still["ok"] is False
-    assert still["checked"] == 3
+    # aaaa fail + bbbb ok; done/open/simple exempt
+    assert still["checked"] == 2
     # second failing complex task so FAILURE_JOIN is exercised
     _write_task(
         tasks,
@@ -281,6 +282,14 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     (tasks / "T-260101-gggg.md").unlink()
 
     (tasks / "T-260101-aaaa.md").unlink()
+    _write_task(
+        tasks,
+        "T-260101-ffff",
+        status="blocked",
+        tags="complex",
+        claim="alice",
+        extra="## Spec\n\nBlocked plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
+    )
     ok = spec_approval_check(root, policy=policy)
     assert ok["ok"] is True
     assert ok["mode"] == "ok"

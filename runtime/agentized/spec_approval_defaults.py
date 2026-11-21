@@ -38,9 +38,6 @@ SPEC_GATE_STATUSES: frozenset[str] = frozenset(
         "self-review",
         "for-review",
         "blocked",
-        "done",
-        "dropped",
-        "canceled",
     }
 )
 

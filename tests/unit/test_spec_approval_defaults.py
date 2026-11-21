@@ -77,7 +77,12 @@ def test_constants_and_default():
         "in-progress",
     )
     assert STATUS_IN_PROGRESS in SPEC_GATE_STATUSES
-    assert "done" in SPEC_GATE_STATUSES
+    assert SPEC_GATE_STATUSES == frozenset(
+        {"in-progress", "self-review", "for-review", "blocked"}
+    )
+    assert "done" not in SPEC_GATE_STATUSES
+    assert "dropped" not in SPEC_GATE_STATUSES
+    assert "canceled" not in SPEC_GATE_STATUSES
     assert "open" not in SPEC_GATE_STATUSES
     assert default_spec_approval() == {
         "enabled": False,
