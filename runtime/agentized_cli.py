@@ -59,9 +59,7 @@ def cmd_connect(args: argparse.Namespace) -> int:
     secrets_connect = apply_secrets_connect(root, args.context)
     result["secrets"] = secrets_connect
     if result.get("quality_templates") is not None:
-        result["quality_templates"]["gitleaks_config"] = secrets_connect.get(
-            "gitleaks_config"
-        )
+        result["quality_templates"]["gitleaks_config"] = secrets_connect.get("gitleaks_config")
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")

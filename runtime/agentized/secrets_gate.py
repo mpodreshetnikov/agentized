@@ -4,6 +4,7 @@ Default mode hard on pre-push/CI. Missing binary fails closed when mode=hard.
 `enabled: false` fails closed unless disable_decision (reason + approved_by +
 expires ≤14d) is recorded. CLI calls `apply_secrets_connect` after `connect()`.
 """
+
 from __future__ import annotations
 
 import json

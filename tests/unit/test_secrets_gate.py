@@ -30,17 +30,24 @@ def _require_gitleaks() -> str:
 def _quality(root: Path, secrets: dict) -> None:
     (root / "context").mkdir(parents=True, exist_ok=True)
     (root / "context" / "quality.json").write_text(
-        json.dumps({
-            "version": 1, "coverage": {"lines": 80, "branches": 80},
-            "modules": [], "secrets": secrets, "gates": {"ci": ["secrets"]},
-        }) + "\n",
+        json.dumps(
+            {
+                "version": 1,
+                "coverage": {"lines": 80, "branches": 80},
+                "modules": [],
+                "secrets": secrets,
+                "gates": {"ci": ["secrets"]},
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
 
 def _summary(root: Path) -> dict:
-    return json.loads((root / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
-
+    return json.loads(
+        (root / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
+    )
 
 
 def test_build_cmd_config_optional(tmp_path: Path):
@@ -160,7 +167,6 @@ def test_leak_without_report_uses_stderr(tmp_path: Path, monkeypatch):
     assert "WRN leaks found: 2" in summary["findings"][0]["detail"]
 
 
-
 def test_custom_binary_path(tmp_path: Path, monkeypatch):
     _quality(
         tmp_path,
@@ -207,13 +213,20 @@ def test_custom_binary_via_which(tmp_path: Path, monkeypatch):
     assert seen == ["/opt/my-gitleaks"]
 
 
-
-
-
 def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "root"],
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "root",
+        ],
         cwd=path,
         check=True,
         capture_output=True,
@@ -233,17 +246,26 @@ def test_real_gitleaks_detects_planted_secrets(tmp_path: Path):
     repo.mkdir()
     _init_git_repo(repo)
     github = "ghp_" + "wWHhP5N9XzvB6c3dEfGhIjKlMnOpQrStUvWx"
-    stripe = "sk_live_" + "51Hq" + ("abcdefghijklmnopqrstuvwxyz" * 2) + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+    stripe = (
+        "sk_live_"
+        + "51Hq"
+        + ("abcdefghijklmnopqrstuvwxyz" * 2)
+        + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+    )
     (repo / "leak.txt").write_text(f"{github}\n{stripe}\n", encoding="utf-8")
     subprocess.run(["git", "add", "leak.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "plant"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     _pin_gitleaks_toml(repo, allowlist=True)
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 1
-    summary = json.loads((repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
+    )
     assert summary["toolRc"] == 1 and len(summary["findings"]) >= 1 and summary["passed"] is False
 
 
@@ -256,12 +278,16 @@ def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
     subprocess.run(["git", "add", "ok.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "clean"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     _pin_gitleaks_toml(repo)
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 0
-    summary = json.loads((repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
+    )
     assert summary["toolRc"] == 0 and summary["findings"] == [] and summary["passed"] is True
 
 
@@ -315,6 +341,7 @@ def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
     assert "secrets_enabled" in forced["upgraded_modes"]
     assert "secrets" in forced["upgraded_modes"]
     from agentized.secrets_gate import secrets_section
+
     secrets = secrets_section(tmp_path)
     assert secrets["enabled"] is True
     assert secrets["mode"] == "hard"
@@ -338,6 +365,7 @@ def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
     kept = persist_secrets_policy(tmp_path, "context")
     assert kept["upgraded_modes"] == []
     from agentized.secrets_gate import secrets_section
+
     kept_secrets = secrets_section(tmp_path)
     assert kept_secrets["enabled"] is False
     assert kept_secrets["disable_decision"]["approved_by"] == "Maxim"
