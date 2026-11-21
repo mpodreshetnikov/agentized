@@ -85,6 +85,8 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False
+    assert f"over >{over['limit']}" in over["message"]
+    assert f"over ≥{over['limit']}" not in over["message"]
 
 
 def test_claim_disabled_and_skip(tmp_path: Path):

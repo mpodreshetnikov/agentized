@@ -24,6 +24,7 @@ from agentized.leases import (
 )
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
+from agentized.status_gates import run_tasks_validate
 from agentized.tasks import (
     ACTIVE_STATUSES,
     ALL_STATUSES,
@@ -364,6 +365,27 @@ def cmd_status(args: argparse.Namespace) -> int:
     (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
     return 0
+
+
+
+def cmd_tasks_validate(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    ctx = _ctx(root, args)
+    base = getattr(args, "base", None) or None
+    try:
+        ref, result = run_tasks_validate(
+            ctx / "tasks", repo_root=root, base_ref=base
+        )
+    except RuntimeError as exc:
+        print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
+        return 1
+    if result.ok:
+        print(f"tasks-validate OK (base={ref})")
+        return 0
+    print("tasks-validate FAIL", file=sys.stderr)
+    for err in result.errors:
+        print(f"  ERROR: {err}", file=sys.stderr)
+    return 1
 
 
 def cmd_index(args: argparse.Namespace) -> int:
@@ -751,6 +773,18 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--status", required=True, choices=list(ALL_STATUSES))
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
+
+    tv = sub.add_parser(
+        "tasks-validate",
+        help="Hard status gates: переходы/поля/Ценность по всем context/tasks",
+    )
+    tv.add_argument("--context", default=None)
+    tv.add_argument(
+        "--base",
+        default=None,
+        help="git ref for prior blobs (default: MUTATION_BASE / merge-base origin/main)",
+    )
+    tv.set_defaults(func=cmd_tasks_validate)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
     ix.add_argument("--context", default=None)

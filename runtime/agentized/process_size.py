@@ -67,9 +67,9 @@ def diff_insertions(root: Path, base_ref: str) -> int:
 
 
 def classify_size(insertions: int, limit: int, warn_pct: float) -> tuple[str, bool, int]:
-    """Return (level, ok, warn_at). over → ok False; warn/ok → ok True."""
+    """Return (level, ok, warn_at). Inclusive limit: ==limit is warn/ok; only >limit is over (AGE-40)."""
     warn_at = int(limit * warn_pct / 100.0)
-    if insertions >= limit:
+    if insertions > limit:
         return "over", False, warn_at
     if insertions >= warn_at:
         return "warn", True, warn_at
