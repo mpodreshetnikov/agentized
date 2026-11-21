@@ -483,8 +483,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         if t.status in INDEX_ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
 
-    # Hard status gates (AGE-22) — transitions vs PR base when git works;
-    # empty-.git connect fixtures fall back to snapshot field gates only.
+    # Hard gates: PR-base when git works; snapshot if empty-.git fixture.
     try:
         _ref, gates = run_tasks_validate(ctx / "tasks", repo_root=root)
         if not gates.ok:

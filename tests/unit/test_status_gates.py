@@ -494,6 +494,12 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         subprocess,
         "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    assert resolve_validate_base_ref(tmp_path) == "origin/main"
+    monkeypatch.setattr(
+        subprocess,
+        "run",
         lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="err"),
     )
     assert resolve_validate_base_ref(tmp_path) == "origin/main"
