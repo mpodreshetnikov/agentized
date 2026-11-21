@@ -598,10 +598,16 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", tree_and_show)
     monkeypatch.delenv("MUTATION_BASE", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("AGENTIZED_PR", raising=False)
     assert set(previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")) == {
         "T-261116-os.md"
     }
-    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, tip_hygiene=False)
+    from agentized.task_schema import rebuild_task_index
+
+    (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref == "deadbeef" and result.ok is True
 
     def fail_show(argv, **kwargs):
@@ -657,12 +663,18 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
 
 def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     import agentized.status_gates as sg
+    from agentized.task_schema import rebuild_task_index
+
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("AGENTIZED_PR", raising=False)
 
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "T-261116-rv.md").write_text(
         _task("done", extra="acceptance_note: forged"), encoding="utf-8"
     )
+    (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
     calls: dict = {}
 
     def fake_resolve(root, *, explicit=None):

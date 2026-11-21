@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOGFOOD_CI = ROOT / ".github" / "workflows" / "ci.yml"
+TEMPLATE_CI = ROOT / "templates" / "quality" / "ci.yml"
+PRE_PUSH = ROOT / ".githooks" / "pre-push"
+TEMPLATE_PRE_PUSH = ROOT / "templates" / "quality" / "pre-push"
 
 
 def _gate_step(path: Path) -> str:
@@ -51,3 +54,18 @@ def test_index_freshness_uses_porcelain_no_hardcoded_paths():
     ]
     assert hardcoded == []
     assert _exact_lines(step, "exit 1") == ["exit 1", "exit 1"]
+
+
+def test_template_ci_has_tasks_validate_hard():
+    expected = '"${CLI[@]}" tasks-validate'
+    step = _gate_step(TEMPLATE_CI)
+    assert _exact_lines(step, expected) == [expected]
+    soft = [ln for ln in step.splitlines() if "|| true" in ln]
+    assert soft == []
+
+
+def test_pre_push_runs_tasks_validate():
+    for path in (PRE_PUSH, TEMPLATE_PRE_PUSH):
+        text = path.read_text(encoding="utf-8")
+        assert '"${CLI[@]}" tasks-validate' in text
+        assert "|| true" not in text.split("tasks-validate")[1].split("process size")[0]

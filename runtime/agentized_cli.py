@@ -451,7 +451,6 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
             repo_root=root,
             base_ref=getattr(args, "base", None) or None,
             pr=getattr(args, "pr", None) or None,
-            tip_hygiene=not bool(getattr(args, "no_tip_hygiene", False)),
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
@@ -472,7 +471,7 @@ def cmd_ready(args: argparse.Namespace) -> int:
         print("ready FAIL: --review-note is required", file=sys.stderr)
         return 1
     try:
-        path = write_ready(
+        path, changed = write_ready(
             tasks_dir,
             args.task_id,
             review_note=note,
@@ -484,7 +483,11 @@ def cmd_ready(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"ready FAIL: {exc}", file=sys.stderr)
         return 1
-    print(f"ready {args.task_id}: self-review, claim released → {path.relative_to(root)}")
+    rel = path.relative_to(root)
+    if not changed:
+        print(f"ready {args.task_id}: no-op (already self-review) → {rel}")
+        return 0
+    print(f"ready {args.task_id}: self-review, claim released → {rel}")
     return 0
 
 
@@ -1009,24 +1012,19 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
 
-    tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
+    tv = sub.add_parser("tasks-validate", help="Hard status gates + tip hygiene on context/tasks")
     tv.add_argument("--context", default=None)
     tv.add_argument("--base", default=None)
     tv.add_argument(
         "--pr",
         default=None,
-        help="PR number/#N/URL for tip hygiene (else AGENTIZED_PR / GITHUB_REF)",
-    )
-    tv.add_argument(
-        "--no-tip-hygiene",
-        action="store_true",
-        help="Skip tip hygiene (INDEX freshness + PR-linked task checks)",
+        help="PR number/#N/URL (must agree with GITHUB_REF in CI pull_request)",
     )
     tv.set_defaults(func=cmd_tasks_validate)
 
     rd = sub.add_parser(
         "ready",
-        help="Flip task to self-review, release claim, set review_note (tip hygiene)",
+        help="in-progress → self-review + release claim (self-review no-op)",
     )
     rd.add_argument("task_id")
     rd.add_argument("--review-note", required=True)
