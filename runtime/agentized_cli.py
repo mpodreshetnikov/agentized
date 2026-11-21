@@ -805,7 +805,7 @@ def cmd_import_orbit(args: argparse.Namespace) -> int:
         print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
     if report.errors:
         return 1
-    return 0 if report.would_write else 1
+    return 0
 
 
 def cmd_digest(args: argparse.Namespace) -> int:

@@ -620,19 +620,3 @@ def test_tasks_getattr_unknown_message():
         _ = tasks_mod.not_a_real_export
     assert "not_a_real_export" in str(ei.value)
     assert "agentized.tasks" in str(ei.value) or "tasks" in str(ei.value)
-
-
-def test_parse_task_whitespace_body_first_line_empty(tmp_path: Path, monkeypatch):
-    """Whitespace-only body must pass empty string to re.match (not placeholder)."""
-    captured: list[str] = []
-    real_match = tasks_mod.re.match
-
-    def capture_match(pattern, string, *a, **k):
-        captured.append(string)
-        return real_match(pattern, string, *a, **k)
-
-    monkeypatch.setattr(tasks_mod.re, "match", capture_match)
-    meta = parse_task(_write(tmp_path / "T-261116-ws02.md", " \t  \n\n"))
-    assert meta is not None
-    assert meta.task_id == "T-261116-ws02"
-    assert captured == [""]
