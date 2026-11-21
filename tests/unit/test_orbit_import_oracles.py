@@ -24,8 +24,10 @@ from agentized.orbit_import import (
     parse_yaml_front_matter,
     resolve_dest_path,
 )
-from agentized.task_schema import PLACEHOLDER_CLAIM, PLACEHOLDER_PARENT, PLACEHOLDER_SECTION, PLACEHOLDER_TAGS
+import agentized.task_schema as _ts
 
+
+# fmt: off
 def _fm(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
@@ -553,13 +555,13 @@ def test_agentized_markdown_exact_matrix():
     )
     expected = (
         "# T-9 — T\n\nстатус: in-progress\nтеги: a, b\n"
-        f"родитель: {PLACEHOLDER_PARENT}\nclaim: {PLACEHOLDER_CLAIM}\n"
+        f"родитель: {_ts.PLACEHOLDER_PARENT}\nclaim: {_ts.PLACEHOLDER_CLAIM}\n"
         "kind: feature\npriority: p2\nowner: a\ndepends_on: [T-1, T-2]\n"
         "blocked_by: w\nexit: e\nsuperseded_by: T-3\n\n"
         "Ценность: V\n\n## Цель\n\n"
         "Imported from orbit-tasks fixture (see preserved body below).\n\n"
-        f"## Progress\n\n{PLACEHOLDER_SECTION}\n\n## Decision Log\n\n"
-        f"{PLACEHOLDER_SECTION}\n\n"
+        f"## Progress\n\n{_ts.PLACEHOLDER_SECTION}\n\n## Decision Log\n\n"
+        f"{_ts.PLACEHOLDER_SECTION}\n\n"
         "## Imported body (preserved ids / history links)\n\n"
         "_source: `T-9.md`_\n\nBody\n"
     )
@@ -574,7 +576,7 @@ def test_agentized_markdown_exact_matrix():
         body="B\n",
     )
     md_tags = agentized_markdown(empty_tags)
-    assert f"теги: {PLACEHOLDER_TAGS}" in md_tags.splitlines()
+    assert f"теги: {_ts.PLACEHOLDER_TAGS}" in md_tags.splitlines()
     assert "acceptance_note:" not in md_tags
     rich = OrbitTaskDraft(
         source=Path("T-9.md"),
