@@ -635,7 +635,24 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
     with pytest.raises(RuntimeError) as e5:
         previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
-    assert other.name in str(e5.value)
+    with pytest.raises(ValueError) as ve:
+        other.resolve().relative_to(tmp_path.resolve())
+    assert str(e5.value) == MSG_GIT_ERROR.format(rel=other.name, ref="HEAD", detail=str(ve.value))
+    # resolve_validate_base_ref must see the explicit repo_root (not None)
+    seen: list[Path] = []
+
+    def capture_resolve(root, *, explicit=None):
+        seen.append(root)
+        return explicit or "HEAD"
+
+    monkeypatch.setattr("agentized.status_gates.resolve_validate_base_ref", capture_resolve)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=128, stdout="", stderr="does not exist"),
+    )
+    assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD") == {}
+    assert seen == [tmp_path]
 
 
 def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
