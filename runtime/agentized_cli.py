@@ -70,8 +70,9 @@ def cmd_connect(args: argparse.Namespace) -> int:
         print(f"  context skeleton: created ({', '.join(sk.get('files') or [])})")
     else:
         print("  context skeleton: existing (unchanged)")
-    print(f"  AGENTS.md updated: {result['state']['agents_md_updated']}")
-    print(f"  CLAUDE.md updated: {result['state']['claude_md_updated']}")
+    state = result.get("state") if isinstance(result.get("state"), dict) else {}
+    print(f"  AGENTS.md updated: {state.get('agents_md_updated', False)}")
+    print(f"  CLAUDE.md updated: {state.get('claude_md_updated', False)}")
     print(f"  harnesses: {', '.join(harnesses)}")
     if result.get("managed_manifest"):
         print(f"  managed manifest: {result['managed_manifest']}")

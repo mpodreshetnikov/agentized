@@ -52,7 +52,6 @@ def test_cmd_connect_passes_dry_run(monkeypatch):
                     }
                 }
             },
-            "state": {"agents_md_updated": False, "claude_md_updated": False},
         }
 
     monkeypatch.setattr(connect_mod, "connect", fake)

@@ -42,15 +42,16 @@ KNOWN_COMMAND_FORMS: dict[str, frozenset[str]] = {
 }
 
 _SCRIPT_ALT = "|".join(sorted(re.escape(s) for s in AGENTIZED_SCRIPTS))
-# Whole-command absolute aliases only (AGE-52) — never substring / compound.
-_ABS_CURSOR = re.compile(rf"^/.+/\.cursor/hooks/(?:{_SCRIPT_ALT})$")
+# Path segments only — no spaces / shell metacharacters (AGE-52).
+_SEG = r"[^/\s|&;<>()$`\\\"']+"
+_ABS_CURSOR = re.compile(rf"^/(?:{_SEG}/)+\.cursor/hooks/(?:{_SCRIPT_ALT})$")
 _ABS_CLAUDE = re.compile(
-    rf'^python3 (?:"/[^"]+/\.claude/hooks/(?:{_SCRIPT_ALT})"|'
-    rf"/[^ ]+/\.claude/hooks/(?:{_SCRIPT_ALT}))$"
+    rf'^python3 (?:"/(?:{_SEG}/)+\.claude/hooks/(?:{_SCRIPT_ALT})"|'
+    rf"/(?:{_SEG}/)+\.claude/hooks/(?:{_SCRIPT_ALT}))$"
 )
 _ABS_CODEX = re.compile(
-    rf'^python3 (?:"/[^"]+/\.codex/hooks/(?:{_SCRIPT_ALT})"|'
-    rf"/[^ ]+/\.codex/hooks/(?:{_SCRIPT_ALT}))$"
+    rf'^python3 (?:"/(?:{_SEG}/)+\.codex/hooks/(?:{_SCRIPT_ALT})"|'
+    rf"/(?:{_SEG}/)+\.codex/hooks/(?:{_SCRIPT_ALT}))$"
 )
 _ABS_FORMS = {
     "cursor": _ABS_CURSOR,

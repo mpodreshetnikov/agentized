@@ -16,6 +16,8 @@ def test_is_agentized_exact_and_abs():
         (None, "cursor", False),
         (1, "cursor", False),
         ("echo /x/.cursor/hooks/session_start.py", "cursor", False),
+        ("/bin/audit && /repo/.cursor/hooks/process_guard.py", "cursor", False),
+        ('python3 "/a && /b/.claude/hooks/lease_warn.py"', "claude", False),
         ("nope", "unknown", False),
     ]
     assert [(c, h, is_agentized_command(c, h)) for c, h, _ in cases] == [
