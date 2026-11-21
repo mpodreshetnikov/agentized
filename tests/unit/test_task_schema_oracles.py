@@ -498,3 +498,27 @@ def test_map_orbit_status_exact():
     assert map_orbit_status("Open") == "open"
     assert map_orbit_status("wip") is None
     assert map_orbit_status("unknown-orbit") is None
+
+
+def test_parse_task_empty_body_match_empty_string(tmp_path: Path, monkeypatch):
+    """Empty/whitespace body: re.match must see "" (not a placeholder)."""
+    from agentized import tasks as tasks_mod
+
+    captured: list[str] = []
+    real_match = tasks_mod.re.match
+
+    def capture_match(pattern, string, *a, **k):
+        captured.append(string)
+        return real_match(pattern, string, *a, **k)
+
+    monkeypatch.setattr(tasks_mod.re, "match", capture_match)
+    path = tmp_path / "T-261116-ws03.md"
+    path.write_text("", encoding="utf-8")
+    meta = parse_task(path)
+    assert meta is not None
+    assert meta.task_id == "T-261116-ws03"
+    assert captured == [""]
+    captured.clear()
+    path.write_text("\n\n  \t", encoding="utf-8")
+    assert parse_task(path) is not None
+    assert captured == [""]
