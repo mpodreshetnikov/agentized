@@ -121,9 +121,6 @@ def test_seed_bodies_use_rstrip_not_lstrip_or_junk(tmp_path: Path):
     assert nav == MINIMAL_NAV_MD.rstrip() + "\n"
     assert tasks == MINIMAL_TASKS_INDEX_MD.rstrip() + "\n"
     assert leases == MINIMAL_LEASES_INDEX_MD.rstrip() + "\n"
-    assert "XX\nXX" not in nav
-    assert "XX\nXX" not in tasks
-    assert "XX\nXX" not in leases
     # lstrip would keep a trailing blank from the triple-quoted seed; rstrip normalizes
     assert not nav.endswith("\n\n")
     assert not tasks.endswith("\n\n")

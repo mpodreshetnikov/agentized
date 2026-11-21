@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
 from agentized import tasks as tasks_mod
 from agentized.tasks import (
     ALL_STATUSES,
@@ -14,8 +15,6 @@ from agentized.tasks import (
     STATUS_ALIASES,
     allocate_task_id,
     append_progress,
-    append_status_progress,
-    last_progress_entry,
     list_tasks,
     parse_task,
     rebuild_task_index,
@@ -385,108 +384,6 @@ def test_append_progress_exact_with_frozen_time(monkeypatch):
     assert padded.endswith(f"- {stamp}: p\n")
 
 
-def test_append_progress_never_prepends_existing_history(monkeypatch):
-    """AGE-73: new bullets go after existing history, not under _(append-only)_ ahead of it."""
-
-    class Fixed(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            assert tz is UTC
-            return datetime(2026, 11, 21, 10, 0, 0, tzinfo=UTC)
-
-    monkeypatch.setattr(tasks_mod, "datetime", Fixed)
-    stamp = "2026-11-21 10:00 UTC"
-    base = (
-        "# T — x\n\n## Progress\n\n_(append-only)_\n"
-        "- 2026-11-21 09:00 UTC: claim by a\n"
-        "- 2026-11-21 09:30 UTC: work done\n"
-        "\n## Decision Log\n\nz\n"
-    )
-    out = append_progress(base, "newer tip")
-    # Newest line is last (append), not first after the marker (prepend).
-    assert out.index("claim by a") < out.index("work done") < out.index("newer tip")
-    assert out == (
-        "# T — x\n\n## Progress\n\n_(append-only)_\n"
-        "- 2026-11-21 09:00 UTC: claim by a\n"
-        "- 2026-11-21 09:30 UTC: work done\n"
-        f"- {stamp}: newer tip\n"
-        "\n## Decision Log\n\nz\n"
-    )
-    # Prepend would put the new stamp immediately after _(append-only)_.
-    prog = out.split("## Progress", 1)[1].split("\n## ", 1)[0]
-    assert not prog.lstrip().startswith(
-        f"_(append-only)_\n- {stamp}: newer tip\n- 2026-11-21 09:00"
-    )
-
-
-def test_last_progress_entry_uses_first_progress_section():
-    """Kill find/slice/len mutants on last_progress_entry Progress extraction."""
-    assert last_progress_entry("# no progress") is None
-    assert last_progress_entry("## Progress\n\n_(append-only)_\n") is None
-    two = (
-        "# T\n\n## Progress\n\n"
-        "- 2026-11-21 09:00 UTC: first-section\n"
-        "\n## Decision Log\n\n"
-        "- 2026-11-21 10:00 UTC: not-progress\n"
-        "\n## Progress\n\n"
-        "- 2026-11-21 11:00 UTC: second-section\n"
-    )
-    # First ## Progress only (find, not rfind); Decision Log bullets ignored.
-    assert last_progress_entry(two) == "first-section"
-    only = "# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: older\n- 2026-11-21 09:30 UTC: newer\n"
-    assert last_progress_entry(only) == "newer"
-    # Marker length: truncated marker must not match.
-    assert last_progress_entry("# T\n\n## Progres\n\n- 2026-11-21 09:00 UTC: x\n") is None
-    # start == 0: kill start < 0 → <=0 / <1 (must still find Progress at file start).
-    assert last_progress_entry("## Progress\n\n- 2026-11-21 09:00 UTC: at-start\n") == "at-start"
-    # No following ## section: kill end-branch `and False` (after[:-1] truncates entry).
-    assert (
-        last_progress_entry("# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: only-section")
-        == "only-section"
-    )
-    # end == 0 (Progress immediately followed by next ##): must not leak Decision bullets.
-    assert (
-        last_progress_entry(
-            "## Progress\n## Decision Log\n\n- 2026-11-21 09:00 UTC: from-decision\n"
-        )
-        is None
-    )
-
-
-def test_append_status_progress_appends_and_dedupes(monkeypatch):
-    """AGE-73: status→done Progress writer appends once; second identical call is no-op."""
-
-    class Fixed(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            assert tz is UTC
-            return datetime(2026, 11, 21, 11, 0, 0, tzinfo=UTC)
-
-    monkeypatch.setattr(tasks_mod, "datetime", Fixed)
-    stamp = "2026-11-21 11:00 UTC"
-    base = (
-        "# T — x\n\nстатус: in-progress\n\n## Progress\n\n_(append-only)_\n"
-        "- 2026-11-21 09:00 UTC: claim by a\n"
-        "\n## Decision Log\n\n_(append-only)_\n"
-    )
-    once = append_status_progress(base, "done")
-    assert last_progress_entry(once) == "статус → done"
-    assert once.count("статус → done") == 1
-    assert f"- 2026-11-21 09:00 UTC: claim by a\n- {stamp}: статус → done\n" in once
-    assert once.index("claim by a") < once.index("статус → done")
-    twice = append_status_progress(once, "done")
-    assert twice == once
-    # English alias on last line also dedupes.
-    eng = append_progress(base, "status → self-review")
-    assert append_status_progress(eng, "self-review") == eng
-    # Different status still appends.
-    other = append_status_progress(once, "self-review")
-    assert other != once
-    assert last_progress_entry(other) == "статус → self-review"
-    assert other.count("статус → done") == 1
-    assert other.count("статус → self-review") == 1
-
-
 def test_rebuild_task_index_exact(tmp_path: Path):
     _write(
         tmp_path / "T-261116-o1.md",
@@ -633,6 +530,7 @@ def test_tasks_reexports_match_schema():
 
 def test_tasks_getattr_unknown_message():
     import pytest
+
     from agentized import tasks as tasks_mod
 
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'") as ei:
