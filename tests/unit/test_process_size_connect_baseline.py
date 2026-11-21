@@ -31,12 +31,7 @@ def test_is_connect_bootstrap_path_prefixes():
 
 
 def test_parse_numstat_excluding_bootstrap():
-    stdout = (
-        "100\t0\tcontext/quality.json\n"
-        "50\t0\tsrc/app.py\n"
-        "-\t-\tbin/blob\n"
-        "10\t0\tAGENTS.md\n"
-    )
+    stdout = "100\t0\tcontext/quality.json\n50\t0\tsrc/app.py\n-\t-\tbin/blob\n10\t0\tAGENTS.md\n"
     assert parse_numstat_excluding_bootstrap(stdout) == 50
 
 
