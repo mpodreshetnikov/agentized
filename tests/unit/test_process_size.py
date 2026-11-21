@@ -37,9 +37,10 @@ def test_load_missing_invalid_defaults_includes_path(tmp_path: Path):
     path = tmp_path / "missing-pc.json"
     with pytest.raises(ValueError) as excinfo:
         load_process_config_file(path, {"reviewable_lines": 0, "warn_at_pct": 75})
-    msg = str(excinfo.value)
-    assert str(path) in msg
-    assert " in " in msg
+    assert str(excinfo.value) == (
+        f"process-control: reviewable_lines must be an int 1..{HARD_CAP} in {path}, "
+        f"got 0. See {DOC}."
+    )
 
 
 def test_load_valid_merges_over_defaults(tmp_path: Path):
