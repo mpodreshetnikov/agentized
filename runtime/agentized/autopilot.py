@@ -11,22 +11,10 @@ from typing import Any
 from .context_paths import require_safe_rel, under_context
 from .paths import DEFAULT_CONTEXT
 from .quality_io import read_json_object, write_json_object
+from .status_gates import CANONICAL_STATUSES, normalize_status
 from .tasks import list_tasks
 
-# After #25 merges: ``from .status_gates import CANONICAL_STATUSES, normalize_status``.
-BOARD_STATUSES = (
-    "idea",
-    "open",
-    "queue",
-    "in-progress",
-    "self-review",
-    "for-review",
-    "blocked",
-    "done",
-    "canceled",
-)
-STATUS_ALIASES = {"dropped": "canceled", "queued": "queue"}
-CANONICAL_STATUSES = BOARD_STATUSES
+BOARD_STATUSES = CANONICAL_STATUSES
 
 BOARD_FILENAME = "board.json"
 DEFAULT_METRICS_REL = "board/metrics.json"
@@ -41,13 +29,6 @@ PROGRESS_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC: (.+)$", 
 TASK_ID_DAY_RE = re.compile(r"^T-(\d{6})-")
 # Progress stamps from ``agentized status`` (status-change record).
 STATUS_ARROW_RE = re.compile(r"(?:status|статус)\s*→\s*([^\s,;]+)", re.IGNORECASE)
-
-
-def normalize_status(raw: str | None) -> str:
-    s = (raw or "").strip().lower()
-    if not s:
-        return ""
-    return STATUS_ALIASES.get(s, s)
 
 
 def default_board_config() -> dict[str, Any]:

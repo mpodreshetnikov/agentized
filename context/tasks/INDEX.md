@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261116-12b0](T-261116-12b0.md) — AGE-30 backlog autopilot and board metrics · claim: age-30-worker
 
 ## blocked
 
