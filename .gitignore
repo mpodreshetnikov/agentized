@@ -41,3 +41,5 @@ reports/architecture/
 
 # Local hook ownership map (AGE-23); never commit
 context/.agentized/hooks_owned.json
+board.html
+
