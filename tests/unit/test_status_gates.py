@@ -601,7 +601,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     assert set(previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")) == {
         "T-261116-os.md"
     }
-    ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, tip_hygiene=False)
     assert ref == "deadbeef" and result.ok is True
 
     def fail_show(argv, **kwargs):

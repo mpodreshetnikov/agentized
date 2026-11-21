@@ -44,6 +44,7 @@ from agentized.tasks import (
     render_task_file,
     set_field,
 )
+from agentized.tip_hygiene import write_ready
 
 
 def _context_rel(root: Path, args) -> str:
@@ -449,6 +450,8 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
             _ctx(root, args) / "tasks",
             repo_root=root,
             base_ref=getattr(args, "base", None) or None,
+            pr=getattr(args, "pr", None) or None,
+            tip_hygiene=not bool(getattr(args, "no_tip_hygiene", False)),
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
@@ -458,6 +461,30 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
         print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
         return 1
     print(f"tasks-validate OK (base={ref})")
+    return 0
+
+
+def cmd_ready(args: argparse.Namespace) -> int:
+    root = find_repo_root()
+    tasks_dir = _ctx(root, args) / "tasks"
+    note = (args.review_note or "").strip()
+    if not note:
+        print("ready FAIL: --review-note is required", file=sys.stderr)
+        return 1
+    try:
+        path = write_ready(
+            tasks_dir,
+            args.task_id,
+            review_note=note,
+            pr=getattr(args, "pr", None) or None,
+        )
+    except FileNotFoundError as exc:
+        print(f"ready FAIL: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"ready FAIL: {exc}", file=sys.stderr)
+        return 1
+    print(f"ready {args.task_id}: self-review, claim released → {path.relative_to(root)}")
     return 0
 
 
@@ -985,7 +1012,27 @@ def build_parser() -> argparse.ArgumentParser:
     tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
     tv.add_argument("--context", default=None)
     tv.add_argument("--base", default=None)
+    tv.add_argument(
+        "--pr",
+        default=None,
+        help="PR number/#N/URL for tip hygiene (else AGENTIZED_PR / GITHUB_REF)",
+    )
+    tv.add_argument(
+        "--no-tip-hygiene",
+        action="store_true",
+        help="Skip tip hygiene (INDEX freshness + PR-linked task checks)",
+    )
     tv.set_defaults(func=cmd_tasks_validate)
+
+    rd = sub.add_parser(
+        "ready",
+        help="Flip task to self-review, release claim, set review_note (tip hygiene)",
+    )
+    rd.add_argument("task_id")
+    rd.add_argument("--review-note", required=True)
+    rd.add_argument("--pr", default=None, help="Set pr: field (#N or URL)")
+    rd.add_argument("--context", default=None)
+    rd.set_defaults(func=cmd_ready)
 
     bd = sub.add_parser("board", help="Render static board.html from context/tasks")
     bd.add_argument("--output", "-o", default="board.html")
