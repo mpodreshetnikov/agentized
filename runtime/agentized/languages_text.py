@@ -1,4 +1,5 @@
 """Language-coverage messages/results (exact oracles in unit tests)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -69,6 +70,7 @@ JS_CONFIG = "js_config"
 ARCH_CONFIG = "config"
 TEST_COMMAND = "test_command"
 
+
 def result(
     *,
     ok: bool,
@@ -87,11 +89,13 @@ def result(
         "skipped": skipped,
     }
 
+
 def msg_detect_false() -> str:
     return (
         "agentized: REFUSED — languages.detect=false is not allowed "
         "(fail-closed language coverage; AGE-24)."
     )
+
 
 def msg_supported_missing() -> str:
     return (
@@ -99,11 +103,13 @@ def msg_supported_missing() -> str:
         "(fail-closed; no silent defaults)."
     )
 
+
 def msg_exclude_missing() -> str:
     return (
         "agentized: REFUSED — languages.exclude_globs is missing or empty "
         "(fail-closed; no silent defaults)."
     )
+
 
 def msg_illegal_supported(illegal: list[str], allowed: list[str], gates: list[str]) -> str:
     return (
@@ -112,6 +118,7 @@ def msg_illegal_supported(illegal: list[str], allowed: list[str], gates: list[st
         f"Allowed: {', '.join(allowed)}. "
         f"Required gates: {', '.join(gates)}."
     )
+
 
 def msg_coverage_incomplete(
     unsupported: list[str],
@@ -137,7 +144,6 @@ def msg_coverage_incomplete(
         "and JS/TS AGE-34 runners when those languages are present."
     )
 
+
 def msg_ok(detected: dict[str, Any]) -> str:
-    return "language coverage OK: " + (
-        ", ".join(sorted(detected)) if detected else "(none)"
-    )
+    return "language coverage OK: " + (", ".join(sorted(detected)) if detected else "(none)")

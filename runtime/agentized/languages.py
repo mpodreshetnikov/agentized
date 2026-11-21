@@ -1,4 +1,5 @@
 """Fail-closed language coverage (AGE-24): detect + refuse incomplete gates."""
+
 from __future__ import annotations
 
 import fnmatch
@@ -215,6 +216,7 @@ def _glob_excluded(rel: str, patterns: list[str]) -> bool:
                     return True
     return False
 
+
 def language_for_path(rel: str) -> str | None:
     name = Path(str(rel)).name.lower()
     if not name or name.startswith("."):
@@ -397,9 +399,7 @@ def missing_gates_for_language(root: Path, language: str, cfg: dict[str, Any]) -
     covering = [m for m in modules if _module_has_lang(root, m, language)]
     if not covering or not all(m.get(_text.TEST_COMMAND) for m in covering):
         missing.append(SUPPORTED_GATES[0])
-    if not covering or not all(
-        m.get(_text.COV_LCOV) or m.get(_text.COV_JSON) for m in covering
-    ):
+    if not covering or not all(m.get(_text.COV_LCOV) or m.get(_text.COV_JSON) for m in covering):
         missing.append(SUPPORTED_GATES[1])
 
     mut = cfg.get("mutation")
@@ -429,9 +429,7 @@ def missing_gates_for_language(root: Path, language: str, cfg: dict[str, Any]) -
     allowed_arch = ARCHITECTURE_TOOLS.get(language) or frozenset()
     if bool(arch.get(_text.MUT_ENABLED)) and arch_tool and arch_tool in allowed_arch:
         if language == next(iter(_LANG_EXTS)):
-            if not (
-                arch_tool == _text.ARCH_BUILTIN or bool(arch.get(_text.ARCH_CONFIG))
-            ):
+            if not (arch_tool == _text.ARCH_BUILTIN or bool(arch.get(_text.ARCH_CONFIG))):
                 missing.append(SUPPORTED_GATES[4])
         elif arch_tool == _text.ARCH_DEP_CRUISER:
             if not (arch.get(_text.JS_CONFIG) or arch.get(_text.ARCH_CONFIG)):
@@ -488,9 +486,7 @@ def check_language_coverage(
                     missing_gates[lang] = bad
 
     if unsupported or missing_gates:
-        msg = _text.msg_coverage_incomplete(
-            unsupported, missing_gates, detected, SUPPORTED_GATES
-        )
+        msg = _text.msg_coverage_incomplete(unsupported, missing_gates, detected, SUPPORTED_GATES)
         return _text.result(
             ok=False,
             detected=detected,

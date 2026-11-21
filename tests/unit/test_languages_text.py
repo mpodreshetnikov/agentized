@@ -1,4 +1,5 @@
 """Exact oracles for languages_text — kills string/case mutmut survivors."""
+
 from __future__ import annotations
 
 from agentized import languages_text as t
@@ -34,8 +35,12 @@ def test_result_and_messages_exact():
         "skipped": False,
     }
     filled = t.result(
-        ok=False, message="x", detected={"p": ["a"]}, unsupported=["go"],
-        missing_gates={"p": ["m"]}, skipped=True,
+        ok=False,
+        message="x",
+        detected={"p": ["a"]},
+        unsupported=["go"],
+        missing_gates={"p": ["m"]},
+        skipped=True,
     )
     assert filled["unsupported"] == ["go"] and filled["skipped"] is True
     assert filled["detected"] == {"p": ["a"]} and filled["missing_gates"] == {"p": ["m"]}
@@ -53,7 +58,9 @@ def test_result_and_messages_exact():
     )
     assert t.msg_ok({"python": ["a.py"], "go": ["b.go"]}) == "language coverage OK: go, python"
     assert t.msg_ok({}) == "language coverage OK: (none)"
-    assert t.msg_illegal_supported(["go", "rust"], ["python", "javascript"], ["mutation", "coverage"]) == (
+    assert t.msg_illegal_supported(
+        ["go", "rust"], ["python", "javascript"], ["mutation", "coverage"]
+    ) == (
         "agentized: REFUSED — languages.supported contains language(s) "
         "without a gate suite: go, rust. "
         "Allowed: python, javascript. "

@@ -3,6 +3,7 @@
 Dogfood-only excludes (packages/**, templates/**) stay in this repo's
 context/quality.json — never written by connect (Lead / Self-Review).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

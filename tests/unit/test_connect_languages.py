@@ -1,4 +1,5 @@
 """Oracles for connect_languages (full-cover). Never use DEFAULT_CONTEXT."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,6 +13,7 @@ from agentized.quality import load_quality, save_quality
 
 CTX = "dogfood-ctx-not-default"
 assert CTX != DEFAULT_CONTEXT
+
 
 def _cfg(**lang_kw):
     lang = {
