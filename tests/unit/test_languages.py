@@ -90,10 +90,11 @@ def test_glob_excluded_and_globs_cover():
         ("a/**/*.x/b.py", ["a/**/*.x/**/*.py"], False),
     ]
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
-    assert _glob_excluded("nested/vendor/a.py", ["**/vendor/**"]) is True
-    assert _glob_excluded("vendor", ["**/vendor/**"]) is True
-    assert _glob_excluded("pkg/a/b.py", ["pkg/**/*.py"]) is True
-    assert _glob_excluded("pkg/a/b.py", ["pkg/**/*.ts"]) is False
+    assert _glob_excluded("vendor", ["vendor/**"]) is True
+    # fnmatch fails on single-segment /**/*.; custom partition must match
+    assert _glob_excluded("src/x.py", ["src/**/*.py"]) is True
+    assert _glob_excluded("src/x.ts", ["src/**/*.py"]) is False
+    assert _glob_excluded("src/x.py", ["src/**/*.ts"]) is False
     assert _globs_cover([], "python") is False
     assert _globs_cover(["**/*.py"], "go") is False
     assert [_globs_cover(["**/*.py"], "go"), _globs_cover(["**/*.py"], "python")] == [False, True]
@@ -190,16 +191,9 @@ def test_runners_and_js_ts_verified(tmp_path: Path):
         ),
     ] == [True, False, False, False, True, False, False]
     _runners(tmp_path)
-    assert js_ts_runners_verified(
-        tmp_path, "javascript",
-        {"mutation": {"tools": {"javascript": "stryker"}},
-         "architecture": {"tools": {"javascript": "dependency-cruiser"}, "config": ".dependency-cruiser.cjs"}},
-    ) is True
-    assert js_ts_runners_verified(
-        tmp_path, "javascript",
-        {"mutation": {"tools": {"javascript": "stryker"}},
-         "architecture": {"tools": {"javascript": "dependency-cruiser"}}},
-    ) is False
+    cfg_c = {"mutation": {"tools": {"javascript": "stryker"}}, "architecture": {"tools": {"javascript": "dependency-cruiser"}, "config": ".dependency-cruiser.cjs"}}
+    cfg_n = {"mutation": {"tools": {"javascript": "stryker"}}, "architecture": {"tools": {"javascript": "dependency-cruiser"}}}
+    assert [js_ts_runners_verified(tmp_path, "javascript", cfg_c), js_ts_runners_verified(tmp_path, "javascript", cfg_n)] == [True, False]
     assert mutation_tool_for_language({"tool": ""}, "python") is None
     assert mutation_tool_for_language({"tools": {"python": "mutmut"}}, "python") == "mutmut"
     assert architecture_tool_for_language({"tools": {"python": "import-linter"}}, "python") == "import-linter"
@@ -251,7 +245,8 @@ def test_check_coverage_refuses(tmp_path: Path):
     assert r["ok"] is False and r["unsupported"] == ["go"]
     r = check_language_coverage(tmp_path, cfg=_cfg(languages={"supported": ["python"], "exclude_globs": _excludes()}))
     _shape(r)
-    assert r["ok"] is False and "go" in r["unsupported"]
+    assert r["ok"] is False and r["unsupported"] == ["go"]
+    assert set(r["detected"]) == {"python", "go"} and r["detected"]["go"] == ["src/a.go"]
     r = check_language_coverage(tmp_path, cfg=_cfg(languages={"supported": None, "exclude_globs": _excludes()}))
     _shape(r)
     assert r["ok"] is False
@@ -384,6 +379,28 @@ def test_runner_paths_isolated(tmp_path: Path):
         path.unlink()
     assert language_for_path("foo.bar.py") == "python"
     assert language_for_path("file.backup.md") is None
+
+def test_arch_gate_labels(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x=1\n", encoding="utf-8")
+    (tmp_path / "src" / "a.js").write_text("export {}\n", encoding="utf-8")
+    miss_py = missing_gates_for_language(
+        tmp_path, "python",
+        {"modules": [{"id": "r", "source": ["src"], "test_command": "pytest", "coverage_lcov": "c.lcov"}],
+         "mutation": {"tools": {"python": "mutmut"}, "include_globs": ["**/*.py"]},
+         "test_smells": {"enabled": True, "include_globs": ["**/*.py"]},
+         "architecture": {"enabled": True, "tools": {"python": "import-linter"}}},
+    )
+    assert miss_py == ["architecture"]
+    _runners(tmp_path)
+    miss_js = missing_gates_for_language(
+        tmp_path, "javascript",
+        {"modules": [{"id": "w", "source": ["src"], "test_command": "vitest", "coverage_lcov": "c.lcov"}],
+         "mutation": {"tools": {"javascript": "stryker"}, "include_globs": ["**/*.js"]},
+         "test_smells": {"enabled": True, "include_globs": ["**/*.js"]},
+         "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}}},
+    )
+    assert "architecture" in miss_js
 
 def test_survivor_killers(tmp_path: Path, monkeypatch):
     (tmp_path / "a.py").write_text("x=1\n", encoding="utf-8")

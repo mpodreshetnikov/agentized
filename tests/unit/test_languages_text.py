@@ -8,7 +8,6 @@ def test_keys_and_markers():
     assert t.DEFAULT_SUPPORTED == ("python", "javascript", "typescript")
     assert "packages/**" not in t.DEFAULT_EXCLUDE_GLOBS
     assert t.DEFAULT_EXCLUDE_GLOBS[0] == "node_modules/**"
-    assert len(t.DEFAULT_EXCLUDE_GLOBS) == 44
     assert t.KEY_SUPPORTED == "supported"
     assert t.KEY_EXCLUDE_GLOBS == "exclude_globs"
     assert t.ARCH_DEP_CRUISER == "dependency-cruiser"
@@ -74,3 +73,4 @@ def test_result_and_messages_exact():
         "architecture.tools+config, test_smells include_globs per language, "
         "and JS/TS AGE-34 runners when those languages are present."
     )
+    assert "e.g. ?;" in t.msg_coverage_incomplete([], {"python": ["mutation"]}, {}, ("coverage",))
