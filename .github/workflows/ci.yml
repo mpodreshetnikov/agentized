@@ -49,6 +49,9 @@ jobs:
           fi
 
       - name: Task status gates + INDEX freshness
+        env:
+          # AGE-76: tip hygiene matches task pr: against this PR (empty on push-to-main).
+          TASKS_VALIDATE_PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           if [[ -x ./bin/agentized ]]; then

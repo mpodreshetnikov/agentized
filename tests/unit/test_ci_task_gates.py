@@ -25,6 +25,10 @@ def test_tasks_validate_hard_in_dogfood_ci():
     assert _exact_lines(step, expected) == [expected]
     soft = [ln for ln in step.splitlines() if "|| true" in ln]
     assert soft == []
+    # AGE-76: tip hygiene needs the PR number under validation.
+    assert "TASKS_VALIDATE_PR: ${{ github.event.pull_request.number }}" in DOGFOOD_CI.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_index_freshness_uses_porcelain_no_hardcoded_paths():

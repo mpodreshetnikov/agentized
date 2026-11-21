@@ -25,7 +25,7 @@ from agentized.leases import (
 from agentized.context_paths import path_under, resolve_context_dir
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
-from agentized.status_gates import run_tasks_validate
+from agentized.status_gates import apply_ready, run_tasks_validate
 from agentized.tasks import (
     ACTIVE_STATUSES,
     ALL_STATUSES,
@@ -379,6 +379,8 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
             _ctx(root, args) / "tasks",
             repo_root=root,
             base_ref=getattr(args, "base", None) or None,
+            pr_number=getattr(args, "pr", None) or None,
+            check_index=not bool(getattr(args, "skip_index", False)),
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
@@ -388,6 +390,56 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
         print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
         return 1
     print(f"tasks-validate OK (base={ref})")
+    return 0
+
+
+def _ready_task_id(tasks_dir: Path, *, task_id: str | None, owner: str | None) -> str | None:
+    if task_id:
+        return task_id
+    matches: list[str] = []
+    for task in list_tasks(tasks_dir):
+        claim = (task.claim or "").strip()
+        if task.status != "in-progress":
+            continue
+        if not claim or claim.startswith("_"):
+            continue
+        if owner and claim != owner:
+            continue
+        matches.append(task.task_id)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def cmd_ready(args: argparse.Namespace) -> int:
+    """AGE-76: tip ready → self-review + release claim _(пусто)_ + rebuild INDEX."""
+    root = find_repo_root()
+    ctx = _ctx(root, args)
+    tasks_dir = ctx / "tasks"
+    task_id = _ready_task_id(
+        tasks_dir,
+        task_id=getattr(args, "task_id", None) or None,
+        owner=getattr(args, "owner", None) or None,
+    )
+    if not task_id:
+        print(
+            "ready: pass TASK_ID or hold exactly one in-progress claim"
+            + (" matching --owner" if getattr(args, "owner", None) else ""),
+            file=sys.stderr,
+        )
+        return 1
+    path = tasks_dir / f"{task_id}.md"
+    if not path.exists():
+        print(f"нет задачи {task_id}", file=sys.stderr)
+        return 1
+    text = apply_ready(
+        path.read_text(encoding="utf-8"),
+        pr=getattr(args, "pr", None) or None,
+        review_note=getattr(args, "review_note", None) or None,
+    )
+    path.write_text(text, encoding="utf-8")
+    (tasks_dir / "INDEX.md").write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
+    print(f"ready {task_id}: статус → self-review; claim → _(пусто)_")
     return 0
 
 
@@ -898,7 +950,28 @@ def build_parser() -> argparse.ArgumentParser:
     tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
     tv.add_argument("--context", default=None)
     tv.add_argument("--base", default=None)
+    tv.add_argument(
+        "--pr",
+        default=None,
+        help="PR number/URL under validation (else TASKS_VALIDATE_PR / GITHUB_*)",
+    )
+    tv.add_argument(
+        "--skip-index",
+        action="store_true",
+        help="skip INDEX.md == rebuild_task_index check (debug only)",
+    )
     tv.set_defaults(func=cmd_tasks_validate)
+
+    rd = sub.add_parser(
+        "ready",
+        help="Tip hygiene: self-review + release claim _(пусто)_ + rebuild INDEX (AGE-76)",
+    )
+    rd.add_argument("task_id", nargs="?", default=None)
+    rd.add_argument("--owner", default=None, help="select in-progress claim owner when id omitted")
+    rd.add_argument("--pr", default=None, help="set pr: field (URL or #N)")
+    rd.add_argument("--review-note", default=None, dest="review_note")
+    rd.add_argument("--context", default=None)
+    rd.set_defaults(func=cmd_ready)
 
     bd = sub.add_parser("board", help="Render static board.html from context/tasks")
     bd.add_argument("--output", "-o", default="board.html")

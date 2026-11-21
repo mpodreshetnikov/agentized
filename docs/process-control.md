@@ -47,6 +47,20 @@ Optional `spec_approval` policy (defaults off). Pure evaluation lives in
 
 CLI / CI / pre-push wiring for `process spec-approval` ships in a follow-up PR.
 
+## PR tip hygiene (AGE-76)
+
+Hard in `agentized tasks-validate` (CI sets `TASKS_VALIDATE_PR` to the PR under validation):
+
+1. Any task whose `pr:` points at **this PR** must be `self-review` or `done`, **and** claim must be empty (`_(пусто)_` / `_(…)_` placeholder).
+2. `context/tasks/INDEX.md` must equal `rebuild_task_index` / `agentized index` output.
+
+Before handoff:
+
+```bash
+./bin/agentized ready <TASK_ID> --pr <url-or-#N> --review-note "…"
+# → статус self-review · claim _(пусто)_ · Progress append · INDEX rebuild
+```
+
 ## Spec / decision hygiene
 
 Keep decisions in `context/decisions/` when they change process rules. Prefer one claimable child task per reviewable PR; split when approaching the size limit.

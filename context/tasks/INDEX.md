@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-edc6](T-261121-edc6.md) — PR tip hygiene gate (AGE-76) (родитель: T-261115-918b) · claim: age76-tip-hygiene
 
 ## blocked
 
