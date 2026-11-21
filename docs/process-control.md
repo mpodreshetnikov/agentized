@@ -20,7 +20,7 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 
 ## Reviewable PR size (AGE-32 / AGE-35)
 
-Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Warn at **75%** of the limit (`warn_at_pct`). Over the limit **hard-fails** `agentized process size` (exit 1). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
+Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE` / `--base`, or `reviewable_lines` in `process-control.json`). Limit is **inclusive**: warn at **≥** `warn_at` (`warn_at_pct`, default 75%); hard-fail only when insertions **>** limit (`over >{limit}`). Hook/`|| true` removal and base-ref fail-closed are AGE-35 (`process_size`).
 
 ```bash
 ./bin/agentized process size
