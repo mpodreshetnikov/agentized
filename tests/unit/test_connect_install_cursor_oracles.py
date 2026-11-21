@@ -285,6 +285,8 @@ def test_refresh_none_keeps_plugin_path_none(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setattr(connect_mod, "_refresh_local_plugin", lambda *a, **k: None)
     result = install_cursor(tmp_path, "context")
     assert result["plugin_path"] is None
+    assert result["local_plugin_hint"] == HINT
+    assert result["hooks_json"] == str(tmp_path / ".cursor" / "hooks.json")
 
 
 def test_pin_hook_scripts_dest_is_cursor_hooks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
