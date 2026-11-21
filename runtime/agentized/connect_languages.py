@@ -28,6 +28,6 @@ def refuse_incomplete_languages(root: Path, context_rel: str) -> None:
         cfg=load_quality(root, context_rel),
         require_gates=qpath.is_file(),
     )
-    # Missing ok → refuse (fail-closed).
-    if not lang_check.get("ok", False):
+    # Missing/false ok → refuse (fail-closed; only explicit True passes).
+    if lang_check.get("ok") is not True:
         raise ConnectRefused(lang_check["message"], details=lang_check)
