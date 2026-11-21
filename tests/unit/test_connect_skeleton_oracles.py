@@ -121,3 +121,32 @@ def test_seed_bodies_use_rstrip_not_lstrip_or_junk(tmp_path: Path):
     assert nav == MINIMAL_NAV_MD.rstrip() + "\n"
     assert tasks == MINIMAL_TASKS_INDEX_MD.rstrip() + "\n"
     assert leases == MINIMAL_LEASES_INDEX_MD.rstrip() + "\n"
+
+
+def test_prepare_bridges_before_connect_noops_local_skeleton(tmp_path: Path):
+    """Bridges first → NAV exists → connect skeleton no-op (no local registry dirs)."""
+    import json
+    import subprocess
+
+    from agentized.connect import connect
+    from agentized.context_layout import prepare_connect_layout
+
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    subprocess.run(["git", "init"], cwd=ext, check=True, capture_output=True)
+    subprocess.run(["git", "init"], cwd=code, check=True, capture_output=True)
+    ctx = code / "context"
+    ctx.mkdir()
+    (ctx / "context.json").write_text(
+        json.dumps({"placement": "external", "external": {"path": str(ext), "remote": "r"}}) + "\n",
+        encoding="utf-8",
+    )
+    layout = prepare_connect_layout(code, bridges=True)
+    assert layout.is_external
+    assert (ctx / "NAV.md").is_symlink()
+    result = connect(code, context_rel="context", harnesses=["cursor"])
+    assert result["skeleton"]["created"] is False
+    assert (ctx / "tasks").is_symlink()
+    assert (ctx / "NAV.md").is_symlink()
+    assert (ctx / "quality.json").exists()

@@ -225,6 +225,74 @@ def require_registry_ready(layout: ContextLayout) -> None:
         raise ValueError("external Context not ready: " + "; ".join(problems))
 
 
+# External empty-clone seed. INDEX bodies = rebuild_* (same as connect/index; coord #55).
+_EXT_NAV_MD = "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
+_EXT_SEED_DIRS = ("tasks", "leases", "decisions", "goals", "digests")
+
+
+def _atomic_write_text(path: Path, body: str) -> None:
+    """Write ``body`` as UTF-8 via temp+replace (no 0-byte truncate on crash)."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(body, encoding="utf-8")
+    tmp.replace(path)
+
+
+def ensure_external_registry_skeleton(layout: ContextLayout) -> list[str]:
+    """Create NAV.md + indexes + bridge dirs in an empty external clone.
+
+    No-op when not external. Requires ``registry_root`` to exist as a git checkout.
+    Does not overwrite existing files. Callers must ``preflight_bridge_conflicts``
+    first so a conflict never leaves a partial seed. tasks/leases INDEX match
+    ``rebuild_task_index`` / ``rebuild_lease_index`` (byte-equal to ``agentized index``).
+    """
+    if not layout.is_external:
+        return []
+    root = layout.registry_root
+    if not root.is_dir():
+        raise ValueError(f"external Context path missing or not a directory: {root}")
+    if not is_git_checkout(root):
+        raise ValueError(f"external Context is not a git checkout (no .git): {root}")
+    for sub in _EXT_SEED_DIRS:
+        (root / sub).mkdir(exist_ok=True)
+    from .leases import rebuild_lease_index
+    from .task_schema import rebuild_task_index
+
+    created: list[str] = []
+    targets: list[tuple[Path, str]] = [
+        (root / "NAV.md", _EXT_NAV_MD),
+        (root / "tasks" / "INDEX.md", rebuild_task_index(root / "tasks")),
+        (root / "leases" / "INDEX.md", rebuild_lease_index(root / "leases")),
+    ]
+    for path, body in targets:
+        if path.exists():
+            continue
+        _atomic_write_text(path, body)
+        created.append(str(path))
+    return created
+
+
+def preflight_bridge_conflicts(layout: ContextLayout) -> None:
+    """Raise if any bridge path would conflict — no filesystem writes."""
+    if not layout.is_external:
+        return
+    code = layout.code_context
+    for name in BRIDGE_NAMES:
+        src = layout.registry_root / name
+        dest = code / name
+        _bridge_preflight(src, dest)
+
+
+def rollback_code_context_bridges(layout: ContextLayout, names: list[str]) -> None:
+    """Remove bridge symlinks created for ``names`` (connect-failure cleanup)."""
+    if not layout.is_external or not names:
+        return
+    code = layout.code_context
+    for name in names:
+        dest = code / name
+        if dest.is_symlink():
+            dest.unlink()
+
+
 def ensure_layout_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     path = layout_config_path(root, context_rel)
     created = not path.exists()
@@ -258,11 +326,6 @@ def _clear_empty_bridge_dir(path: Path) -> None:
     path.rmdir()
 
 
-def _migrate_local_bridge(dest: Path, src: Path) -> None:
-    # migrate_only preflight guarantees src is absent; rename local dest into registry.
-    dest.rename(src)
-
-
 def _bridge_link_target(src: Path, dest: Path) -> str:
     return os.path.relpath(str(src.resolve()), start=str(dest.parent.resolve()))
 
@@ -276,8 +339,8 @@ def _bridge_preflight(src: Path, dest: Path) -> str:
             pass
         raise ValueError(f"{ERR_BRIDGE_FOREIGN}: {dest} → {dest.readlink()}; expected {src}")
     if dest.exists():
-        if not src.exists():
-            return "migrate_only"
+        # Non-empty local path blocks even when registry src is missing (preflight
+        # runs before seed — never migrate/seed into a conflicted tree).
         if _path_is_empty_dir(dest):
             return "clear_link"
         raise ValueError(f"{ERR_BRIDGE_CONFLICT}: {dest} vs {src}")
@@ -318,9 +381,7 @@ def ensure_code_context_bridges(layout: ContextLayout) -> list[str]:
     for name, src, dest, action in plan:
         if action == "skip":
             continue
-        if action == "migrate_only":
-            _migrate_local_bridge(dest, src)
-        elif action == "clear_link":
+        if action == "clear_link":
             _clear_empty_bridge_dir(dest)
         dest.symlink_to(_bridge_link_target(src, dest))
         created.append(name)
@@ -336,6 +397,9 @@ def prepare_connect_layout(
     ensure_layout_config(root, context_rel=context_rel)
     layout = resolve_layout(root, context_rel=context_rel)
     if layout.is_external:
+        # Conflict check before seed — never leave a partial registry on conflict.
+        preflight_bridge_conflicts(layout)
+        ensure_external_registry_skeleton(layout)
         require_registry_ready(layout)
         if bridges:
             ensure_code_context_bridges(layout)

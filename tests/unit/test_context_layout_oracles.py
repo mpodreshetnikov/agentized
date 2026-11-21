@@ -32,6 +32,7 @@ from agentized.context_layout import (
     default_layout_config,
     ensure_bridge_gitignore,
     ensure_code_context_bridges,
+    ensure_external_registry_skeleton,
     ensure_layout_config,
     external_clone_problems,
     external_context_gate,
@@ -40,10 +41,12 @@ from agentized.context_layout import (
     is_path_inside,
     load_layout_config,
     merge_external_result,
+    preflight_bridge_conflicts,
     prepare_connect_layout,
     require_registry_ready,
     resolve_external_path,
     resolve_layout,
+    rollback_code_context_bridges,
     session_lease_warn,
     session_nav_reminder,
 )
@@ -633,12 +636,19 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
     assert "tasks" in created and "leases" in created
     (code / "context" / "goals").mkdir()
     (code / "context" / "goals" / "G.md").write_text("g", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        ensure_code_context_bridges(layout)
+    import shutil as _shutil
+
+    _shutil.rmtree(code / "context" / "goals")
+    (ext / "goals").mkdir()
+    (ext / "goals" / "G.md").write_text("g", encoding="utf-8")
     assert "goals" in ensure_code_context_bridges(layout)
-    assert (ext / "goals" / "G.md").read_text(encoding="utf-8") == "g"
+    assert (code / "context" / "goals").resolve() == (ext / "goals").resolve()
     (ext / "decisions").mkdir()
     assert "decisions" in ensure_code_context_bridges(layout)
-    (ext / "decisions").rmdir()
     (code / "context" / "decisions").unlink(missing_ok=True)
+    (ext / "decisions").rmdir()
     from agentized.process_control import active_claims
 
     (code / "context" / "tasks").unlink(missing_ok=True)
@@ -672,12 +682,238 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
         not nested_ready.is_external
         and nested_ready.registry_root == (nested / "context").resolve()
     )
+    for name in ("tasks", "leases", "decisions", "goals", "digests", "NAV.md"):
+        p = code / "context" / name
+        if p.is_symlink() or p.exists():
+            p.unlink()
     _write_layout(
         code,
         {"placement": "external", "external": {"path": str(tmp_path / "missing"), "remote": "r"}},
     )
-    with pytest.raises(ValueError, match="external Context not ready"):
+    with pytest.raises(
+        ValueError, match="external Context not ready|external Context path missing"
+    ):
         prepare_connect_layout(code)
+
+
+def test_rollback_code_context_bridges_exact(tmp_path: Path):
+    """Connect-failure cleanup: unlink only listed external bridge symlinks."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    (ext / "NAV.md").write_text("# n\n", encoding="utf-8")
+    (ext / "tasks").mkdir()
+    (ext / "leases").mkdir()
+    _write_layout(code, {"placement": "external", "external": {"path": str(ext), "remote": "r"}})
+    layout = resolve_layout(code)
+    assert ensure_code_context_bridges(layout) == ["tasks", "leases", "NAV.md"]
+    # Empty names → no-op (keeps bridges).
+    rollback_code_context_bridges(layout, [])
+    assert (code / "context" / "tasks").is_symlink()
+    # Partial list: only named symlinks removed; others stay.
+    rollback_code_context_bridges(layout, ["tasks", "NAV.md"])
+    assert not (code / "context" / "tasks").exists()
+    assert not (code / "context" / "NAV.md").exists()
+    assert (code / "context" / "leases").is_symlink()
+    # Re-create; non-symlink dest must not be removed.
+    assert "tasks" in ensure_code_context_bridges(layout)
+    (code / "context" / "tasks").unlink()
+    (code / "context" / "tasks").mkdir()
+    (code / "context" / "tasks" / "keep.md").write_text("x", encoding="utf-8")
+    rollback_code_context_bridges(layout, ["tasks"])
+    assert (code / "context" / "tasks").is_dir()
+    assert (code / "context" / "tasks" / "keep.md").exists()
+    # Nested layout → no-op even with names (incl. symlink — do not unlink).
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "context" / "tasks").mkdir(parents=True)
+    (nested / "context" / "tasks" / "T.md").write_text("t", encoding="utf-8")
+    rollback_code_context_bridges(resolve_layout(nested), ["tasks"])
+    assert (nested / "context" / "tasks" / "T.md").exists()
+    nested2 = tmp_path / "nested2"
+    nested2.mkdir()
+    (nested2 / "context").mkdir()
+    elsewhere = tmp_path / "elsewhere-tasks"
+    elsewhere.mkdir()
+    (nested2 / "context" / "tasks").symlink_to(elsewhere)
+    rollback_code_context_bridges(resolve_layout(nested2), ["tasks"])
+    assert (nested2 / "context" / "tasks").is_symlink()
+    assert (nested2 / "context" / "tasks").resolve() == elsewhere.resolve()
+
+
+def test_atomic_write_text_utf8_under_c_locale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Seed writes use encoding=utf-8 (not locale) via temp+replace — no 0-byte NAV."""
+    from agentized.context_layout import _EXT_NAV_MD, _atomic_write_text
+
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    path = tmp_path / "NAV.md"
+    names: list[str] = []
+    writes: list[dict] = []
+    real_with_name, real_write = Path.with_name, Path.write_text
+
+    def spy_with_name(self, name):
+        names.append(name)
+        return real_with_name(self, name)
+
+    def spy_write(self, data, *a, **k):
+        writes.append({"name": self.name, "data": data, **dict(k)})
+        return real_write(self, data, *a, **k)
+
+    monkeypatch.setattr(Path, "with_name", spy_with_name)
+    monkeypatch.setattr(Path, "write_text", spy_write)
+    _atomic_write_text(path, _EXT_NAV_MD)
+    assert names == ["NAV.md.tmp"]  # exact suffix (not .TMP / XX.tmpXX)
+    assert writes == [{"name": "NAV.md.tmp", "data": _EXT_NAV_MD, "encoding": "utf-8"}]
+    assert path.read_bytes() == _EXT_NAV_MD.encode("utf-8")
+    assert not (tmp_path / "NAV.md.tmp").exists()
+
+
+def test_external_seed_index_scans_registry_tasks_leases(tmp_path: Path):
+    """INDEX seed must rebuild from registry tasks/leases dirs (kill XX/TASKS path muts)."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    (ext / "tasks").mkdir()
+    (ext / "leases").mkdir()
+    (ext / "tasks" / "T-261121-seed.md").write_text(
+        render_task_file("T-261121-seed", "Seed sentinel", status="open"),
+        encoding="utf-8",
+    )
+    (ext / "leases" / "T-261121-seed.md").write_text(
+        render_lease_file(
+            "T-261121-seed",
+            "mut-kill",
+            ["runtime/sentinel.py"],
+            expires="2099-01-01T00:00:00Z",
+        ),
+        encoding="utf-8",
+    )
+    _write_layout(
+        code,
+        {"placement": "external", "external": {"path": str(ext), "remote": "r"}},
+    )
+    from agentized.leases import rebuild_lease_index
+    from agentized.task_schema import rebuild_task_index
+
+    created = ensure_external_registry_skeleton(resolve_layout(code))
+    assert str(ext / "tasks" / "INDEX.md") in created
+    assert str(ext / "leases" / "INDEX.md") in created
+    tasks_idx = (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8")
+    leases_idx = (ext / "leases" / "INDEX.md").read_text(encoding="utf-8")
+    assert "T-261121-seed" in tasks_idx
+    assert "Seed sentinel" in tasks_idx
+    assert "T-261121-seed" in leases_idx
+    assert "`runtime/sentinel.py`" in leases_idx
+    assert tasks_idx == rebuild_task_index(ext / "tasks")
+    assert leases_idx == rebuild_lease_index(ext / "leases")
+
+
+def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
+    """Seed empty external clone; preflight conflicts before bridges."""
+    code, ext = tmp_path / "code", tmp_path / "ext"
+    code.mkdir()
+    ext.mkdir()
+    _git_init(ext)
+    _write_layout(
+        code,
+        {"placement": "external", "external": {"path": str(ext), "remote": "r"}},
+    )
+    layout = resolve_layout(code)
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "context").mkdir()
+    assert ensure_external_registry_skeleton(resolve_layout(nested)) == []
+
+    from agentized.leases import rebuild_lease_index
+    from agentized.task_schema import rebuild_task_index
+
+    created = ensure_external_registry_skeleton(layout)
+    assert created == [
+        str(ext / "NAV.md"),
+        str(ext / "tasks" / "INDEX.md"),
+        str(ext / "leases" / "INDEX.md"),
+    ]
+    assert (ext / "NAV.md").read_text(encoding="utf-8") == (
+        "# NAV — external Project Context\n\nSee tasks/INDEX.md and leases/INDEX.md.\n"
+    )
+    # INDEX bodies byte-equal rebuild_* (coord Lead REJECT #55 / connect seeds).
+    assert (ext / "tasks" / "INDEX.md").read_text(encoding="utf-8") == rebuild_task_index(
+        ext / "tasks"
+    )
+    assert (ext / "leases" / "INDEX.md").read_text(encoding="utf-8") == rebuild_lease_index(
+        ext / "leases"
+    )
+    for sub in ("tasks", "leases", "decisions", "goals", "digests"):
+        assert (ext / sub).is_dir()
+    assert ensure_external_registry_skeleton(layout) == []  # idempotent
+    require_registry_ready(layout)
+    preflight_bridge_conflicts(layout)  # clean — no raise
+
+    # Partial seed: existing NAV must not stop tasks/leases creation (continue≠break).
+    partial = tmp_path / "partial-ext"
+    partial.mkdir()
+    _git_init(partial)
+    (partial / "NAV.md").write_text("# keep\n", encoding="utf-8")
+    code_partial = tmp_path / "code-partial"
+    code_partial.mkdir()
+    _write_layout(
+        code_partial,
+        {"placement": "external", "external": {"path": str(partial), "remote": "r"}},
+    )
+    partial_created = ensure_external_registry_skeleton(resolve_layout(code_partial))
+    assert (partial / "NAV.md").read_text(encoding="utf-8") == "# keep\n"
+    assert partial_created == [
+        str(partial / "tasks" / "INDEX.md"),
+        str(partial / "leases" / "INDEX.md"),
+    ]
+
+    (code / "context" / "tasks").mkdir(parents=True)
+    (code / "context" / "tasks" / "stale.md").write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        preflight_bridge_conflicts(layout)
+    # prepare_connect_layout: preflight BEFORE seed — conflict leaves registry empty
+    empty = tmp_path / "empty-ext"
+    empty.mkdir()
+    _git_init(empty)
+    code2 = tmp_path / "code2"
+    code2.mkdir()
+    _write_layout(
+        code2,
+        {"placement": "external", "external": {"path": str(empty), "remote": "r"}},
+    )
+    (code2 / "context" / "tasks").mkdir(parents=True)
+    (code2 / "context" / "tasks" / "x.md").write_text("y", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        prepare_connect_layout(code2, bridges=False)
+    assert not (empty / "NAV.md").exists()  # not seeded when preflight fails
+
+    bad = tmp_path / "code-bad"
+    bad.mkdir()
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(tmp_path / "nope"), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="missing or not a directory"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
+    not_git = tmp_path / "not-git"
+    not_git.mkdir()
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(not_git), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="not a git checkout"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
+    file_ext = tmp_path / "file-ext"
+    file_ext.write_text("x", encoding="utf-8")
+    _write_layout(
+        bad,
+        {"placement": "external", "external": {"path": str(file_ext), "remote": "r"}},
+    )
+    with pytest.raises(ValueError, match="missing or not a directory"):
+        ensure_external_registry_skeleton(resolve_layout(bad))
 
 
 def test_bridge_link_target_cwd_independent(tmp_path: Path, monkeypatch):

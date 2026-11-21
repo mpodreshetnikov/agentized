@@ -19,3 +19,5 @@ Quality gates: [`docs/QUALITY.md`](docs/QUALITY.md).
 Канон: [`docs/target-architecture.md`](docs/target-architecture.md).
 
 Project Context: [`context/NAV.md`](context/NAV.md). Coverage defaults live in [`context/quality.json`](context/quality.json) (80% lines/branches; `connect --coverage <pct>`).
+
+`context/process-control.json` is **required**: `agentized check` fails hard if it is missing (fail-closed). See [`docs/connect-contract.md`](docs/connect-contract.md).

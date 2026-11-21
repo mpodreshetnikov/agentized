@@ -23,7 +23,7 @@
 
 | Артефакт | Поведение |
 |----------|-----------|
-| `{context}/` skeleton | Если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает |
+| `{context}/` skeleton | Local: если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает. **External:** CLI preflights bridge conflicts, then seeds empty clone (`NAV.md`, indexes, `decisions`/`goals`/`digests` dirs) with atomic UTF-8 writes, installs bridges **before** connect (rollback on connect failure) so skeleton no-ops on existing NAV; `.gitignore` updated for bridge paths. Honest `connect.py` `external=` skip deferred to AGE-68 A-final |
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
 | `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
@@ -31,7 +31,7 @@
 | `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
 | `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
 | `{context}/quality.json` | Coverage 80% · modules · mutation hard (`mutationScoreCovered=100`) · test_smells+architecture **hard** by default; reconnect flips leftover `warn`→`hard`; `connect --coverage <pct>` |
-| `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |
+| `{context}/process-control.json` | **Required** (code-repo config). Claim before edits · reviewable PR size (default 1500 / warn 75%). Missing file → `agentized check` **hard error** (fail-closed), not a warning |
 | `.githooks/pre-push` | Шаблон → `agentized quality check` (+ hard `process size`); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |
 | `.github/workflows/ci.yml` | То же для CI workflow |
 | `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |

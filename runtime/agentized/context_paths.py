@@ -10,6 +10,10 @@ from pathlib import Path
 
 from .paths import DEFAULT_CONTEXT
 
+# External Context bridges may resolve outside the code-repo ``context/`` tree.
+# Only these first-path names may escape via symlink; other escapes stay refused.
+BRIDGE_ESCAPE_NAMES = frozenset({"tasks", "leases", "decisions", "goals", "digests", "NAV.md"})
+
 
 def require_safe_rel(raw: object, *, field: str) -> str:
     text = str(raw).strip() if raw is not None else ""
@@ -32,13 +36,30 @@ def resolve_context_dir(root: Path, context_rel: str = DEFAULT_CONTEXT) -> Path:
 
 
 def path_under(base: Path, *parts: str) -> Path:
-    """Join ``parts`` under ``base``; refuse symlink/path escapes."""
+    """Join ``parts`` under ``base``; refuse symlink/path escapes.
+
+    Exception: first component in ``BRIDGE_ESCAPE_NAMES`` that is a symlink may
+    resolve outside ``base`` (external Context bridges). Target must stay under
+    that bridge's resolved root.
+    """
+    if not parts:
+        return base.resolve()
+    base_res = base.resolve()
     target = base.joinpath(*parts).resolve()
     try:
-        target.relative_to(base.resolve())
+        target.relative_to(base_res)
+        return target
     except ValueError as exc:
+        first = parts[0]
+        if first in BRIDGE_ESCAPE_NAMES:
+            bridge = base / first
+            if bridge.is_symlink():
+                try:
+                    target.relative_to(bridge.resolve())
+                    return target
+                except ValueError:
+                    pass
         raise ValueError("path escapes context directory") from exc
-    return target
 
 
 def under_context(root: Path, context_rel: str, *parts: str) -> Path:
