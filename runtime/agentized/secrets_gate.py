@@ -2,13 +2,12 @@
 
 Runs `gitleaks detect` against the repo. Default mode is hard/blocking on
 pre-push and CI (via `quality check` gates). Missing binary fails closed when
-mode=hard. `enabled: false` also fails closed in hard mode unless an explicit
-human-only disable_decision (reason + approved_by + expires ≤14d, unexpired)
-is recorded.
+mode=hard. `enabled: false` also fails closed unless a human-only
+disable_decision (reason + approved_by + expires ≤14d, unexpired) is recorded.
 
 Connect wiring lives here (not in connect.py) so AGE-29 stays out of the
-full-cover mutation diff for connect/mutation: CLI calls
-`persist_secrets_policy` + `pin_gitleaks_config` after `connect()`.
+full-cover mutation diff for connect: CLI calls `apply_secrets_connect`
+after `connect()`.
 """
 from __future__ import annotations
 
@@ -21,41 +20,52 @@ from pathlib import Path
 from typing import Any
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
-from .quality import load_quality
+from .quality import load_quality, quality_path
+from .quality_io import read_json_object
 
 DOC = "docs/QUALITY.md"
 DEFAULT_CONFIG = ".gitleaks.toml"
 REPORT_DIR = "reports/secrets"
 MAX_DISABLE_DAYS = 14
+_FALSEY = frozenset({"false", "0", "no"})
 
 
 def _mode(section: dict[str, Any]) -> str:
-    mode = str(section.get("mode") or "hard").lower()
-    return mode if mode in {"hard", "warn"} else "hard"
+    raw = section.get("mode")
+    if not isinstance(raw, str):
+        return "hard"
+    mode = raw.lower()
+    if mode == "warn":
+        return "warn"
+    return "hard"
 
 
 def _is_disabled_flag(enabled: Any) -> bool:
-    if enabled is False or enabled == 0:
+    if enabled is False:
         return True
-    return str(enabled).lower() in {"false", "0", "no"}
+    if enabled is True:
+        return False
+    if enabled == 0:
+        return True
+    if enabled == 1:
+        return False
+    text = str(enabled).strip().lower()
+    return text in _FALSEY
 
 
 def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = None) -> bool:
-    """True only with reason + approved_by + unexpired ISO expiry within ≤14d.
-
-    Human-only escape hatch (Maxim hard-default). Missing any field, bad
-    date, already expired, or expiry further than MAX_DISABLE_DAYS ahead →
-    False (gate stays hard).
-    """
+    """True only with reason + approved_by + unexpired ISO expiry within ≤14d."""
     decision = section.get("disable_decision")
     if not isinstance(decision, dict):
         return False
     reason = str(decision.get("reason") or "").strip()
     approved_by = str(decision.get("approved_by") or "").strip()
-    expires_raw = str(
-        decision.get("expires") or decision.get("expiry") or decision.get("expires_at") or ""
-    ).strip()
-    if not reason or not approved_by or not expires_raw:
+    expires_raw = str(decision.get("expires") or "").strip()
+    if expires_raw == "":
+        expires_raw = str(decision.get("expiry") or "").strip()
+    if expires_raw == "":
+        expires_raw = str(decision.get("expires_at") or "").strip()
+    if reason == "" or approved_by == "" or expires_raw == "":
         return False
     try:
         expires = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
@@ -63,21 +73,40 @@ def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = No
         return False
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=timezone.utc)
-    clock = now or datetime.now(timezone.utc)
+    clock = now if now is not None else datetime.now(timezone.utc)
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=timezone.utc)
     if expires <= clock:
         return False
-    if expires - clock > timedelta(days=MAX_DISABLE_DAYS):
+    delta = expires - clock
+    if delta > timedelta(days=MAX_DISABLE_DAYS):
         return False
     return True
 
 
+def secrets_section(root: Path, context: str = DEFAULT_CONTEXT) -> dict[str, Any]:
+    """Defaults from load_quality, overlaid with on-disk `secrets` (quality.py untouched)."""
+    cfg = load_quality(root, context)
+    base = dict(cfg.get("secrets") or {})
+    path = quality_path(root, context)
+    if not path.is_file():
+        return base
+    raw = read_json_object(path)
+    overlay = raw.get("secrets")
+    if isinstance(overlay, dict):
+        base.update(overlay)
+    return base
+
+
 def _quality_templates_dir(root: Path) -> Path:
     local = root / "templates" / "quality"
-    if local.is_dir() and any(local.iterdir()):
-        return local
-    # Installed Agentized root: runtime/agentized/secrets_gate.py → repo root.
+    if local.is_dir():
+        try:
+            next(local.iterdir())
+        except StopIteration:
+            pass
+        else:
+            return local
     return Path(__file__).resolve().parents[2] / "templates" / "quality"
 
 
@@ -87,14 +116,10 @@ def pin_gitleaks_config(
     *,
     manifest: dict[str, Any] | None = None,
 ) -> str:
-    """Pin `.gitleaks.toml` from templates via managed.json (AGE-29).
-
-    Returns managed_copy status: created / unchanged / skipped_user / missing-src.
-    """
+    """Pin `.gitleaks.toml` from templates via managed.json (AGE-29)."""
     from .managed import load_managed, managed_copy_file, save_managed
 
-    templates = _quality_templates_dir(root)
-    src = templates / "gitleaks.toml.example"
+    src = _quality_templates_dir(root) / "gitleaks.toml.example"
     dst = root / DEFAULT_CONFIG
     if not src.is_file():
         return "missing-src"
@@ -109,16 +134,9 @@ def persist_secrets_policy(
     root: Path,
     context_rel: str = DEFAULT_CONTEXT,
 ) -> dict[str, Any]:
-    """Reconnect policy for secrets (AGE-29).
-
-    - Inject default secrets section + gate entry when on-disk quality.json
-      lacks `secrets`.
-    - Flip secrets.mode warn→hard.
-    - Force secrets.enabled=true unless a valid human disable_decision exists.
-    """
-    from .quality import quality_path, save_quality
+    """Reconnect policy: inject secrets, warn→hard, force-enable without decision."""
+    from .quality import save_quality
     from .quality_defaults import default_quality_config
-    from .quality_io import read_json_object
 
     path = quality_path(root, context_rel)
     upgraded: list[str] = []
@@ -139,26 +157,28 @@ def persist_secrets_policy(
                 names = list(gates.get(gate_key) or [])
                 if "secrets" not in names:
                     if "mechanical" in names:
-                        idx = names.index("mechanical") + 1
-                        names.insert(idx, "secrets")
+                        names.insert(names.index("mechanical") + 1, "secrets")
                     else:
                         names.insert(0, "secrets")
                     gates[gate_key] = names
 
     secrets = data.get("secrets")
     if isinstance(secrets, dict):
-        if str(secrets.get("mode") or "").lower() == "warn":
+        # Overlay on-disk secrets onto normalized defaults.
+        disk = raw.get("secrets")
+        if isinstance(disk, dict):
+            secrets.update(disk)
+        if _mode(secrets) == "warn":
             secrets["mode"] = "hard"
             if "secrets" not in upgraded:
                 upgraded.append("secrets")
             dirty = True
-        if _is_disabled_flag(secrets.get("enabled", True)) and not disable_decision_valid(
-            secrets
-        ):
-            secrets["enabled"] = True
-            if "secrets_enabled" not in upgraded:
-                upgraded.append("secrets_enabled")
-            dirty = True
+        if _is_disabled_flag(secrets.get("enabled", True)):
+            if not disable_decision_valid(secrets):
+                secrets["enabled"] = True
+                if "secrets_enabled" not in upgraded:
+                    upgraded.append("secrets_enabled")
+                dirty = True
 
     if dirty:
         save_quality(root, data, context_rel)
@@ -182,13 +202,12 @@ def apply_secrets_connect(
 
 def _resolve_gitleaks(section: dict[str, Any]) -> str | None:
     custom = str(section.get("binary") or "").strip()
-    if custom:
-        path = Path(custom)
-        if path.is_file():
-            return str(path)
-        which = shutil.which(custom)
-        return which
-    return shutil.which("gitleaks")
+    if custom == "":
+        return shutil.which("gitleaks")
+    path = Path(custom)
+    if path.is_file():
+        return str(path)
+    return shutil.which(custom)
 
 
 def _build_cmd(
@@ -227,7 +246,10 @@ def _write_summary(
     tool_rc: int | None,
     tool_note: str,
 ) -> dict[str, Any]:
-    passed = True if mode == "warn" else not findings
+    if mode == "warn":
+        passed = True
+    else:
+        passed = len(findings) == 0
     payload = {
         "schemaVersion": 1,
         "mode": mode,
@@ -244,14 +266,45 @@ def _write_summary(
     return payload
 
 
+def _findings_from_report(report_path: Path, tool_note: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    leaks: list[Any] = []
+    if report_path.is_file():
+        try:
+            loaded = json.loads(report_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, list):
+            leaks = loaded
+    if leaks:
+        for item in leaks[:50]:
+            if not isinstance(item, dict):
+                continue
+            detail = str(
+                item.get("Description")
+                or item.get("Secret")
+                or item.get("Match")
+                or "secret detected"
+            )
+            findings.append(
+                {
+                    "file": str(item.get("File") or item.get("file") or ""),
+                    "kind": str(item.get("RuleID") or item.get("Rule") or "leak"),
+                    "detail": detail[:240],
+                }
+            )
+        return findings
+    note = tool_note if tool_note else "gitleaks exit 1 (secrets detected)"
+    return [{"file": "", "kind": "leak", "detail": note}]
+
+
 def run_secrets_gate(
     root: Path | None = None,
     *,
     context: str = DEFAULT_CONTEXT,
 ) -> int:
     root = root or find_repo_root()
-    cfg = load_quality(root, context)
-    section = cfg.get("secrets") or {}
+    section = secrets_section(root, context)
     mode = _mode(section)
     out_dir = root / str(section.get("report_dir") or REPORT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -259,16 +312,16 @@ def run_secrets_gate(
     summary_path = out_dir / "secrets-summary.json"
     config_rel = str(section.get("config") or DEFAULT_CONFIG)
     config_path = root / config_rel
+    config_for_summary = config_rel if config_path.is_file() else None
 
-    enabled = section.get("enabled", True)
-    if _is_disabled_flag(enabled):
+    if _is_disabled_flag(section.get("enabled", True)):
         if disable_decision_valid(section):
             print("[secrets] disabled by recorded decision — skip")
             _write_summary(
                 summary_path,
                 mode=mode,
                 binary=None,
-                config_rel=config_rel if config_path.is_file() else None,
+                config_rel=config_for_summary,
                 findings=[],
                 tool_rc=None,
                 tool_note="disabled_by_decision",
@@ -284,7 +337,7 @@ def run_secrets_gate(
             summary_path,
             mode=mode,
             binary=None,
-            config_rel=config_rel if config_path.is_file() else None,
+            config_rel=config_for_summary,
             findings=findings,
             tool_rc=None,
             tool_note=detail,
@@ -307,57 +360,20 @@ def run_secrets_gate(
             "(https://github.com/gitleaks/gitleaks) or set secrets.binary. "
             f"See {DOC}."
         )
-        findings.append(
-            {
-                "file": "",
-                "kind": "missing_binary",
-                "detail": tool_note,
-            }
-        )
+        findings.append({"file": "", "kind": "missing_binary", "detail": tool_note})
     else:
         cmd = _build_cmd(binary, root, config_path=config_path, report_path=report_path)
         proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
         tool_rc = proc.returncode
         tool_note = ((proc.stdout or "") + (proc.stderr or "")).strip()[:4000]
         if tool_rc == 1:
-            leaks: list[Any] = []
-            if report_path.is_file():
-                try:
-                    loaded = json.loads(report_path.read_text(encoding="utf-8"))
-                    if isinstance(loaded, list):
-                        leaks = loaded
-                except json.JSONDecodeError:
-                    leaks = []
-            if leaks:
-                for item in leaks[:50]:
-                    if not isinstance(item, dict):
-                        continue
-                    findings.append(
-                        {
-                            "file": str(item.get("File") or item.get("file") or ""),
-                            "kind": str(item.get("RuleID") or item.get("Rule") or "leak"),
-                            "detail": str(
-                                item.get("Description")
-                                or item.get("Secret")
-                                or item.get("Match")
-                                or "secret detected"
-                            )[:240],
-                        }
-                    )
-            else:
-                findings.append(
-                    {
-                        "file": "",
-                        "kind": "leak",
-                        "detail": tool_note or "gitleaks exit 1 (secrets detected)",
-                    }
-                )
-        elif tool_rc not in (0, None) and tool_rc != 1:
+            findings = _findings_from_report(report_path, tool_note)
+        elif tool_rc != 0:
             findings.append(
                 {
                     "file": "",
                     "kind": "tool_error",
-                    "detail": tool_note or f"gitleaks exit {tool_rc}",
+                    "detail": tool_note if tool_note else f"gitleaks exit {tool_rc}",
                 }
             )
 
@@ -365,7 +381,7 @@ def run_secrets_gate(
         summary_path,
         mode=mode,
         binary=binary,
-        config_rel=config_rel if config_path.is_file() else None,
+        config_rel=config_for_summary,
         findings=findings,
         tool_rc=tool_rc,
         tool_note=tool_note,
@@ -374,22 +390,28 @@ def run_secrets_gate(
     if findings:
         print(f"[secrets] {len(findings)} finding(s) (mode={mode})")
         for item in findings[:30]:
-            loc = item["file"] or "(repo)"
+            loc = item["file"] if item["file"] else "(repo)"
             print(f"  {loc}: {item['kind']}: {item['detail'][:200]}")
-        if len(findings) > 30:
-            print(f"  … +{len(findings) - 30} more")
+        extra = len(findings) - 30
+        if extra > 0:
+            print(f"  … +{extra} more")
     else:
         print("[secrets] PASS (0 findings, tool=gitleaks)")
 
     if mode == "warn":
         print("[secrets] warn mode — not failing the gate")
         return 0
-    return 0 if not findings else 1
+    if findings:
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(argv or sys.argv[1:])
-    context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
+    args = list(argv if argv is not None else sys.argv[1:])
+    if "--context" in args:
+        context = args[args.index("--context") + 1]
+    else:
+        context = DEFAULT_CONTEXT
     return run_secrets_gate(find_repo_root(), context=context)
 
 

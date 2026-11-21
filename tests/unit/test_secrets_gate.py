@@ -472,9 +472,12 @@ def test_real_gitleaks_detects_planted_secrets(tmp_path: Path):
         check=True,
         capture_output=True,
     )
-    # Pinned Agentized config (useDefault=true).
-    root_cfg = Path(__file__).resolve().parents[2] / "templates" / "quality" / "gitleaks.toml.example"
-    (repo / ".gitleaks.toml").write_text(root_cfg.read_text(encoding="utf-8"), encoding="utf-8")
+    # Inline pinned config (useDefault=true) — do not read templates/ (absent in mutmut sandbox).
+    (repo / ".gitleaks.toml").write_text(
+        'title = "Agentized"\n\n[extend]\nuseDefault = true\n\n'
+        "[allowlist]\npaths = [\n  '''^(coverage|reports|mutants|\\.venv)/''',\n]\n",
+        encoding="utf-8",
+    )
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 1
     summary = json.loads(
@@ -498,8 +501,10 @@ def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
         check=True,
         capture_output=True,
     )
-    root_cfg = Path(__file__).resolve().parents[2] / "templates" / "quality" / "gitleaks.toml.example"
-    (repo / ".gitleaks.toml").write_text(root_cfg.read_text(encoding="utf-8"), encoding="utf-8")
+    (repo / ".gitleaks.toml").write_text(
+        'title = "Agentized"\n\n[extend]\nuseDefault = true\n',
+        encoding="utf-8",
+    )
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 0
     summary = json.loads(
@@ -559,7 +564,8 @@ def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
     forced = persist_secrets_policy(tmp_path, "context")
     assert "secrets_enabled" in forced["upgraded_modes"]
     assert "secrets" in forced["upgraded_modes"]
-    secrets = load_quality(tmp_path)["secrets"]
+    from agentized.secrets_gate import secrets_section
+    secrets = secrets_section(tmp_path)
     assert secrets["enabled"] is True
     assert secrets["mode"] == "hard"
 
@@ -581,9 +587,13 @@ def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
     )
     kept = persist_secrets_policy(tmp_path, "context")
     assert kept["upgraded_modes"] == []
-    kept_secrets = load_quality(tmp_path)["secrets"]
+    # quality.py normalize does not merge secrets; use secrets_section / raw disk.
+    from agentized.secrets_gate import secrets_section
+
+    kept_secrets = secrets_section(tmp_path)
     assert kept_secrets["enabled"] is False
     assert kept_secrets["disable_decision"]["approved_by"] == "Maxim"
+    assert json.loads(path.read_text(encoding="utf-8"))["secrets"]["enabled"] is False
 
 
 def test_persist_secrets_noop_without_quality_file(tmp_path: Path):
