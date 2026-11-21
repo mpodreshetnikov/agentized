@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261116-age38](T-261116-age38.md) — Harness status_guard single source (родитель: AGE-22) · claim: bc-1f91bae4
+_(пусто)_
 
 ## blocked
 
