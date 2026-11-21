@@ -35,7 +35,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 | `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + mutation |
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
-| `ruff format --check` (CI) | Hard gate on **changed** `*.py` vs PR base / push before (AGE-48; `line-length = 100`) |
+| `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |
 
 Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `combined` sums per-module totals so JSON-only modules are included. Mutation is incremental vs base on **whole changed files** (not format hunks only), drops AST-equivalent (noop) files, skips cleanly when no mutable files remain, wipes `mutants/` before each run, and fails closed on mutmut exit ≠ 0. Do not lower the covered-score gate — strengthen tests.
 
