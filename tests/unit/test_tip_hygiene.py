@@ -77,13 +77,25 @@ def test_extract_and_resolve_pr():
     assert extract_pr_number("https://github.com/o/r/pull/46") == 46
 
     assert resolve_pr(explicit=None, env={}).pr_number is None
+    assert resolve_pr(explicit=0, env={}).pr_number is None
+    assert resolve_pr(explicit=1, env={}).pr_number == 1
     assert resolve_pr(explicit=12, env={}).pr_number == 12
     assert resolve_pr(explicit="#0", env={}).pr_number is None
+    assert resolve_pr(explicit="0", env={}).pr_number is None
     assert resolve_pr(env={"AGENTIZED_PR": "41"}).pr_number == 41
     assert resolve_pr(env={"GITHUB_REF": "refs/pull/52/merge"}).pr_number == 52
+    assert resolve_pr(env={"GITHUB_REF": "refs/pull/1/head"}).pr_number == 1
+    assert resolve_pr(env={"GITHUB_REF": "refs/pull/0/merge"}).pr_number is None
     assert resolve_pr(env={"GITHUB_REF": "refs/heads/main"}).pr_number is None
     assert resolve_pr(env={"GITHUB_REF": "   "}).pr_number is None
-    assert resolve_pr(env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "nope", "GITHUB_PR_NUMBER": "8"}).pr_number == 8
+    assert (
+        resolve_pr(env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "nope", "GITHUB_PR_NUMBER": "8"}).pr_number
+        == 8
+    )
+    assert resolve_pr(env={"AGENTIZED_PR": "0", "TIP_HYGIENE_PR": "1"}).pr_number == 1
+    # Missing key then valid — continue, not break.
+    assert resolve_pr(env={"TIP_HYGIENE_PR": "12"}).pr_number == 12
+    assert resolve_pr_number(explicit=9, env={}) == 9
 
     # GitHub wins; agreeing override OK.
     ok = resolve_pr(explicit=55, env={"GITHUB_REF": "refs/pull/55/merge", "AGENTIZED_PR": "55"})
@@ -125,15 +137,43 @@ def test_claim_released_only_empty_or_pustoe():
         task_points_at_pr("#2", 2),
         task_points_at_pr("#2", 3),
     ] == [False, True, False]
+    # Missing claim key → empty → released (header helper must not invent XXXX).
+    from agentized.status_gates import parse_task_fields
+
+    bare = "\n".join(
+        ln
+        for ln in _task("self-review", extra="pr: #1\nreview_note: ok").splitlines()
+        if not ln.startswith("claim:")
+    )
+    fields = parse_task_fields(bare + "\n")
+    assert th._header_field(fields, "claim") == ""
+    assert th._header_field(fields, "missing") == ""
+    assert claim_is_held(th._header_field(fields, "claim")) is False
+    assert th._parse_positive(0) is None
+    assert th._parse_positive(1) == 1
+    assert th._parse_positive(-3) is None
+    assert th._parse_positive("0") is None
+    assert th._parse_positive("1") == 1
+    assert th._parse_positive("42") == 42
+    assert th._parse_positive("#5") == 5
+    assert th._parse_positive("PR #8") == 8
 
 
 def test_index_and_linked_tasks(tmp_path: Path):
     tasks = tmp_path / "tasks"
     tasks.mkdir()
     (tasks / "T-261121-a.md").write_text(_task("open", task_id="T-261121-a"), encoding="utf-8")
-    assert validate_index_freshness(tasks) == GateResult(False, (MSG_TIP_INDEX,))
+    missing = validate_index_freshness(tasks)
+    assert missing == GateResult(False, (MSG_TIP_INDEX,))
+    assert missing.ok is False
     _write_index(tasks)
     assert validate_index_freshness(tasks) == GateResult(True)
+    # Stale INDEX content (not missing / not undecodable).
+    (tasks / "INDEX.md").write_text("stale-index\n", encoding="utf-8")
+    stale = validate_index_freshness(tasks)
+    assert stale == GateResult(False, (MSG_TIP_INDEX,))
+    assert stale.ok is False
+    _write_index(tasks)
 
     # No matching pr → FAIL.
     none = validate_pr_linked_tasks(tasks, 76)
@@ -143,7 +183,12 @@ def test_index_and_linked_tasks(tmp_path: Path):
         _task("self-review", extra="pr: #76\nreview_note: green", task_id="T-261121-ok"),
         encoding="utf-8",
     )
-    assert validate_pr_linked_tasks(tasks, 76) == GateResult(True)
+    (tasks / "T-261121-ok2.md").write_text(
+        _task("done", extra="pr: #76\nacceptance_note: landed", task_id="T-261121-ok2"),
+        encoding="utf-8",
+    )
+    ok_two = validate_pr_linked_tasks(tasks, 76)
+    assert ok_two == GateResult(True)
 
     (tasks / "T-261121-dirty.md").write_text(
         _task("in-progress", claim="w", extra="pr: #76", task_id="T-261121-dirty"),
@@ -234,25 +279,44 @@ def test_validate_tip_hygiene_pull_request_and_conflict(tmp_path: Path):
 
 
 def test_apply_ready_rules_and_idempotent(tmp_path: Path, monkeypatch):
-    with pytest.raises(ValueError, match="ready refuses status"):
+    with pytest.raises(ValueError) as ei_done:
         apply_ready(_task("done", extra="acceptance_note: x"), review_note="n")
-    with pytest.raises(ValueError, match="ready refuses status"):
+    assert str(ei_done.value) == MSG_READY_STATUS.format(st="done")
+    with pytest.raises(ValueError) as ei_idea:
         apply_ready(_task("idea"), review_note="n")
-    with pytest.raises(ValueError, match="ready refuses status"):
+    assert str(ei_idea.value) == MSG_READY_STATUS.format(st="idea")
+    with pytest.raises(ValueError) as ei_blk:
         apply_ready(
             _task("blocked", extra="blocked_reason: x\nblocked_deadline: 2099-01-01"),
             review_note="n",
         )
+    assert str(ei_blk.value) == MSG_READY_STATUS.format(st="blocked")
     with pytest.raises(ValueError, match=MSG_READY_NOTE):
         apply_ready(_task("in-progress"), review_note="")
+    with pytest.raises(ValueError, match=MSG_READY_NOTE):
+        apply_ready(_task("in-progress"), review_note="_(пусто)_")
 
     src = _task("in-progress", claim="worker")
     once = apply_ready(src, review_note="ready note", pr="#76")
     assert "статус: self-review" in once
     assert f"claim: {CLAIM_EMPTY}" in once
+    assert "review_note: ready note" in once
+    assert "pr: #76" in once.split("## Цель")[0]
+    assert "статус → self-review" in once
+    assert "статус → None" not in once
+    assert "review_note: None" not in once
+    assert "XXreview_noteXX" not in once
+    assert "REVIEW_NOTE:" not in once
+    assert "XXprXX" not in once
+    assert "\npr: #76\n" in once or once.startswith("pr: #76\n")
+    header = once.split("## Цель", 1)[0]
+    assert "pr: #76" in header and "pr: None" not in header
     assert last_progress_entry(once) == READY_PROGRESS
     no_pr = apply_ready(_task("in-progress"), review_note="n", pr="   ")
     assert "pr:" not in no_pr.split("## Цель")[0]
+    # pr=None must not invent a pr field.
+    no_pr2 = apply_ready(_task("in-progress"), review_note="n", pr=None)
+    assert "pr:" not in no_pr2.split("## Цель")[0]
 
     # Idempotent: second apply returns identical text.
     twice = apply_ready(once, review_note="ignored", pr="#999")
@@ -267,6 +331,8 @@ def test_apply_ready_rules_and_idempotent(tmp_path: Path, monkeypatch):
     assert changed is True and out == path
     body = path.read_text(encoding="utf-8")
     assert f"claim: {CLAIM_EMPTY}" in body
+    assert "review_note: ready note" in body
+    assert "pr: #5" in body.split("## Цель")[0]
     mtime = path.stat().st_mtime_ns
     index_before = (tasks / "INDEX.md").read_bytes()
 
@@ -282,15 +348,20 @@ def test_apply_ready_rules_and_idempotent(tmp_path: Path, monkeypatch):
     # Bad UTF-8 → ValueError gate message, not raw traceback type.
     bad = tasks / "T-261121-bin.md"
     bad.write_bytes(b"\xff\xfe")
-    with pytest.raises(ValueError, match="unreadable task file"):
+    with pytest.raises(ValueError) as ei_bin:
         write_ready(tasks, "T-261121-bin", review_note="n")
+    assert "T-261121-bin.md" in str(ei_bin.value)
+    assert "unreadable task file" in str(ei_bin.value)
+    assert "None" not in str(ei_bin.value)
 
     def boom(path: Path) -> str:
         raise OSError("denied")
 
     monkeypatch.setattr(th, "_read_text", boom)
-    with pytest.raises(ValueError, match="unreadable task file"):
+    with pytest.raises(ValueError) as ei_os:
         write_ready(tasks, tid, review_note="n")
+    assert tid + ".md" in str(ei_os.value)
+    assert "denied" in str(ei_os.value)
 
 
 def test_read_write_helpers_use_text_encoding(tmp_path: Path):

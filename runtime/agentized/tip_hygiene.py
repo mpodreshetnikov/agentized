@@ -142,18 +142,17 @@ def resolve_pr(
     errors: list[str] = []
 
     if github is not None:
-        for label, other in (("env", override), ("--pr", expl)):
+        for other in (override, expl):
             if other is not None and other != github:
                 errors.append(MSG_TIP_PR_CONFLICT.format(github=github, override=other))
-        # Prefer github; surface all conflicts.
         if errors:
-            return PrResolution(None, tuple(errors))
+            return PrResolution(None, tuple(dict.fromkeys(errors)))
         return PrResolution(github)
 
     # No github PR (push/local): explicit then env.
     chosen = expl if expl is not None else override
-    event = (e.get("GITHUB_EVENT_NAME") or "").strip()
-    if event == "pull_request" and chosen is None:
+    event_raw = e.get("GITHUB_EVENT_NAME")
+    if event_raw is not None and event_raw.strip() == "pull_request" and chosen is None:
         errors.append(MSG_TIP_PR_REQUIRED)
     return PrResolution(chosen, tuple(errors))
 
@@ -194,7 +193,7 @@ def validate_index_freshness(tasks_dir: Path) -> GateResult:
 
 def validate_pr_linked_tasks(tasks_dir: Path, pr_number: int) -> GateResult:
     errors: list[str] = []
-    matched = 0
+    linked: list[str] = []
     for path in sorted(tasks_dir.glob("T-*.md")):
         try:
             text = _read_text(path)
@@ -205,14 +204,15 @@ def validate_pr_linked_tasks(tasks_dir: Path, pr_number: int) -> GateResult:
         pr_raw = _header_field(fields, "pr")
         if not task_points_at_pr(pr_raw, pr_number):
             continue
-        matched += 1
+        linked.append(path.name)
         st = extract_status(text)
         if st not in TIP_OK_STATUSES:
             errors.append(MSG_TIP_STATUS.format(name=path.name, pr=pr_number, st=st))
         claim = _header_field(fields, "claim")
         if claim_is_held(claim):
             errors.append(MSG_TIP_CLAIM.format(name=path.name, pr=pr_number, claim=claim))
-    if matched == 0:
+    # any() so append(None) / empty-name mutants still trip NO_LINKED.
+    if not any(linked):
         errors.append(MSG_TIP_NO_LINKED.format(pr=pr_number))
     return GateResult(ok=not errors, errors=tuple(errors))
 
@@ -250,7 +250,7 @@ def apply_ready(
     if st == READY_NOOP_STATUS:
         return text
     if st != READY_FROM:
-        raise ValueError(MSG_READY_STATUS.format(st=st or ""))
+        raise ValueError(MSG_READY_STATUS.format(st=st))
     note = (review_note or "").strip()
     if not note or note.startswith("_"):
         raise ValueError(MSG_READY_NOTE)
