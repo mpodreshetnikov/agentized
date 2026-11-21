@@ -416,6 +416,7 @@ def test_last_progress_entry_uses_first_progress_section():
 
 def test_last_progress_entry_counts_undated_bullet(monkeypatch):
     """Undated last bullet is last entry — earlier dated статус → done must not skip a new done."""
+
     class Fixed(datetime):
         @classmethod
         def now(cls, tz=None):
