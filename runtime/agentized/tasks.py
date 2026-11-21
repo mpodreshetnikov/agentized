@@ -7,11 +7,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ACTIVE_STATUSES = ("open", "in-progress", "blocked")
-ALL_STATUSES = ("idea", "open", "in-progress", "blocked", "done", "dropped")
+# One canonical list + aliases (CLI choices + status_gates).
+CANONICAL_STATUSES: tuple[str, ...] = (
+    "idea",
+    "open",
+    "queue",
+    "in-progress",
+    "self-review",
+    "for-review",
+    "blocked",
+    "done",
+    "canceled",
+)
+STATUS_ALIASES: dict[str, str] = {"dropped": "canceled", "queued": "queue"}
+ALL_STATUSES: tuple[str, ...] = CANONICAL_STATUSES + ("dropped", "queued")
 
 TASK_ID_RE = re.compile(r"^T-\d{6}-[a-z0-9]{3,8}$")
 # [ \t]* — not \s* — so an empty field cannot swallow the next header line.
-FIELD_RE = re.compile(r"^(статус|теги|родитель|claim):[ \t]*(.*)$", re.MULTILINE)
+# Extended keys shared with status_gates (header-block scan there; whole-file findall here).
+FIELD_RE = re.compile(
+    r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
+    r"review_note|acceptance_note|pr):[ \t]*(.*)$",
+    re.MULTILINE,
+)
 
 
 @dataclass

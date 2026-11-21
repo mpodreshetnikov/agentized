@@ -9,20 +9,14 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-TEXT_ENCODING = "utf-8"
-CANONICAL_STATUSES: tuple[str, ...] = (
-    "idea",
-    "open",
-    "queue",
-    "in-progress",
-    "self-review",
-    "for-review",
-    "blocked",
-    "done",
-    "canceled",
+from .tasks import (
+    ALL_STATUSES,
+    CANONICAL_STATUSES,
+    FIELD_RE,
+    STATUS_ALIASES,
 )
-STATUS_ALIASES: dict[str, str] = {"dropped": "canceled", "queued": "queue"}
-ALL_STATUSES: tuple[str, ...] = CANONICAL_STATUSES + ("dropped", "queued")
+
+TEXT_ENCODING = "utf-8"
 INDEX_ACTIVE_STATUSES: tuple[str, ...] = (
     "open",
     "queue",
@@ -59,16 +53,11 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "done": frozenset({"open", "queue", "in-progress"}),
     "canceled": frozenset({"open", "queue"}),
 }
-# Line matchers (no re.MULTILINE); scan header_block only.
+# Line matchers; scan header_block only (FIELD_RE imported from tasks).
 VALUE_LINE_RE = re.compile(r"^\s*Ценность:\s*(\S.*)$")
 VALUE_KEY_RE = re.compile(r"^\s*Ценность:\s*")
 NEW_PATH_ALLOWED_STATUSES: frozenset[str] = frozenset(
     {"idea", "open", "queue", "in-progress"}
-)
-# [ \t]* not \s* — blank `статус:` must not swallow next line (#30/#43).
-FIELD_LINE_RE = re.compile(
-    r"^(статус|теги|родитель|claim|blocked_reason|blocked_deadline|"
-    r"review_note|acceptance_note|pr):[ \t]*(.*)$"
 )
 DEADLINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PR_REF_RE = re.compile(
@@ -117,8 +106,10 @@ def normalize_status(raw: str | None) -> str:
 
 
 def is_known_status(raw: str | None) -> bool:
-    st = normalize_status(raw)
-    return bool(st) and st in CANONICAL_STATUSES
+    if raw is None:
+        return False
+    s = raw.strip().lower()
+    return s in ALL_STATUSES
 
 
 def header_block(text: str) -> str:
@@ -138,7 +129,7 @@ def duplicate_field_errors(text: str | None) -> tuple[str, ...]:
     errors: list[str] = []
     value_hits = 0
     for line in header_block(text).splitlines():
-        m = FIELD_LINE_RE.match(line)
+        m = FIELD_RE.match(line)
         if m:
             key = m.group(1)
             if key in seen:
@@ -158,7 +149,7 @@ def parse_task_fields(text: str | None) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for line in header_block(text).splitlines():
-        m = FIELD_LINE_RE.match(line)
+        m = FIELD_RE.match(line)
         if m:
             out[m.group(1)] = m.group(2).strip()
     return out
@@ -470,34 +461,3 @@ def run_tasks_validate(
     ref = resolve_validate_base_ref(repo_root, explicit=base_ref)
     previous = previous_task_texts_from_git(tasks_dir, repo_root=repo_root, ref=ref)
     return (ref, validate_tasks_dir(tasks_dir, previous_by_name=previous))
-
-
-def prepare_claim_text(old_text: str, owner: str) -> tuple[str, GateResult]:
-    from .tasks import append_progress, set_field
-
-    old_status = extract_status(old_text)
-    text = set_field(old_text, "claim", owner)
-    text = set_field(text, "статус", "in-progress")
-    text = append_progress(text, f"claim by {owner}")
-    return (text, validate_task_text(text, old_status=old_status))
-
-
-def prepare_status_text(
-    old_text: str, new_status: str, *, fields: dict[str, str] | None = None
-) -> tuple[str, GateResult]:
-    from .tasks import set_field
-
-    st = normalize_status(new_status)
-    old_status = extract_status(old_text)
-    text = set_field(old_text, "статус", st)
-    for key, val in (fields or {}).items():
-        if val:
-            text = set_field(text, key, val)
-    return (text, validate_task_text(text, old_status=old_status))
-
-
-def prepare_new_task_text(text: str, value: str) -> tuple[str, GateResult]:
-    text = text.replace("\n## Цель", f"\nЦенность: {value}\n\n## Цель", 1)
-    if extract_status(text) != "open":
-        return (text, GateResult(False, ("new task must stay open",)))
-    return (text, validate_task_text(text))

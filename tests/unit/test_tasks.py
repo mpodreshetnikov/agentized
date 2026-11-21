@@ -9,6 +9,10 @@ import pytest
 
 from agentized import tasks as tasks_mod
 from agentized.tasks import (
+    ALL_STATUSES,
+    CANONICAL_STATUSES,
+    FIELD_RE,
+    STATUS_ALIASES,
     allocate_task_id,
     append_progress,
     list_tasks,
@@ -23,6 +27,19 @@ from agentized.tasks import (
 def _write(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def test_shared_status_list_and_field_re_keys():
+    assert ALL_STATUSES == CANONICAL_STATUSES + ("dropped", "queued")
+    assert STATUS_ALIASES == {"dropped": "canceled", "queued": "queue"}
+    assert set(STATUS_ALIASES).issubset(ALL_STATUSES)
+    assert {"queue", "self-review", "for-review", "canceled"}.issubset(ALL_STATUSES)
+    assert FIELD_RE.match("acceptance_note: shipped").group(2) == "shipped"
+    assert FIELD_RE.match("blocked_reason: dep").group(1) == "blocked_reason"
+    assert FIELD_RE.match("blocked_deadline: 2026-12-01").group(2) == "2026-12-01"
+    # empty value must not swallow next line ([ \t]* not \s*)
+    body = "pr:\nreview_note: tip\n"
+    assert dict(FIELD_RE.findall(body)) == {"pr": "", "review_note": "tip"}
 
 
 def test_utc_now_stamp_format_and_tz(monkeypatch):

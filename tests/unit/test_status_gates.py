@@ -40,9 +40,6 @@ from agentized.status_gates import (
     normalize_status,
     header_block,
     parse_task_fields,
-    prepare_claim_text,
-    prepare_new_task_text,
-    prepare_status_text,
     previous_task_texts_from_git,
     resolve_validate_base_ref,
     run_tasks_validate,
@@ -265,7 +262,9 @@ def test_unknown_and_gate_message():
     assert GateResult(True).message == ""
     assert GateResult(False, ("a", "b")).message == "a; b"
     assert is_known_status("open") is True
-    assert is_known_status("flying") is is_known_status("") is False
+    assert is_known_status("Dropped") is is_known_status("queued") is True
+    assert is_known_status(None) is is_known_status("") is is_known_status("  ") is False
+    assert is_known_status("flying") is False
 
 
 def test_header_only_and_new_path(tmp_path: Path):
@@ -594,13 +593,24 @@ def test_claim_and_file_edges(tmp_path: Path):
 
 
 def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
+    from agentized import tasks as tasks_mod
     from agentized.status_gates import (
+        ALL_STATUSES,
         CANONICAL_STATUSES,
         COLUMN_FOR_STATUS,
+        FIELD_RE,
         STATUS_ALIASES,
         default_repo_root_for_tasks,
     )
     import subprocess
+
+    assert ALL_STATUSES is tasks_mod.ALL_STATUSES
+    assert CANONICAL_STATUSES is tasks_mod.CANONICAL_STATUSES
+    assert STATUS_ALIASES is tasks_mod.STATUS_ALIASES
+    assert FIELD_RE is tasks_mod.FIELD_RE
+    assert "self-review" in ALL_STATUSES and "queued" in ALL_STATUSES
+    assert FIELD_RE.match("pr: #37").group(2) == "#37"
+    assert FIELD_RE.match("review_note: tip green").group(1) == "review_note"
 
     class FakePath:
         def resolve(self):
@@ -769,39 +779,8 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path):
     assert any("illegal transition open → done" in e for e in result.errors)
 
 
-def test_prepare_helpers_and_run_validate_kwargs(tmp_path: Path, monkeypatch):
-    from agentized.tasks import render_task_file
+def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     import agentized.status_gates as sg
-
-    base = render_task_file("T-261116-prep", "Prep", status="open")
-    base = base.replace("\n## Цель", "\nЦенность: v\n\n## Цель", 1)
-    claimed, cg = prepare_claim_text(base, "alice")
-    assert cg == GateResult(True) and "claim: alice" in claimed
-    assert "статус: in-progress" in claimed and "claim by alice" in claimed
-    idea = render_task_file("T-261116-prep", "Prep", status="idea").replace(
-        "\n## Цель", "\nЦенность: v\n\n## Цель", 1
-    )
-    assert prepare_claim_text(idea, "alice")[1].ok is False
-    blocked, sg_res = prepare_status_text(
-        base,
-        "blocked",
-        fields={"blocked_reason": "dep", "blocked_deadline": "2026-12-01"},
-    )
-    assert sg_res == GateResult(True) and "blocked_reason: dep" in blocked
-    # open→done illegal even with acceptance
-    done_bad, dg = prepare_status_text(
-        base, "done", fields={"acceptance_note": "shipped"}
-    )
-    assert dg.ok is False and "illegal transition open → done" in dg.errors[0]
-    queued, qg = prepare_status_text(base, "queue", fields={"pr": ""})
-    assert qg == GateResult(True) and "статус: queue" in queued
-    raw = render_task_file("T-261116-prep", "Prep", status="open")
-    twin = raw.replace("\n## Цель", "\n## Цель\n\nx\n\n## Цель", 1)
-    with_val, vg = prepare_new_task_text(twin, "ship value")
-    assert vg == GateResult(True) and with_val.count("Ценность: ship value") == 1
-    assert prepare_new_task_text(raw.replace("статус: open", "статус: queue", 1), "x")[
-        1
-    ] == GateResult(False, ("new task must stay open",))
 
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True)
