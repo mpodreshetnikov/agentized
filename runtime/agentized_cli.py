@@ -31,6 +31,7 @@ from agentized.tasks import (
     ALL_STATUSES,
     allocate_task_id,
     append_progress,
+    append_status_progress,
     list_tasks,
     parse_task,
     rebuild_task_index,
@@ -363,6 +364,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         )
         return 1
     text = set_field(path.read_text(encoding="utf-8"), "статус", args.status)
+    # AGE-73: append status stamp; dedupe identical last entry.
+    text = append_status_progress(text, args.status)
     path.write_text(text, encoding="utf-8")
     (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
