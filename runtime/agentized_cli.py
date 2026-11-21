@@ -235,7 +235,7 @@ def cmd_quality(args: argparse.Namespace) -> int:
     if args.quality_cmd == "check":
         from agentized.architecture_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
-        from agentized.mutation import run_mutation
+        from agentized.mutation_ast import run_mutation
         from agentized.quality import load_quality
         from agentized.test_smells import run_test_smells
 
