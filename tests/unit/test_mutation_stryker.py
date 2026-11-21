@@ -193,6 +193,7 @@ def test_changed_source_and_test_path(tmp_path: Path, monkeypatch):
     ]
     paths = [
         "runtime/agentized/test_smells.py",
+        "runtime/agentized/test_smells_js.py",
         "tests/unit/test_foo.py",
         "src/foo.test.ts",
         "src/__tests__/x.ts",
@@ -202,6 +203,7 @@ def test_changed_source_and_test_path(tmp_path: Path, monkeypatch):
         "pkg/foo.spec.js",
     ]
     assert [mut._is_test_path(p) for p in paths] == [
+        False,
         False,
         True,
         True,
