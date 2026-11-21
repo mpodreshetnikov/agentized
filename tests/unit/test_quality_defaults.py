@@ -38,6 +38,7 @@ def test_default_quality_config_full_cover_globs_and_structure():
     assert mut == {
         "enabled": True,
         "tool": "mutmut",
+        "tools": {"python": "mutmut", "javascript": "stryker", "typescript": "stryker"},
         "gate": "hard",
         "scope": "covered_changed_lines",
         "base_ref": "origin/main",
@@ -54,13 +55,22 @@ def test_default_quality_config_full_cover_globs_and_structure():
             "tests/unit/**/*.py",
             "tests/quality/**/*.py",
             "tests/**/test_*.py",
+            "**/*.{test,spec}.{js,jsx,ts,tsx}",
+            "**/__tests__/**/*.{js,jsx,ts,tsx}",
         ],
     }
     assert cfg["architecture"] == {
         "enabled": True,
         "mode": "hard",
         "tool": "import-linter",
+        "tools": {
+            "python": "import-linter",
+            "javascript": "dependency-cruiser",
+            "typescript": "dependency-cruiser",
+        },
         "config": ".importlinter",
+        "js_config": ".dependency-cruiser.cjs",
+        "js_source": "src",
         "source_roots": ["runtime/agentized"],
         "forbidden_edges": [],
     }

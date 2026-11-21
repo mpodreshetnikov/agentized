@@ -233,11 +233,11 @@ def cmd_quality(args: argparse.Namespace) -> int:
         )
         return 0
     if args.quality_cmd == "check":
-        from agentized.architecture_gate import run_architecture_gate
+        from agentized.architecture_js_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
-        from agentized.mutation_ast import run_mutation
+        from agentized.mutation_js_gate import run_mutation
         from agentized.quality import load_quality
-        from agentized.test_smells import run_test_smells
+        from agentized.js_smells_gate import run_test_smells
 
         cfg = load_quality(root, ctx_rel)
         gate_names = list((cfg.get("gates") or {}).get("ci") or [])
