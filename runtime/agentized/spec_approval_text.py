@@ -13,6 +13,8 @@ ITALIC_PLACEHOLDER_MARK = "_("
 HEADING_PREFIX = "## "
 FILL_MARKERS = ("<fill>", "fill-me", "fillme")
 UNCHECKED_BOX = "[ ]"
+UTF8_ENCODING = "utf-8"
+MIN_REAL_SPEC_LEN = 2
 
 # Agent / bot commit locals treated as the claim owner for blame (not human approvers).
 AGENT_COMMIT_LOCALS = frozenset(
@@ -34,11 +36,11 @@ def decode_utf8_text(data: bytes | str, *, path: str = "") -> str:
     if isinstance(data, str):
         return data
     try:
-        return data.decode("utf-8")
+        return data.decode(UTF8_ENCODING)
     except UnicodeDecodeError as exc:
-        where = f" ({path})" if path else ""
+        suffix = f" ({path})" if path else ""
         raise SpecApprovalUtf8Error(
-            f"spec-approval: task file is not valid UTF-8{where}: {exc}"
+            f"spec-approval: task file is not valid UTF-8{suffix}: {exc}"
         ) from exc
 
 
@@ -81,7 +83,7 @@ def is_placeholder_spec(spec: str) -> bool:
     s = spec.strip()
     if not s:
         return True
-    if len(s) <= 1:
+    if len(s) < MIN_REAL_SPEC_LEN:
         return True
     if not any(ch.isalnum() for ch in s):
         return True

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from agentized.spec_approval_text import (
+    MIN_REAL_SPEC_LEN,
+    UTF8_ENCODING,
     SpecApprovalUtf8Error,
     _email_local_matches_claim,
     _email_local_part,
@@ -64,9 +66,12 @@ def test_placeholder_trivial_and_fill():
         "fill_me": is_placeholder_spec("fill-me"),
         "unchecked": is_placeholder_spec("- [ ] do the thing"),
         "punct_only": is_placeholder_spec("!!!"),
+        "single_a": is_placeholder_spec("a"),
+        "two_ok": is_placeholder_spec("ok"),
         "Ship the gate.": is_placeholder_spec("Ship the gate."),
         "multi\nline": is_placeholder_spec("Real plan\nmore"),
     }
+    assert MIN_REAL_SPEC_LEN == 2
     assert placeholders == {
         "none": True,
         "": True,
@@ -88,6 +93,8 @@ def test_placeholder_trivial_and_fill():
         "fill_me": True,
         "unchecked": True,
         "punct_only": True,
+        "single_a": True,
+        "two_ok": False,
         "Ship the gate.": False,
         "multi\nline": False,
     }
@@ -196,7 +203,17 @@ def test_emails_owners_agents_utf8():
         "miss": False,
     }
 
+    assert UTF8_ENCODING == "utf-8"
     assert decode_utf8_text("already text") == "already text"
-    assert decode_utf8_text("привет".encode("utf-8")) == "привет"
-    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8"):
+    assert decode_utf8_text("привет".encode(UTF8_ENCODING)) == "привет"
+    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8") as err_path:
         decode_utf8_text(b"\xff\xfe bad", path="task.md")
+    msg_path = str(err_path.value)
+    assert "task.md" in msg_path
+    assert "None" not in msg_path
+    with pytest.raises(SpecApprovalUtf8Error, match="not valid UTF-8") as err_plain:
+        decode_utf8_text(b"\xff\xfe bad")
+    msg_plain = str(err_plain.value)
+    assert "()" not in msg_plain
+    assert "XXXX" not in msg_plain
+    assert "None" not in msg_plain
