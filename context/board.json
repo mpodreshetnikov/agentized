@@ -1,0 +1,1 @@
+{"version":1,"wip_limit":3,"autopilot":{"enabled":true,"pick_from":["queue","open"],"count_as_wip":["in-progress","self-review"]},"metrics":{"throughput_window_days":7,"output":"board/metrics.json"}}

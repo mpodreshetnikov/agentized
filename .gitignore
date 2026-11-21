@@ -13,6 +13,7 @@ mutants/
 reports/mutation/
 reports/test-smells/
 reports/architecture/
+**/board/metrics.json
 # Ephemeral mutmut import-path bridge (created by runtime/agentized/mutation.py)
 /agentized
 # Generated harness wiring from `agentized connect` (re-created locally).
