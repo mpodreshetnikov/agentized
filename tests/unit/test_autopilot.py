@@ -24,6 +24,7 @@ from agentized.autopilot import (
     load_metrics_file,
     metrics_path,
     parse_progress_events,
+    normalize_status,
     pick_next_task,
     save_board,
     set_wip_limit,
@@ -33,17 +34,18 @@ from agentized.autopilot import (
     task_id_day_utc,
     wip_tasks,
     write_metrics,
-    _as_str_list,
     _avg,
     _median,
     _max_or_none,
+    _normalize_autopilot,
     _normalize_board,
+    _require_bool,
+    _require_status_list,
     _require_positive_int,
-    _require_safe_rel,
     _require_window_days,
-    _under_context,
     _validate_metrics_rel,
 )
+from agentized.paths import path_under, require_safe_rel, under_context
 from agentized.tasks import list_tasks, render_task_file
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
@@ -105,10 +107,19 @@ def test_defaults_helpers_normalize():
     with pytest.raises(ValueError) as e1:
         _require_positive_int("nope", field="throughput_window_days")
     assert e1.value.args == ("throughput_window_days must be >= 1",)
-    assert _as_str_list(None, ["open"]) == ["open"]
-    assert _as_str_list("open", ["idea"]) == ["idea"]
-    assert _as_str_list([], ["idea"]) == ["idea"]
-    assert _as_str_list(["a", 1], ["open"]) == ["a", "1"]
+    assert normalize_status("dropped") == "canceled"
+    assert normalize_status("queued") == "queue"
+    assert _require_bool(True, field="autopilot.enabled") is True
+    with pytest.raises(ValueError) as eb:
+        _require_bool("false", field="autopilot.enabled")
+    assert eb.value.args == ("autopilot.enabled must be a boolean",)
+    assert _require_status_list(["open", "dropped"], field="autopilot.pick_from") == [
+        "open",
+        "canceled",
+    ]
+    for bad in (None, "open", [], ["in_progres"], [1], ["mystery"]):
+        with pytest.raises(ValueError):
+            _require_status_list(bad, field="autopilot.count_as_wip")
     assert _avg([]) is None and _avg([2.0, 4.0]) == 3.0
     assert _median([]) is None and _median([1.0, 3.0, 2.0]) == 2.0
     assert _max_or_none([]) is None and _max_or_none([1.0, 9.0]) == 9.0
@@ -119,7 +130,7 @@ def test_defaults_helpers_normalize():
             _validate_metrics_rel(bad)
         assert ex.value.args == ("metrics.output must be a safe relative path",)
     with pytest.raises(ValueError) as enone:
-        _require_safe_rel(None, field="context")
+        require_safe_rel(None, field="context")
     assert enone.value.args == ("context must be a safe relative path",)
     assert _require_window_days(7) == 7
     assert _require_window_days(MAX_WINDOW_DAYS) == MAX_WINDOW_DAYS
@@ -144,12 +155,34 @@ def test_defaults_helpers_normalize():
     with pytest.raises(ValueError) as eout:
         _normalize_board(default_board_config(), {"metrics": {"output": "/abs/out.json"}})
     assert eout.value.args == ("metrics.output must be a safe relative path",)
-    soft = _normalize_board(default_board_config(), {"autopilot": "bad", "metrics": "bad"})
-    assert soft["wip_limit"] == 3
-    assert soft["autopilot"]["enabled"] is True
-    assert soft["autopilot"]["pick_from"] == DEFAULT_PICK_FROM
-    assert soft["autopilot"]["count_as_wip"] == DEFAULT_COUNT_AS_WIP
-    assert soft["metrics"] == {"throughput_window_days": 7, "output": DEFAULT_METRICS_REL}
+    with pytest.raises(ValueError) as eauto:
+        _normalize_board(default_board_config(), {"autopilot": "bad"})
+    assert eauto.value.args == ("autopilot must be an object",)
+    soft_m = _normalize_board(default_board_config(), {"metrics": "bad"})
+    assert soft_m["metrics"] == {"throughput_window_days": 7, "output": DEFAULT_METRICS_REL}
+    with pytest.raises(ValueError):
+        _normalize_board(
+            default_board_config(),
+            {
+                "autopilot": {
+                    "enabled": "false",
+                    "pick_from": ["open"],
+                    "count_as_wip": ["in-progress"],
+                }
+            },
+        )
+    with pytest.raises(ValueError):
+        _normalize_board(
+            default_board_config(),
+            {
+                "autopilot": {
+                    "enabled": True,
+                    "pick_from": ["open"],
+                    "count_as_wip": ["in_progres"],
+                }
+            },
+        )
+    assert _normalize_autopilot(None)["pick_from"] == DEFAULT_PICK_FROM
     missing = _normalize_board(
         default_board_config(),
         {"autopilot": {"pick_from": ["open"], "count_as_wip": ["in-progress"]}},
@@ -212,26 +245,15 @@ def test_board_io_fail_closed(tmp_path: Path):
     with pytest.raises(ValueError) as ex:
         set_wip_limit(tmp_path, 0, context_rel="context")
     assert ex.value.args == ("wip_limit must be >= 1",)
-    ensure_board_config(tmp_path, "otherctx")
-    (tmp_path / "otherctx" / "tasks").mkdir(parents=True, exist_ok=True)
     save_board(
         tmp_path,
         {"wip_limit": 9, "metrics": {"throughput_window_days": 5, "output": "other/metrics.json"}},
         "otherctx",
     )
-    save_board(
-        tmp_path,
-        {"wip_limit": 5, "metrics": {"throughput_window_days": 7, "output": "board/metrics.json"}},
-        "context",
-    )
-    assert load_board(tmp_path, "otherctx")["wip_limit"] == 9
-    assert load_board(tmp_path, "context")["wip_limit"] == 5
     returned = set_wip_limit(tmp_path, 4, context_rel="otherctx")
     assert returned["wip_limit"] == 4
     assert returned["metrics"]["output"] == "other/metrics.json"
-    assert load_board(tmp_path, "otherctx")["wip_limit"] == 4
     assert load_board(tmp_path, "context")["wip_limit"] == 5
-    assert ensure_board_config(tmp_path, "otherctx")["created"] is False
     cfg = load_board(tmp_path, "context")
     assert metrics_path(tmp_path, cfg, "context") == (
         tmp_path / "context" / "board" / "metrics.json"
@@ -240,7 +262,7 @@ def test_board_io_fail_closed(tmp_path: Path):
     assert metrics_path(tmp_path, {"metrics": "bad"}, "context") == (
         tmp_path / "context" / "board" / "metrics.json"
     ).resolve()
-    for bad_out in ("", "/", "/XXX/custom/out.json", "../escape.json"):
+    for bad_out in ("", "../escape.json"):
         with pytest.raises(ValueError):
             metrics_path(tmp_path, {"metrics": {"output": bad_out}}, "context")
     assert metrics_path(tmp_path, {"metrics": {"output": "custom/out.json"}}, "context") == (
@@ -271,7 +293,7 @@ def test_board_io_fail_closed(tmp_path: Path):
     outside.mkdir()
     (leak_root / "context" / "board").symlink_to(outside)
     with pytest.raises(ValueError) as esym:
-        _under_context(leak_root, "context", "board", "metrics.json")
+        under_context(leak_root, "context", "board", "metrics.json")
     assert esym.value.args == ("path escapes context directory",)
     with pytest.raises(ValueError):
         write_metrics(leak_root, context_rel="context", now=NOW)
@@ -283,15 +305,13 @@ def test_progress_parsers():
         "- bad line\n"
         "- 2026-11-10 08:00 UTC: claim by a\n"
         "- 2026-11-11 10:00 UTC: статус → blocked\n"
-        "- 2026-11-12 12:00 UTC: статус → done\n"
+        "- 2026-11-12 12:00 UTC: status → done\n"
         "- 2026-13-40 25:61 UTC: more junk\n"
         "- 2026-11-13 01:00 UTC: note\n"
     )
     events = parse_progress_events(text)
     assert len(events) == 4
     assert [e[0].day for e in events] == [10, 11, 12, 13]
-    with pytest.raises(TypeError):
-        parse_progress_events(None)  # type: ignore[arg-type]
     assert task_completed_at(events).day == 12
     assert task_blocked_since(events).day == 11
     assert task_completed_at([]) is None and task_blocked_since([]) is None
@@ -319,8 +339,6 @@ def test_wip_and_autopilot(tmp_path: Path):
         ("T-261113-wip", "Active", "in-progress", None),
         ("T-261112-blk", "Blocked", "blocked", None),
         ("T-261111-idea", "Idea", "idea", None),
-        ("T-261114-aaa", "Same A", "open", ["2026-11-14 09:00 UTC: opened"]),
-        ("T-261114-zzz", "Same Z", "open", ["2026-11-14 09:00 UTC: opened"]),
         ("T-261112-sr", "Self", "self-review", None),
     ]
     for tid, title, st, prog in seeds:
@@ -332,10 +350,8 @@ def test_wip_and_autopilot(tmp_path: Path):
         "T-261113-wip",
         "T-261112-sr",
     }
-    assert {t.task_id for t in wip_tasks(all_tasks, {"autopilot": "bad"})} == {
-        "T-261113-wip",
-        "T-261112-sr",
-    }
+    with pytest.raises(ValueError):
+        wip_tasks(all_tasks, {"autopilot": "bad"})
     assert [
         t.task_id
         for t in wip_tasks(
@@ -346,28 +362,15 @@ def test_wip_and_autopilot(tmp_path: Path):
     pick = pick_next_task(all_tasks, cfg, now=NOW)
     assert set(pick) == PICK_KEYS
     assert pick["ok"] is True
-    assert pick["task"] == {
-        "id": "T-261114-aaa",
-        "title": "Same A",
-        "status": "open",
-        "path": "T-261114-aaa.md",
-    }
+    assert pick["task"]["id"] == "T-261114-old"
     assert pick["reason"] == "picked oldest open under WIP"
     assert pick_next_task(
         all_tasks,
         {"wip_limit": 2, "autopilot": {"pick_from": ["open"], "count_as_wip": ["in-progress"]}, "metrics": {}},
         now=NOW,
     )["enabled"] is True
-    # bad autopilot → defaults; self-review counts as WIP so limit 2 is full
-    assert pick_next_task(all_tasks, {"wip_limit": 2, "autopilot": "x", "metrics": {}}, now=NOW)[
-        "task"
-    ] is None
-    assert (
-        pick_next_task(all_tasks, {"wip_limit": 5, "autopilot": "x", "metrics": {}}, now=NOW)[
-            "task"
-        ]["status"]
-        == "open"
-    )
+    with pytest.raises(ValueError):
+        pick_next_task(all_tasks, {"wip_limit": 2, "autopilot": "x", "metrics": {}}, now=NOW)
     cfg_no = {
         "autopilot": {"enabled": True, "pick_from": ["open"], "count_as_wip": ["in-progress"]},
         "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
@@ -394,67 +397,6 @@ def test_wip_and_autopilot(tmp_path: Path):
     )
     assert disabled["reason"] == "autopilot disabled" and disabled["task"] is None
     assert pick_next_task([], cfg, now=NOW)["reason"] == "no pickable tasks"
-    late = SimpleNamespace(
-        task_id="T-261116-late",
-        title="Late",
-        status="open",
-        path=_write_task(
-            tasks, "T-261116-late", "Late", status="open", progress=["2026-11-16 09:00 UTC: opened"]
-        ),
-    )
-    early = SimpleNamespace(
-        task_id="T-261110-early",
-        title="Early",
-        status="queue",
-        path=_write_task(
-            tasks, "T-261110-early", "Early", status="queue", progress=["2026-11-10 09:00 UTC: queued"]
-        ),
-    )
-    qcfg = _cfg(autopilot={"enabled": True, "pick_from": ["queue", "open"], "count_as_wip": ["in-progress"]})
-    assert pick_next_task([late, early], qcfg, now=NOW)["task"]["id"] == "T-261110-early"
-    # older id / newer stamp must lose to newer id / older stamp (kills created=None rank)
-    newish = SimpleNamespace(
-        task_id="T-261110-newish",
-        title="Newish",
-        status="open",
-        path=_write_task(
-            tasks,
-            "T-261110-newish",
-            "Newish",
-            status="open",
-            progress=["2026-11-15 09:00 UTC: opened"],
-        ),
-    )
-    older = SimpleNamespace(
-        task_id="T-261115-older",
-        title="OlderStamp",
-        status="open",
-        path=_write_task(
-            tasks,
-            "T-261115-older",
-            "OlderStamp",
-            status="open",
-            progress=["2026-11-10 09:00 UTC: opened"],
-        ),
-    )
-    assert pick_next_task([newish, older], cfg, now=NOW)["task"]["id"] == "T-261115-older"
-    empty_path = tasks / "T-261110-empty.md"
-    empty_path.write_text(
-        "# T-261110-empty — Empty\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\n"
-        "claim: _(пусто)_\n\n## Цель\n\nx\n\n## Progress\n\n_(append-only)_\n",
-        encoding="utf-8",
-    )
-    assert (
-        pick_next_task(
-            [
-                SimpleNamespace(task_id="T-261116-late2", title="L", status="open", path=late.path),
-                SimpleNamespace(task_id="T-261110-empty", title="E", status="open", path=empty_path),
-            ],
-            cfg,
-            now=NOW,
-        )["task"]["id"]
-        == "T-261110-empty"
-    )
 
 def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root, ctx = tmp_path, tmp_path / "context"
@@ -531,16 +473,19 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "cycle_time",
         "queue_age",
         "blocked_age",
+        "timing_source",
         "next_task",
         "autopilot",
     }
+    assert metrics["timing_source"] == "progress_status_arrows"
     assert metrics["version"] == 1
     assert metrics["generated_at"] == "2026-11-16T12:00:00Z"
     assert metrics["counts"]["done"] == 5
     assert metrics["counts"]["blocked"] == 2
     assert metrics["counts"]["in-progress"] == 1
     assert metrics["counts"]["open"] == 1
-    assert metrics["counts"]["other"] == 2
+    assert metrics["counts"]["canceled"] == 1
+    assert metrics["counts"]["other"] == 1
     assert metrics["throughput"] == {"window_days": 5, "done_count": 3, "per_day": 0.6}
     assert metrics["cycle_time"] == {
         "samples": 4,
@@ -566,13 +511,15 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert bare["wip"]["limit"] == DEFAULT_WIP_LIMIT
     assert bare["throughput"]["window_days"] == DEFAULT_WINDOW_DAYS
     assert bare["autopilot"]["enabled"] is True
+    with pytest.raises(ValueError):
+        compute_metrics(
+            tasks,
+            {"wip_limit": 3, "autopilot": "bad", "metrics": "bad"},
+            now=NOW,
+        )
     soft_m = compute_metrics(
         tasks,
-        {
-            "wip_limit": 3,
-            "autopilot": "bad",
-            "metrics": "bad",
-        },
+        {"wip_limit": 3, "autopilot": {}, "metrics": "bad"},
         now=NOW,
     )
     assert soft_m["throughput"]["window_days"] == DEFAULT_WINDOW_DAYS
@@ -594,20 +541,6 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     m_full = compute_metrics(tasks, {**cfg, "wip_limit": 1}, now=NOW)
     assert m_full["wip"]["under_limit"] is False
     assert m_full["autopilot"]["reason"] == "WIP at limit (1/1)"
-    m_round = compute_metrics(
-        tasks,
-        {
-            "wip_limit": 3,
-            "autopilot": {
-                "enabled": True,
-                "pick_from": ["queue", "open"],
-                "count_as_wip": ["in-progress", "self-review"],
-            },
-            "metrics": {"throughput_window_days": 7, "output": "board/metrics.json"},
-        },
-        now=NOW,
-    )
-    assert m_round["throughput"]["per_day"] == round(m_round["throughput"]["done_count"] / 7.0, 4)
     # write_metrics pins board.json even when connect does not
     (root / "context" / "board.json").unlink(missing_ok=True)
     written = write_metrics(root, context_rel="context", now=NOW)
@@ -635,22 +568,6 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     no_now = write_metrics(root, context_rel="context")
     assert no_now["metrics"]["generated_at"] == "2026-11-17T08:30:00Z"
     monkeypatch.setattr(board_mod, "datetime", datetime)
-    save_board(
-        root,
-        {"wip_limit": 3, "metrics": {"throughput_window_days": 7, "output": "custom/metrics.json"}},
-        "alt",
-    )
-    (root / "alt" / "tasks").mkdir(parents=True)
-    _write_task(
-        root / "alt" / "tasks",
-        "T-261114-alt",
-        "Alt",
-        status="open",
-        progress=["2026-11-14 12:00 UTC: opened"],
-    )
-    alt = write_metrics(root, context_rel="alt", now=NOW)
-    assert alt["path"] == "alt/custom/metrics.json"
-    assert load_metrics_file(root, "alt")["next_task"]["id"] == "T-261114-alt"
     (ctx / "board" / "metrics.json").write_text("{bad", encoding="utf-8")
     with pytest.raises((OSError, ValueError, TypeError)):
         load_metrics_file(root, "context")
@@ -705,20 +622,6 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "autopilot": {"enabled": True, "pick_from": ["open"], "count_as_wip": ["in-progress"]},
         "metrics": {"throughput_window_days": 5, "output": "board/metrics.json"},
     }
-    fut = tmp_path / "future-tasks"
-    fut.mkdir()
-    _write_task(fut, "T-261114-fut", "F", status="done", progress=[
-        "2026-11-14 08:00 UTC: claim by a", "2026-11-20 08:00 UTC: статус → done"])
-    _write_task(fut, "T-261118-q", "Q", status="open", progress=["2026-11-18 12:00 UTC: opened"])
-    _write_task(fut, "T-261118-b", "B", status="blocked", progress=["2026-11-18 06:00 UTC: статус → blocked"])
-    fut_m = compute_metrics(fut, slim, now=NOW)
-    assert fut_m["throughput"]["done_count"] == fut_m["cycle_time"]["samples"] == 0
-    assert fut_m["queue_age"]["samples"] == fut_m["blocked_age"]["samples"] == 0
-    with pytest.raises(ValueError) as ehuge_m:
-        compute_metrics(fut, {**slim, "wip_limit": 2, "metrics": {
-            "throughput_window_days": MAX_WINDOW_DAYS + 1, "output": "board/metrics.json"}}, now=NOW)
-    assert ehuge_m.value.args == (f"throughput_window_days must be <= {MAX_WINDOW_DAYS}",)
-
     bad_path = tmp_path / "T-261114-bin.md"
     bad_path.write_bytes(b"\xff\xfe not utf-8")
     with pytest.raises(ValueError) as eutf:

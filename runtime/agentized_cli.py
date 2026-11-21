@@ -22,7 +22,13 @@ from agentized.leases import (
     render_lease_file,
     warn_message,
 )
-from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
+from agentized.paths import (
+    DEFAULT_CONTEXT,
+    find_repo_root,
+    load_state,
+    path_under,
+    resolve_context_dir,
+)
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import run_tasks_validate
 from agentized.tasks import (
@@ -39,19 +45,12 @@ from agentized.tasks import (
 
 
 def _ctx(root: Path, args) -> Path:
-    from agentized.autopilot import _context_dir
-
     rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
-    return _context_dir(root, str(rel))
+    return resolve_context_dir(root, str(rel))
 
 
 def _path_under(ctx: Path, *parts: str) -> Path:
-    target = ctx.joinpath(*parts).resolve()
-    try:
-        target.relative_to(ctx)
-    except ValueError as exc:
-        raise ValueError("path escapes context directory") from exc
-    return target
+    return path_under(ctx, *parts)
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
