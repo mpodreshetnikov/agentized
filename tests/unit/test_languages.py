@@ -447,4 +447,17 @@ def test_survivor_killers(tmp_path: Path, monkeypatch):
     r = check_language_coverage(tmp_path, context=alt)
     _shape(r)
     assert r["ok"] is True and r["message"] == "language coverage OK: python"
+    # Non-dict mutation/smells/arch → treat as {}; None-default mutants explode or skip gates.
+    bad = {"modules": [{"id": "r", "source": ["src"], "test_command": "pytest", "coverage_lcov": "c.lcov"}],
+           "mutation": "bad", "test_smells": "bad", "architecture": "bad"}
+    assert missing_gates_for_language(tmp_path, "python", bad) == ["mutation", "smells", "architecture"]
+    # JS without runners must list mutation+architecture exactly (not smells).
+    js_bare = {"modules": [{"id": "w", "source": ["src"], "test_command": "vitest", "coverage_lcov": "c.lcov"}],
+               "mutation": {"tools": {"javascript": "stryker"}, "include_globs": ["**/*.js"]},
+               "test_smells": {"enabled": True, "include_globs": ["**/*.js"]},
+               "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}}}
+    assert missing_gates_for_language(tmp_path, "javascript", js_bare) == ["architecture", "mutation"]
+    _runners(tmp_path)
+    js_ok = {**js_bare, "architecture": {**js_bare["architecture"], "js_config": ".dependency-cruiser.cjs"}}
+    assert "architecture" not in missing_gates_for_language(tmp_path, "javascript", js_ok)
 # fmt: on
