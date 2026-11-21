@@ -6,14 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from agentized.status_gates import (
     ALLOWED_TRANSITIONS,
+    DECISION_SECTION,
     MSG_BAD_PR,
     MSG_BLOCKED_DEADLINE,
     MSG_BLOCKED_DEADLINE_FMT,
     MSG_BLOCKED_DEADLINE_INVALID,
     MSG_BLOCKED_REASON,
+    MSG_DECISION_PREFIX,
     MSG_DONE_EVIDENCE,
     MSG_DUPLICATE_FIELD,
     MSG_GIT_ERROR,
@@ -21,6 +22,7 @@ from agentized.status_gates import (
     MSG_MISSING_STATUS,
     MSG_MISSING_VALUE,
     MSG_NEW_PATH,
+    MSG_PROGRESS_PREFIX,
     MSG_REVIEW_EVIDENCE,
     MSG_TASK_DELETED,
     MSG_UNKNOWN_NEW,
@@ -28,21 +30,25 @@ from agentized.status_gates import (
     MSG_UNKNOWN_STATUS,
     MSG_UNREADABLE,
     NEW_PATH_ALLOWED_STATUSES,
+    PROGRESS_SECTION,
     GateResult,
     _cmd_detail,
     _git_err,
     _git_missing_path,
+    append_only_section_errors,
     duplicate_field_errors,
     extract_status,
     has_value_line,
+    header_block,
     is_known_status,
     is_real_pr_ref,
     normalize_status,
-    header_block,
     parse_task_fields,
     previous_task_texts_from_git,
     resolve_validate_base_ref,
     run_tasks_validate,
+    section_body,
+    section_is_prefix,
     validate_status_requirements,
     validate_task_file,
     validate_task_text,
@@ -504,6 +510,8 @@ def test_claim_and_file_edges(tmp_path: Path):
 
 
 def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
+    import subprocess
+
     from agentized import tasks as tasks_mod
     from agentized.status_gates import (
         ALL_STATUSES,
@@ -513,7 +521,6 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         STATUS_ALIASES,
         default_repo_root_for_tasks,
     )
-    import subprocess
 
     assert ALL_STATUSES is tasks_mod.ALL_STATUSES
     assert CANONICAL_STATUSES is tasks_mod.CANONICAL_STATUSES
@@ -744,3 +751,101 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path, monkeypatch):
     result = validate_tasks_dir(tasks, previous_by_name=prev)
     assert result.ok is False
     assert any("illegal transition open → done" in e for e in result.errors)
+
+
+def _with_sections(progress_body: str, decision_body: str) -> str:
+    """Build task text; bodies are exact ``section_body`` values (no eaten delimiter)."""
+    return _task(
+        "open",
+        body=f"{PROGRESS_SECTION}{progress_body}\n{DECISION_SECTION}{decision_body}",
+    )
+
+
+def test_progress_decision_exact_prefix_gate(tmp_path: Path):
+    """AGE-86: base Progress/Decision must be exact prefix of HEAD (blanks count)."""
+    assert PROGRESS_SECTION == "## Progress"
+    assert DECISION_SECTION == "## Decision Log"
+    assert MSG_PROGRESS_PREFIX == (
+        "Progress is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    assert MSG_DECISION_PREFIX == (
+        "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    # Progress: delimiter \\n## consumes the inserted \\n. Decision: _task EOF \\n stays in body.
+    prog = "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep"
+    dec = "\n\n_(append-only)_\n- decide-a\n"
+    base = _with_sections(prog, dec.rstrip("\n"))  # _task adds final \\n → body == dec
+
+    assert section_body("no markers", PROGRESS_SECTION) is None
+    assert section_body(base, PROGRESS_SECTION) == prog
+    assert section_body(base, DECISION_SECTION) == dec
+    only = f"{PROGRESS_SECTION}\n\nsolo\n"
+    assert section_body(only, PROGRESS_SECTION) == "\n\nsolo\n"
+    assert section_is_prefix("no", "also-no", PROGRESS_SECTION) is True
+    assert section_is_prefix(base, "no Progress", PROGRESS_SECTION) is False
+    assert section_is_prefix(base, base, PROGRESS_SECTION) is True
+
+    # pure append → green
+    appended = _with_sections(
+        prog + "\n- 2026-11-21 11:00 UTC: append",
+        (dec + "- decide-b\n").rstrip("\n"),
+    )
+    assert append_only_section_errors(base, appended) == ()
+    assert section_is_prefix(base, appended, PROGRESS_SECTION) is True
+    assert section_is_prefix(base, appended, DECISION_SECTION) is True
+
+    # delete line → red
+    deleted_line = _with_sections("\n\n_(append-only)_", dec.rstrip("\n"))
+    assert append_only_section_errors(base, deleted_line) == (MSG_PROGRESS_PREFIX,)
+
+    # reword → red
+    reworded = _with_sections(
+        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: CHANGED",
+        dec.rstrip("\n"),
+    )
+    assert append_only_section_errors(base, reworded) == (MSG_PROGRESS_PREFIX,)
+
+    # delete blank line inside Progress → red
+    prog_blank = "\n\n_(append-only)_\n- keep\n\n- next"
+    base_blank = _with_sections(prog_blank, dec.rstrip("\n"))
+    no_blank = _with_sections("\n\n_(append-only)_\n- keep\n- next", dec.rstrip("\n"))
+    assert section_body(base_blank, PROGRESS_SECTION) == prog_blank
+    assert append_only_section_errors(base_blank, no_blank) == (MSG_PROGRESS_PREFIX,)
+
+    # Decision-only rewrite → red Decision
+    bad_dec = _with_sections(prog, "\n\n_(append-only)_\n- decide-Z")
+    assert append_only_section_errors(base, bad_dec) == (MSG_DECISION_PREFIX,)
+
+    # both broken → both messages, Progress first
+    both_bad = _with_sections("\n\nx", "\n\ny")
+    assert append_only_section_errors(base, both_bad) == (
+        MSG_PROGRESS_PREFIX,
+        MSG_DECISION_PREFIX,
+    )
+
+    d = tmp_path / "prefix"
+    d.mkdir()
+    name = "T-261121-prefix.md"
+    path = d / name
+    path.write_text(appended, encoding="utf-8")
+    assert validate_tasks_dir(d, previous_by_name={name: base}) == GateResult(True)
+    assert validate_task_file(path, old_text=base) == GateResult(True)
+
+    path.write_text(deleted_line, encoding="utf-8")
+    red = validate_tasks_dir(d, previous_by_name={name: base})
+    assert red == GateResult(False, (f"{name}: {MSG_PROGRESS_PREFIX}",))
+    assert validate_task_file(path, old_text=base) == GateResult(False, (MSG_PROGRESS_PREFIX,))
+
+    # new task file (not on base) → green once prior file is fixed
+    path.write_text(appended, encoding="utf-8")
+    (d / "T-261121-brand.md").write_text(
+        _with_sections("\n\n_(append-only)_", "\n\n_(append-only)_"),
+        encoding="utf-8",
+    )
+    assert validate_tasks_dir(d, previous_by_name={name: base}) == GateResult(True)
+
+    # delete file on disk → red MSG_TASK_DELETED
+    path.unlink()
+    (d / "T-261121-brand.md").unlink()
+    gone = validate_tasks_dir(d, previous_by_name={name: base})
+    assert gone == GateResult(False, (f"{name}: {MSG_TASK_DELETED}",))

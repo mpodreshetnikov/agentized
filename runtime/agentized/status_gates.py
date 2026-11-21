@@ -75,6 +75,14 @@ MSG_UNREADABLE = "unreadable task file: {detail}"
 MSG_DUPLICATE_FIELD = "duplicate field {key!r}"
 MSG_TASK_DELETED = "task deleted; set статус: canceled"
 MSG_NEW_PATH = "new task cannot start as {st}"
+MSG_PROGRESS_PREFIX = (
+    "Progress is not an exact prefix of base (append-only; corrections = append only)"
+)
+MSG_DECISION_PREFIX = (
+    "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
+)
+PROGRESS_SECTION = "## Progress"
+DECISION_SECTION = "## Decision Log"
 
 
 @dataclass(frozen=True)
@@ -287,6 +295,41 @@ def _read_task_text(path: Path) -> str:
     return path.read_bytes().decode(TEXT_ENCODING)
 
 
+def section_body(text: str, marker: str) -> str | None:
+    """Body after the first ``marker`` heading until the next ``\\n## ``, or None if absent.
+
+    Includes leading newlines after the marker so blank-line edits are prefix-visible.
+    """
+    start = text.find(marker)
+    if start < 0:
+        return None
+    after = text[start + len(marker) :]
+    end = after.find("\n## ")
+    if end < 0:
+        return after
+    return after[:end]
+
+
+def section_is_prefix(old_text: str, new_text: str, marker: str) -> bool:
+    """True when base section is absent, or present body is an exact prefix of HEAD body."""
+    old = section_body(old_text, marker)
+    if old is None:
+        return True
+    new = section_body(new_text, marker)
+    if new is None:
+        return False
+    return new.startswith(old)
+
+
+def append_only_section_errors(old_text: str, new_text: str) -> tuple[str, ...]:
+    errors: list[str] = []
+    if not section_is_prefix(old_text, new_text, PROGRESS_SECTION):
+        errors.append(MSG_PROGRESS_PREFIX)
+    if not section_is_prefix(old_text, new_text, DECISION_SECTION):
+        errors.append(MSG_DECISION_PREFIX)
+    return tuple(errors)
+
+
 def validate_task_file(path: Path, *, old_text: str | None = None) -> GateResult:
     if not path.exists():
         return GateResult(False, (MSG_MISSING_FILE.format(path=path),))
@@ -296,7 +339,11 @@ def validate_task_file(path: Path, *, old_text: str | None = None) -> GateResult
         return GateResult(False, (MSG_UNREADABLE.format(detail=exc),))
     if old_text is None:
         return validate_task_text(text)
-    return validate_task_text(text, old_status=extract_status(old_text))
+    errors: list[str] = list(append_only_section_errors(old_text, text))
+    result = validate_task_text(text, old_status=extract_status(old_text))
+    if not result.ok:
+        errors.extend(result.errors)
+    return GateResult(ok=not errors, errors=tuple(errors))
 
 
 def default_repo_root_for_tasks(tasks_dir: Path) -> Path:
@@ -410,7 +457,10 @@ def validate_tasks_dir(
         old_status = None
         if previous_by_name is not None:
             if path.name in previous_by_name:
-                old_status = extract_status(previous_by_name[path.name])
+                old_text = previous_by_name[path.name]
+                for err in append_only_section_errors(old_text, text):
+                    errors.append(f"{path.name}: {err}")
+                old_status = extract_status(old_text)
                 if not old_status:
                     errors.append(f"{path.name}: {MSG_MISSING_STATUS} (previous)")
                     continue

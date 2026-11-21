@@ -5,11 +5,18 @@ from __future__ import annotations
 from agentized.status_gates import (
     ALL_STATUSES,
     CANONICAL_STATUSES,
+    DECISION_SECTION,
     INDEX_ACTIVE_STATUSES,
+    MSG_DECISION_PREFIX,
+    MSG_PROGRESS_PREFIX,
+    MSG_TASK_DELETED,
     MSG_UNKNOWN_STATUS,
+    PROGRESS_SECTION,
     STATUS_ALIASES,
     is_known_status,
     normalize_status,
+    section_body,
+    section_is_prefix,
 )
 
 
@@ -52,3 +59,33 @@ def test_status_gates_vocab_exact():
     assert is_known_status(None) is False
     assert is_known_status("done") is True
     assert is_known_status("canceled") is True
+    assert PROGRESS_SECTION == "## Progress"
+    assert DECISION_SECTION == "## Decision Log"
+    assert MSG_PROGRESS_PREFIX == (
+        "Progress is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    assert MSG_DECISION_PREFIX == (
+        "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    assert MSG_TASK_DELETED == "task deleted; set статус: canceled"
+    sample = "## Progress\n\na\n\n## Decision Log\n\nb\n"
+    assert section_body(sample, PROGRESS_SECTION) == "\n\na\n"
+    assert section_body(sample, DECISION_SECTION) == "\n\nb\n"
+    assert section_body("x", PROGRESS_SECTION) is None
+    assert section_is_prefix("x", sample, PROGRESS_SECTION) is True
+    assert (
+        section_is_prefix(
+            sample,
+            "## Progress\n\na\n\n- more\n\n## Decision Log\n\nb\n",
+            PROGRESS_SECTION,
+        )
+        is True
+    )
+    assert (
+        section_is_prefix(sample, "## Progress\n\nZ\n\n## Decision Log\n\nb\n", PROGRESS_SECTION)
+        is False
+    )
+    assert (
+        section_is_prefix(sample, "## Progress\n\na\n\n## Decision Log\n\nZ\n", DECISION_SECTION)
+        is False
+    )

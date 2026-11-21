@@ -25,6 +25,9 @@ else
   echo "[agentized pre-push] mechanical skipped (no ./tests/test_mechanical.sh)"
 fi
 
+echo "[agentized pre-push] tasks-validate"
+"${CLI[@]}" tasks-validate
+
 # Inclusive limit: process size hard-fails only when insertions > reviewable_lines (over >limit).
 echo "[agentized pre-push] process size"
 "${CLI[@]}" process size
