@@ -34,9 +34,9 @@ Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` i
 
 ## Tip hygiene (AGE-76)
 
-Hard gate inside `agentized tasks-validate` (also pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.)
+Hard gate inside `agentized tasks-validate` (dogfood pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.) Template quality CI/pre-push do **not** run tip hygiene until that seed lands.
 
-When a PR number is known, **at least one** task must have `pr:` pointing at that PR, status `self-review` or `done`, and claim released (`claim:` empty or `_(пусто)_` only — the template `_(пусто или кто ведёт)_` counts as **held**). Template `родитель` (`_(пусто для корневой задачи; …)_`) is also held — use a real parent id or `_(пусто)_`.
+When a PR number is known, **at least one** task must have `pr:` pointing at that PR, status `self-review` or `done`, and claim released (`claim:` empty or `_(пусто)_` only — the template `_(пусто или кто ведёт)_` counts as **held**). Template `родитель` (`_(пусто для корневой задачи; …)_`) is also held — use a real parent id or `_(пусто)_`. `agentized new` defaults parent to `_(пусто)_` and requires `--value` for `Ценность:`.
 
 PR number resolution:
 

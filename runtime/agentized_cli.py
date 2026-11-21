@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT_RUNTIME = Path(__file__).resolve().parent
@@ -15,19 +15,19 @@ if str(ROOT_RUNTIME) not in sys.path:
 
 from agentized import __version__
 from agentized.connect import connect
+from agentized.context_layout import (
+    apply_external_env_check,
+    prepare_connect_layout,
+    require_registry_ready,
+    resolve_layout,
+)
+from agentized.context_paths import path_under, resolve_context_dir
 from agentized.leases import (
     find_overlaps,
     list_leases,
     rebuild_lease_index,
     render_lease_file,
     warn_message,
-)
-from agentized.context_paths import path_under, resolve_context_dir
-from agentized.context_layout import (
-    apply_external_env_check,
-    prepare_connect_layout,
-    require_registry_ready,
-    resolve_layout,
 )
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
@@ -39,7 +39,6 @@ from agentized.tasks import (
     append_progress,
     append_status_progress,
     list_tasks,
-    parse_task,
     rebuild_task_index,
     render_task_file,
     set_field,
@@ -169,13 +168,15 @@ def cmd_env_check(args: argparse.Namespace) -> int:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
+    from agentized.quality import set_reviewer_options
     from agentized.review_budget import (
         allow_review,
         record_review,
         reset_scope,
+    )
+    from agentized.review_budget import (
         status as review_status,
     )
-    from agentized.quality import set_reviewer_options
 
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
@@ -363,10 +364,17 @@ def cmd_quality(args: argparse.Namespace) -> int:
 
 
 def cmd_new(args: argparse.Namespace) -> int:
+    from agentized.task_schema import PLACEHOLDER_EMPTY
+
     root = find_repo_root()
     ctx = _ctx(root, args, require_ready=True)
     tasks_dir = ctx / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    value = (getattr(args, "value", None) or "").strip()
+    if not value:
+        print("new FAIL: --value is required (non-empty Ценность)", file=sys.stderr)
+        return 1
 
     if not args.yes:
         reply = input(f"Создать задачу «{args.title}»? [y/N]: ").strip().lower()
@@ -375,7 +383,8 @@ def cmd_new(args: argparse.Namespace) -> int:
             return 2
 
     task_id = allocate_task_id(tasks_dir)
-    parent = args.parent or ""
+    # Default parent is _(пусто)_ — not the TEMPLATE placeholder (tip hygiene holds that).
+    parent = (args.parent or "").strip() or PLACEHOLDER_EMPTY
     text = render_task_file(
         task_id,
         args.title,
@@ -383,6 +392,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         tags=args.tags or "",
         parent=parent,
         goal=args.goal or "Что должно быть сделано.",
+        value=value,
     )
     path = tasks_dir / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
@@ -498,7 +508,7 @@ def cmd_board(args: argparse.Namespace) -> int:
     out = Path(args.output) if args.output else (root / "board.html")
     if not out.is_absolute():
         out = root / out
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if args.stamp else None
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if args.stamp else None
     try:
         path = write_board(
             _ctx(root, args) / "tasks",
@@ -506,7 +516,7 @@ def cmd_board(args: argparse.Namespace) -> int:
             generated_at=stamp,
             title=args.title or "Доска задач Agentized",
             lang=getattr(args, "lang", None) or "ru",
-            now=datetime.now(timezone.utc),
+            now=datetime.now(UTC),
         )
     except BoardError as exc:
         print(f"board FAIL: {exc}", file=sys.stderr)
@@ -586,7 +596,7 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
             pick = pick_next_task(
                 list_tasks(path_under(ctx, "tasks")),
                 cfg,
-                now=datetime.now(timezone.utc),
+                now=datetime.now(UTC),
             )
             if args.json:
                 print(json.dumps(pick, ensure_ascii=False, indent=2))
@@ -826,7 +836,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
     if args.type not in {"development", "management"}:
         print("type: development|management", file=sys.stderr)
         return 1
-    day = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    day = args.date or datetime.now(UTC).strftime("%Y-%m-%d")
     out_dir = ctx / "digests" / args.type
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{day}.md"
@@ -983,7 +993,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("new", help="Создать задачу (по умолчанию с подтверждением человека)")
     n.add_argument("--title", required=True)
-    n.add_argument("--parent", default="")
+    n.add_argument(
+        "--value",
+        required=True,
+        help="обязательная Ценность (business one-liner; written as Ценность: …)",
+    )
+    n.add_argument(
+        "--parent",
+        default="",
+        help="родитель id; default _(пусто)_ (not the TEMPLATE placeholder)",
+    )
     n.add_argument("--tags", default="")
     n.add_argument("--goal", default="")
     n.add_argument("--context", default=None)

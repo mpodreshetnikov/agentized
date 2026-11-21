@@ -31,4 +31,4 @@ Before opening a PR for Lead review:
 ./bin/agentized tasks-validate
 ```
 
-CI/`tasks-validate` hard-fails when INDEX is stale, or (on a pull request) when no task links `pr:` to this PR / status is not `self-review|done` / claim is not released / template `родитель` placeholder remains. Details: [`docs/process-control.md`](docs/process-control.md) (Tip hygiene).
+Dogfood CI/`tasks-validate` hard-fails when INDEX is stale, or (on a pull request) when no task links `pr:` to this PR / status is not `self-review|done` / claim is not released / template `родитель` placeholder remains. Template quality hooks defer tip hygiene until AGE-68 connect INDEX seeds. `agentized new` needs `--value` and defaults parent to `_(пусто)_`. Details: [`docs/process-control.md`](docs/process-control.md) (Tip hygiene).
