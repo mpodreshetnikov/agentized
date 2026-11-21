@@ -104,8 +104,14 @@ def load_layout_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[s
     external = cfg.get("external")
     if not isinstance(external, dict):
         raise ValueError(f"{ERR_INVALID_EXTERNAL}: {path}")
-    path_v = external.get("path", "")
-    remote_v = external.get("remote", "")
+    if "path" in external:
+        path_v = external["path"]
+    else:
+        path_v = ""
+    if "remote" in external:
+        remote_v = external["remote"]
+    else:
+        remote_v = ""
     if path_v is None:
         path_v = ""
     if remote_v is None:

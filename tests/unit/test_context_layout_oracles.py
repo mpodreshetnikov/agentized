@@ -174,6 +174,23 @@ def test_load_layout_normalize_custom_rel_message_encoding(tmp_path: Path, monke
         "placement": "nested",
         "external": {"path": "", "remote": ""},
     }
+    # missing path/remote keys → empty strings (kills .get default mutants)
+    miss = tmp_path / "pc-miss" / "context.json"
+    miss.parent.mkdir(parents=True, exist_ok=True)
+    miss.write_text(json.dumps({"placement": "nested", "external": {}}), encoding="utf-8")
+    assert load_layout_config(tmp_path, "pc-miss")["external"] == {"path": "", "remote": ""}
+    only_r = tmp_path / "pc-or" / "context.json"
+    only_r.parent.mkdir(parents=True, exist_ok=True)
+    only_r.write_text(
+        json.dumps({"placement": "nested", "external": {"remote": "only"}}), encoding="utf-8"
+    )
+    assert load_layout_config(tmp_path, "pc-or")["external"] == {"path": "", "remote": "only"}
+    only_p = tmp_path / "pc-op" / "context.json"
+    only_p.parent.mkdir(parents=True, exist_ok=True)
+    only_p.write_text(
+        json.dumps({"placement": "nested", "external": {"path": "only"}}), encoding="utf-8"
+    )
+    assert load_layout_config(tmp_path, "pc-op")["external"] == {"path": "only", "remote": ""}
     _write_layout(
         tmp_path,
         {"placement": "nested", "external": {"path": 123, "remote": ""}},
