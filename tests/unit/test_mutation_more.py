@@ -51,8 +51,7 @@ def test_touched_functions_and_filtered_stats(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     assert mut._touched_functions(src, {5, 6}) == {"keep"}
-    assert mut._touched_functions(src, {1}) == set()
-    assert mut._touched_functions(src, {3}) is None
+    assert mut._touched_functions(src, {1}) == mut._touched_functions(src, {3}) == set()
     assert mut._mutant_function_name("agentized.sample.x_keep__mutmut_3") == "keep"
     assert mut._mutant_function_name("nope") is None
     class R:

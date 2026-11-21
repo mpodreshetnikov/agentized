@@ -38,7 +38,6 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "done": frozenset({"open", "queue", "in-progress"}),
     "canceled": frozenset({"open", "queue"}),
 }
-# Line matchers; scan header_block only (FIELD_RE imported from tasks).
 VALUE_LINE_RE = re.compile(r"^\s*Ценность:\s*(\S.*)$")
 VALUE_KEY_RE = re.compile(r"^\s*Ценность:\s*")
 NEW_PATH_ALLOWED_STATUSES: frozenset[str] = frozenset(
@@ -96,7 +95,6 @@ def is_known_status(raw: str | None) -> bool:
 
 
 def header_block(text: str) -> str:
-    """Fields live only before the first markdown ``##`` section (match #30 board)."""
     if text.startswith("##"):
         return ""
     idx = text.find("\n##")

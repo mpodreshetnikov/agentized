@@ -775,7 +775,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
     tv.add_argument("--context", default=None)
-    tv.add_argument("--base", default=None, help="prior git ref (default: MUTATION_BASE)")
+    tv.add_argument("--base", default=None)
     tv.set_defaults(func=cmd_tasks_validate)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")

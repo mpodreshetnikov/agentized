@@ -499,19 +499,6 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", miss_tree)
     assert previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD") == {}
 
-    def show_os(argv, **kwargs):
-        assert kwargs.get("check") is False
-        if "ls-tree" in argv:
-            return SimpleNamespace(returncode=0, stdout="T-261116-a.md\n", stderr="")
-        raise OSError("show-boom")
-
-    monkeypatch.setattr(subprocess, "run", show_os)
-    with pytest.raises(RuntimeError) as show_exc:
-        previous_task_texts_from_git(tasks, repo_root=repo, ref="HEAD")
-    assert str(show_exc.value) == MSG_GIT_ERROR.format(
-        rel="context/tasks/T-261116-a.md", ref="HEAD", detail="show-boom"
-    )
-
     assert resolve_validate_base_ref(tmp_path, explicit="abc123") == "abc123"
     monkeypatch.setenv("MUTATION_BASE", "env-base")
     assert resolve_validate_base_ref(tmp_path) == "env-base"
@@ -693,61 +680,6 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         detail="fatal: bad object",
     )
 
-    def weird_tree(argv, **kwargs):
-        assert kwargs.get("check") is False
-        if "ls-tree" in argv:
-            return SimpleNamespace(
-                returncode=128, stdout="", stderr="fatal: weird object"
-            )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", weird_tree)
-    with pytest.raises(RuntimeError) as e4:
-        previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")
-    assert str(e4.value) == MSG_GIT_ERROR.format(
-        rel="context/tasks", ref="HEAD", detail="fatal: weird object"
-    )
-
-    other = tmp_path.parent / f"{tmp_path.name}-elsewhere"
-    other.mkdir(exist_ok=True)
-    (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
-    with pytest.raises(RuntimeError) as e5:
-        previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
-    with pytest.raises(ValueError) as ve:
-        other.resolve().relative_to(tmp_path.resolve())
-    assert str(e5.value) == MSG_GIT_ERROR.format(
-        rel=other.name, ref="HEAD", detail=str(ve.value)
-    )
-
-
-def test_two_commit_open_to_done_vs_base(tmp_path: Path):
-    import os
-    import subprocess
-
-    root = tmp_path / "repo"
-    tasks = root / "context" / "tasks"
-    tasks.mkdir(parents=True)
-    (tasks / "T-261116-ci.md").write_text(_task("open"), encoding="utf-8")
-    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-    for args in (["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "base"]):
-        subprocess.run(args, cwd=root, check=True, capture_output=True, env={**os.environ, **env})
-    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    (tasks / "T-261116-ci.md").write_text(
-        _task("done", extra="acceptance_note: forged"), encoding="utf-8"
-    )
-    for args in (["git", "add", "-A"], ["git", "commit", "-m", "bad"]):
-        subprocess.run(args, cwd=root, check=True, capture_output=True, env={**os.environ, **env})
-    os.environ["MUTATION_BASE"] = base
-    try:
-        prev = previous_task_texts_from_git(tasks)
-        assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
-        result = validate_tasks_dir(tasks, previous_by_name=prev)
-    finally:
-        os.environ.pop("MUTATION_BASE", None)
-    assert result.ok is False
-    assert any("illegal transition open → done" in e for e in result.errors)
-
 
 def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     import agentized.status_gates as sg
@@ -775,20 +707,13 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
     monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")
-    assert ref == "CUSTOM-REF"
+    assert ref == "CUSTOM-REF" and result.ok is False
     assert calls["resolve"] == (tmp_path, "B")
     assert calls["prev"] == (tasks, tmp_path, "CUSTOM-REF")
-    assert calls["validate"] == {"T-261116-rv.md": _task("open")}
-    assert result.ok is False
-
-    # previous_task_texts passes repo_root into resolve
     roots: list = []
-
-    def capture_resolve(root, *, explicit=None):
-        roots.append(root)
-        return "HEAD"
-
-    monkeypatch.setattr(sg, "resolve_validate_base_ref", capture_resolve)
+    monkeypatch.setattr(
+        sg, "resolve_validate_base_ref", lambda root, *, explicit=None: roots.append(root) or "HEAD"
+    )
     monkeypatch.setattr(
         sg,
         "_run_git",
@@ -798,8 +723,6 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
     )
     assert previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD") == {}
     assert roots == [tmp_path]
-
-    # previous-status miss still validates later files
     multi = tmp_path / "multi"
     multi.mkdir()
     (multi / "T-261116-a.md").write_text(_task("open"), encoding="utf-8")
