@@ -26,14 +26,6 @@ GITHUB_PULL_REF_RE = re.compile(r"^refs/pull/(\d+)(?:/|$)")
 EMPTY_CLAIM_PLACEHOLDER = "_(пусто)_"
 
 
-def _nonempty_field(fields: dict[str, str], *keys: str) -> str:
-    for key in keys:
-        val = (fields.get(key) or "").strip()
-        if val and (not val.startswith("_")):
-            return val
-    return ""
-
-
 def _read_task_text(path: Path) -> str:
     return path.read_bytes().decode(TEXT_ENCODING)
 
@@ -77,23 +69,30 @@ def _pr_from_github_event_path(path: str) -> int | None:
     return parse_pr_number(data.get("number"))
 
 
+def _env_stripped(key: str) -> str | None:
+    """Return stripped env value, or None when the variable is unset."""
+    if key not in os.environ:
+        return None
+    return os.environ.get(key, "").strip()
+
+
 def resolve_validate_pr_number(*, explicit: str | int | None = None) -> int | None:
     """PR under validation: explicit → TASKS_VALIDATE_PR / GITHUB_* → event payload."""
     direct = parse_pr_number(explicit)
     if direct is not None:
         return direct
     for key in ("TASKS_VALIDATE_PR", "GITHUB_PR_NUMBER", "PULL_REQUEST_NUMBER"):
-        env = (os.environ.get(key) or "").strip()
+        env = _env_stripped(key)
         if not env:
             continue
         num = parse_pr_number(env)
         if num is not None:
             return num
-    ref = (os.environ.get("GITHUB_REF") or "").strip()
+    ref = _env_stripped("GITHUB_REF") or ""
     ref_match = GITHUB_PULL_REF_RE.match(ref)
     if ref_match:
         return int(ref_match.group(1))
-    event_path = (os.environ.get("GITHUB_EVENT_PATH") or "").strip()
+    event_path = _env_stripped("GITHUB_EVENT_PATH") or ""
     if event_path:
         return _pr_from_github_event_path(event_path)
     return None
@@ -130,8 +129,8 @@ def validate_tip_hygiene(
             errors.append(f"{path.name}: {MSG_UNREADABLE.format(detail=exc)}")
             continue
         fields = parse_task_fields(text)
-        pr_raw = _nonempty_field(fields, "pr")
-        if not pr_raw or not task_pr_matches(pr_raw, pr_number):
+        pr_raw = (fields.get("pr") or "").strip()
+        if (not pr_raw) or pr_raw.startswith("_") or (not task_pr_matches(pr_raw, pr_number)):
             continue
         st = extract_status(text)
         if st not in TIP_HYGIENE_OK_STATUSES:
@@ -149,7 +148,10 @@ def validate_index_freshness(tasks_dir: Path) -> GateResult:
     expected = rebuild_task_index(tasks_dir)
     path = tasks_dir / "INDEX.md"
     try:
-        current = path.read_text(encoding=TEXT_ENCODING) if path.exists() else ""
+        if path.exists():
+            current = path.read_text(encoding=TEXT_ENCODING)
+        else:
+            current = ""
     except (UnicodeDecodeError, OSError) as exc:
         return GateResult(False, (MSG_UNREADABLE.format(detail=exc),))
     if current != expected:
@@ -188,7 +190,7 @@ def run_tip_hygiene_gates(
     tip = validate_tip_hygiene(tasks_dir, pr_number=resolved)
     if not tip.ok:
         errors.extend(tip.errors)
-    if check_index:
+    if check_index is True:
         idx = validate_index_freshness(tasks_dir)
         if not idx.ok:
             errors.extend(idx.errors)

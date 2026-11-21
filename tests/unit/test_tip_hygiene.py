@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentized.status_gates import GateResult
+from agentized.status_gates import TEXT_ENCODING, GateResult
 from agentized.tip_hygiene import (
     EMPTY_CLAIM_PLACEHOLDER,
     MSG_INDEX_STALE,
@@ -58,6 +58,8 @@ def _write_index(tasks: Path) -> None:
 def test_parse_pr_number_shapes():
     assert parse_pr_number(None) is parse_pr_number("") is parse_pr_number("  ") is None
     assert parse_pr_number(0) is parse_pr_number(-3) is parse_pr_number("0") is None
+    assert parse_pr_number(1) == parse_pr_number("1") == parse_pr_number("#1") == 1
+    assert parse_pr_number("#0") is None
     assert parse_pr_number(76) == 76
     assert parse_pr_number("76") == parse_pr_number(" 76 ") == 76
     assert parse_pr_number("#76") == parse_pr_number("PR #76") == parse_pr_number("pr #76") == 76
@@ -113,7 +115,6 @@ def test_resolve_validate_pr_number_env_and_event(tmp_path: Path, monkeypatch):
     event.write_text(json.dumps({"number": 94}), encoding="utf-8")
     assert resolve_validate_pr_number() == 94
 
-    # pull_request present but unparsable number → fall through to top-level number
     event.write_text(
         json.dumps({"pull_request": {"number": "bad"}, "number": 95}),
         encoding="utf-8",
@@ -220,6 +221,47 @@ def test_tip_hygiene_unreadable(tmp_path: Path):
         assert bad == GateResult(False, (f"{path.name}: {MSG_UNREADABLE.format(detail=exc)}",))
 
 
+def test_tip_hygiene_continue_not_break_across_files(tmp_path: Path):
+    (tmp_path / "T-261121-aa.md").write_text(
+        _task("open", claim="_(пусто)_", pr="#75"),
+        encoding="utf-8",
+    )
+    (tmp_path / "T-261121-bb.md").write_text(
+        _task("in-progress", claim="worker", pr="#76"),
+        encoding="utf-8",
+    )
+    bad = validate_tip_hygiene(tmp_path, pr_number=76)
+    assert bad.ok is False
+    assert any("T-261121-bb.md" in e for e in bad.errors)
+
+    (tmp_path / "T-261121-aa.md").write_bytes(b"\xff\xfe")
+    mixed = validate_tip_hygiene(tmp_path, pr_number=76)
+    assert any("T-261121-aa.md" in e for e in mixed.errors)
+    assert any("T-261121-bb.md" in e for e in mixed.errors)
+
+
+def test_tip_hygiene_empty_claim_and_exact_status_message(tmp_path: Path):
+    path = tmp_path / "T-261121-empty.md"
+    path.write_text(
+        "# T-261121-empty — e\n\n"
+        "статус: self-review\n"
+        "теги: t\n"
+        "родитель: _(пусто)_\n"
+        "pr: #76\n"
+        "review_note: ok\n\n"
+        "Ценность: x\n\n## Цель\n\ng\n",
+        encoding="utf-8",
+    )
+    assert validate_tip_hygiene(tmp_path, pr_number=76) == GateResult(True)
+
+    path.write_text(
+        "# T-261121-empty — e\n\nтеги: t\npr: #76\n\nЦенность: x\n\n## Цель\n\ng\n",
+        encoding="utf-8",
+    )
+    bad = validate_tip_hygiene(tmp_path, pr_number=76)
+    assert MSG_TIP_STATUS.format(name=path.name, num=76, st="") in bad.errors
+
+
 def test_index_freshness(tmp_path: Path):
     tasks = tmp_path
     (tasks / "T-261121-ix.md").write_text(_task("open"), encoding="utf-8")
@@ -243,6 +285,52 @@ def test_index_freshness_unreadable(tmp_path: Path):
             assert bad == GateResult(False, (MSG_UNREADABLE.format(detail=exc),))
     finally:
         index.chmod(0o644)
+
+
+def test_index_encoding_and_missing(tmp_path: Path, monkeypatch):
+    tasks = tmp_path
+    (tasks / "T-261121-ix.md").write_text(_task("open"), encoding="utf-8")
+    assert validate_index_freshness(tasks) == GateResult(False, (MSG_INDEX_STALE,))
+
+    seen: dict = {}
+    real = Path.read_text
+
+    def wrapped(self, *a, encoding=None, **k):
+        seen["encoding"] = encoding
+        return real(self, *a, encoding=encoding, **k)
+
+    monkeypatch.setattr(Path, "read_text", wrapped)
+    _write_index(tasks)
+    assert validate_index_freshness(tasks) == GateResult(True)
+    assert seen["encoding"] == TEXT_ENCODING
+
+
+def test_event_path_encoding_and_multi_block(tmp_path: Path, monkeypatch):
+    seen: dict = {}
+    real = Path.read_text
+
+    def wrapped(self, *a, encoding=None, **k):
+        seen["encoding"] = encoding
+        return real(self, *a, encoding=encoding, **k)
+
+    monkeypatch.setattr(Path, "read_text", wrapped)
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "pull_request": "skip-me",
+                "issue": {"number": 77, "pull_request": {"url": "x"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    monkeypatch.delenv("TASKS_VALIDATE_PR", raising=False)
+    monkeypatch.delenv("GITHUB_PR_NUMBER", raising=False)
+    monkeypatch.delenv("PULL_REQUEST_NUMBER", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    assert resolve_validate_pr_number() == 77
+    assert seen["encoding"] == TEXT_ENCODING
 
 
 def test_apply_ready_releases_claim_and_status():
@@ -307,3 +395,18 @@ def test_run_tip_hygiene_gates_reads_pr_env(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("TASKS_VALIDATE_PR", raising=False)
     ok = run_tip_hygiene_gates(tasks, pr_number=None, check_index=True)
     assert ok.ok is True
+
+
+def test_run_tip_hygiene_default_check_index(tmp_path: Path):
+    (tmp_path / "T-261121-def.md").write_text(
+        _task(
+            "self-review",
+            claim="_(пусто)_",
+            pr="#1",
+            extra="review_note: ok",
+        ),
+        encoding="utf-8",
+    )
+    assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is False
+    _write_index(tmp_path)
+    assert run_tip_hygiene_gates(tmp_path, pr_number=1).ok is True
