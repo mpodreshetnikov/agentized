@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-cc35](T-261121-cc35.md) — connect.py mut oracles A1 seed/skeleton (AGE-68) (родитель: T-261115-918b) · claim: bc-1a014d86-d3de-5eff-b300-7c23faf801ab
 
 ## blocked
 
