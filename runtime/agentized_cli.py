@@ -537,6 +537,26 @@ def cmd_sync_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_adr(args: argparse.Namespace) -> int:
+    from agentized.adr import create_adr
+
+    root = find_repo_root()
+    ctx = _ctx(root, args)
+    decisions = ctx / "decisions"
+    tasks = [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
+    try:
+        path = create_adr(decisions, args.title, status=args.status, tasks=tasks)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        rel = str(path.relative_to(root))
+    except ValueError:
+        rel = str(path)
+    print(f"ADR: {rel}")
+    return 0
+
+
 def cmd_digest(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx = _ctx(root, args)
@@ -763,6 +783,17 @@ def build_parser() -> argparse.ArgumentParser:
     dg.add_argument("--notes", default="")
     dg.add_argument("--context", default=None)
     dg.set_defaults(func=cmd_digest)
+
+    adr = sub.add_parser("adr", help="Create ADR")
+    adr.add_argument("--title", required=True)
+    adr.add_argument(
+        "--status",
+        default="accepted",
+        choices=["proposed", "accepted", "superseded", "deprecated"],
+    )
+    adr.add_argument("--tasks", default="", help="task ids")
+    adr.add_argument("--context", default=None)
+    adr.set_defaults(func=cmd_adr)
 
     return p
 
