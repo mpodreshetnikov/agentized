@@ -120,16 +120,33 @@ def test_exclude_continue_not_break_on_multi(tmp_path: Path, monkeypatch):
 
 
 def test_exclude_parse_continue_not_break(tmp_path: Path, monkeypatch):
-    """Second continue (parse-None)→break must not drop a later exclude."""
-    bad = "runtime/agentized/bad.py"
+    """Parse-None continue→break must not drop a later exclude (base or head)."""
+    bad_head = "runtime/agentized/bad_head.py"
+    bad_base = "runtime/agentized/bad_base.py"
     fmt = "runtime/agentized/fmt.py"
-    (tmp_path / bad).parent.mkdir(parents=True)
-    (tmp_path / bad).write_text(BAD_SRC, encoding="utf-8")
+    (tmp_path / bad_head).parent.mkdir(parents=True)
+    (tmp_path / bad_head).write_text(BAD_SRC, encoding="utf-8")
+    (tmp_path / bad_base).write_text(BASE_SRC, encoding="utf-8")
     (tmp_path / fmt).write_text(FORMAT_ONLY, encoding="utf-8")
-    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [bad, fmt])
-    assert kept == [bad]
+
+    def blob(_root, _ref, path):
+        if path == bad_base:
+            return BAD_SRC
+        return BASE_SRC
+
+    monkeypatch.setattr(mast, "git_show_blob", blob)
+    # Head parse fail first, then format exclude.
+    kept, excluded = mast.exclude_ast_equivalent(
+        tmp_path, "origin/main", [bad_head, fmt]
+    )
+    assert kept == [bad_head]
     assert excluded == [fmt]
+    # Base parse fail first (base_key is None → continue, not break).
+    kept2, excluded2 = mast.exclude_ast_equivalent(
+        tmp_path, "origin/main", [bad_base, fmt]
+    )
+    assert kept2 == [bad_base]
+    assert excluded2 == [fmt]
 
 
 def test_exclude_base_parse_none_skips_head_dump(tmp_path: Path, monkeypatch):
