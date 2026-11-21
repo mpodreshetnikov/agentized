@@ -34,7 +34,7 @@ Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` i
 
 ## Tip hygiene (AGE-76)
 
-Hard gate inside `agentized tasks-validate` (also pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. `agentized connect` seeds that INDEX via `rebuild_task_index` (not a hand skeleton) so a fresh connect tip stays valid.
+Hard gate inside `agentized tasks-validate` (also pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.)
 
 When a PR number is known, **at least one** task must have `pr:` pointing at that PR, status `self-review` or `done`, and claim released (`claim:` empty or `_(пусто)_` only — the template `_(пусто или кто ведёт)_` counts as **held**). Template `родитель` (`_(пусто для корневой задачи; …)_`) is also held — use a real parent id or `_(пусто)_`.
 

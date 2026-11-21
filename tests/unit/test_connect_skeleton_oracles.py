@@ -13,9 +13,9 @@ import pytest
 from agentized.connect import (
     MINIMAL_LEASES_INDEX_MD,
     MINIMAL_NAV_MD,
+    MINIMAL_TASKS_INDEX_MD,
     ensure_context_skeleton,
 )
-from agentized.task_schema import rebuild_task_index
 
 
 def test_noop_result_keys_are_literal_path(tmp_path: Path):
@@ -116,11 +116,10 @@ def test_seed_bodies_use_rstrip_not_lstrip_or_junk(tmp_path: Path):
     """Kill ``rstrip`` → ``lstrip`` and ``\\n`` → ``XX\\nXX``."""
     ensure_context_skeleton(tmp_path, "context")
     nav = (tmp_path / "context" / "NAV.md").read_text(encoding="utf-8")
-    tasks_dir = tmp_path / "context" / "tasks"
-    tasks = (tasks_dir / "INDEX.md").read_text(encoding="utf-8")
+    tasks = (tmp_path / "context" / "tasks" / "INDEX.md").read_text(encoding="utf-8")
     leases = (tmp_path / "context" / "leases" / "INDEX.md").read_text(encoding="utf-8")
     assert nav == MINIMAL_NAV_MD.rstrip() + "\n"
-    assert tasks == rebuild_task_index(tasks_dir).rstrip() + "\n"
+    assert tasks == MINIMAL_TASKS_INDEX_MD.rstrip() + "\n"
     assert leases == MINIMAL_LEASES_INDEX_MD.rstrip() + "\n"
 
 
@@ -151,22 +150,3 @@ def test_prepare_bridges_before_connect_noops_local_skeleton(tmp_path: Path):
     assert (ctx / "tasks").is_symlink()
     assert (ctx / "NAV.md").is_symlink()
     assert (ctx / "quality.json").exists()
-
-
-def test_skeleton_tasks_index_passes_tip_hygiene(tmp_path: Path, monkeypatch):
-    """connect skeleton INDEX == rebuild → tasks-validate tip hygiene INDEX ok."""
-    import agentized.status_gates as sg
-    from agentized.status_gates import GateResult, run_tasks_validate
-
-    ensure_context_skeleton(tmp_path, "context")
-    tasks = tmp_path / "context" / "tasks"
-    monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda *a, **k: "BASE")
-    monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {})
-    monkeypatch.setattr(sg, "validate_tasks_dir", lambda *a, **k: GateResult(True))
-    # No PR (push/local): INDEX freshness only.
-    monkeypatch.delenv("GITHUB_REF", raising=False)
-    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
-    for key in ("AGENTIZED_PR", "TIP_HYGIENE_PR", "GITHUB_PR_NUMBER"):
-        monkeypatch.delenv(key, raising=False)
-    ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
-    assert ref == "BASE" and result == GateResult(True)
