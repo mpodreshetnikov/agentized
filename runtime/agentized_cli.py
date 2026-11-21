@@ -308,9 +308,10 @@ def cmd_quality(args: argparse.Namespace) -> int:
         from agentized.architecture_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
         from agentized.mutation_ast import run_mutation
-        from agentized.quality import load_quality
         from agentized.test_smells import run_test_smells
 
+        # load_quality is imported at module scope; a local import here would
+        # make it unbound for quality show / set-coverage (UnboundLocalError).
         cfg = load_quality(root, ctx_rel)
         gate_names = list((cfg.get("gates") or {}).get("ci") or [])
         # Always run coverage (module tests + thresholds) then optional warn gates, then mutation.
