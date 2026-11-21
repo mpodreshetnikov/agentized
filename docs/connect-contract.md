@@ -29,7 +29,7 @@
 | `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
 | `{context}/agents/` | Pinned readonly `reviewer.md` (model from `quality.json` → `reviewer.model`) |
 | `.cursor/agents/`, `.claude/agents/`, `.codex/agents/` | Same reviewer agent for harness subagents |
-| `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
+| `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py` (invokes status gates), `status_guard.py`, `lease_warn.py`, `_bootstrap.py` (source: `packages/shared/hooks/scripts/`; connect pins scripts) |
 | `{context}/quality.json` | Coverage 80% · modules · mutation hard (`mutationScoreCovered=100`) · test_smells+architecture **hard** by default; reconnect flips leftover `warn`→`hard`; `connect --coverage <pct>` |
 | `{context}/process-control.json` | Claim before edits · reviewable PR size (default 1500 / warn 75%) |
 | `.githooks/pre-push` | Шаблон → `agentized quality check` (+ hard `process size`); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |

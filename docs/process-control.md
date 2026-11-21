@@ -17,6 +17,8 @@ Agents must hold an **in-progress** task claim before changing watched paths (`r
 | `claim_mode_local=warn` | Local interactive | Warn only |
 
 `process_guard` hook runs on Write/Edit (and Codex `apply_patch`) before lease-warn.
+It invokes `status_guard` first (fail-closed). **Runtime import failure of
+`agentized.status_guard` / hook deps denies all edits** (not warn/allow).
 
 ## Reviewable PR size (AGE-32 / AGE-35)
 

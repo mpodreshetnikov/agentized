@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claim-before-edits process guard. May deny Write/Edit in agent sessions."""
+"""Claim-before-edits + AGE-38 status_guard; import failure → deny-all."""
 
 from __future__ import annotations
 
@@ -18,6 +18,22 @@ except ImportError:  # copied next to hooks without package layout
 
         def ensure_runtime_on_path(here=None):  # type: ignore[misc]
             return Path.cwd()
+
+
+def _deny(event: str, msg: str) -> dict:
+    return {
+        "permission": "deny",
+        "continue": False,
+        "agent_message": msg,
+        "additional_context": msg,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "permissionDecision": "deny",
+            "permissionDecisionReason": msg,
+        },
+        "hookEventName": event,
+        "systemMessage": msg,
+    }
 
 
 def main() -> int:
@@ -42,16 +58,40 @@ def main() -> int:
 
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
-        from agentized.process_control import claim_check
-    except Exception as exc:  # noqa: BLE001 — never crash the harness
-        allow["agent_message"] = f"[process-guard] unavailable: {exc}"
-        print(json.dumps(allow, ensure_ascii=False))
+        from agentized.status_guard import decide_from_stdin
+    except Exception as exc:  # noqa: BLE001 — deny all edits on import failure
+        print(
+            json.dumps(
+                _deny(event, f"[status-guard] REFUSED: import failure: {exc}"), ensure_ascii=False
+            )
+        )
         return 0
 
     root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
     if runtime.is_dir() and str(runtime) not in sys.path:
         sys.path.insert(0, str(runtime))
+
+    ctx = context_rel(root)
+    try:
+        status_out = decide_from_stdin(raw, root=root, context_rel=ctx, extract_paths=extract_paths)
+    except Exception as exc:  # noqa: BLE001 — fail closed
+        print(
+            json.dumps(
+                _deny(event, f"[status-guard] REFUSED: evaluation error: {exc}"), ensure_ascii=False
+            )
+        )
+        return 0
+    if status_out.get("permission") == "deny":
+        print(json.dumps(status_out, ensure_ascii=False))
+        return 0
+
+    try:
+        from agentized.process_control import claim_check
+    except Exception as exc:  # noqa: BLE001 — never crash the harness
+        allow["agent_message"] = f"[process-guard] unavailable: {exc}"
+        print(json.dumps(allow, ensure_ascii=False))
+        return 0
 
     paths = extract_paths(payload)
     if "tool_input" not in payload and isinstance(payload.get("input"), dict):
@@ -60,7 +100,6 @@ def main() -> int:
         print(json.dumps(allow))
         return 0
 
-    ctx = context_rel(root)
     result = claim_check(root, paths, context_rel=ctx)
     msg = result.get("message") or ""
     if result.get("ok", True):
@@ -72,20 +111,7 @@ def main() -> int:
         print(json.dumps(allow, ensure_ascii=False))
         return 0
 
-    deny = {
-        "permission": "deny",
-        "continue": False,
-        "agent_message": msg,
-        "additional_context": msg,
-        "hookSpecificOutput": {
-            "hookEventName": event,
-            "permissionDecision": "deny",
-            "permissionDecisionReason": msg,
-        },
-        "hookEventName": event,
-        "systemMessage": msg,
-    }
-    print(json.dumps(deny, ensure_ascii=False))
+    print(json.dumps(_deny(event, msg), ensure_ascii=False))
     return 0
 
 
