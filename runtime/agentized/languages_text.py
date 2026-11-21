@@ -1,10 +1,58 @@
-"""Human-facing language-coverage messages/results (under full-cover globs).
-
-Kill string/case mutants with exact oracles in tests/unit/test_languages_text.py.
-"""
+"""Language-coverage messages/results — exact oracles in test_languages_text.py."""
 from __future__ import annotations
 
 from typing import Any
+
+DEFAULT_SUPPORTED = ("python", "javascript", "typescript")
+
+# Defaults MUST NOT exclude packages/** or templates/** — dogfood-only in
+# context/quality.json (Maxim Lead reject batch 2).
+DEFAULT_EXCLUDE_GLOBS = (
+    "node_modules/**",
+    "vendor/**",
+    "third_party/**",
+    "dist/**",
+    "build/**",
+    "out/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/out/**",
+    ".venv/**",
+    "venv/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/__pycache__/**",
+    "**/.tox/**",
+    "**/site-packages/**",
+    "mutants/**",
+    "coverage/**",
+    "reports/**",
+    "**/*.min.js",
+    "**/generated/**",
+    "**/.git/**",
+    "target/**",
+    "**/target/**",
+    "Pods/**",
+    "**/Pods/**",
+    ".cursor/**",
+    ".claude/**",
+    ".codex/**",
+    ".agents/**",
+    "context/hooks/**",
+    ".pytest_cache/**",
+    "**/.pytest_cache/**",
+    ".mypy_cache/**",
+    "**/.mypy_cache/**",
+    ".ruff_cache/**",
+    "**/.ruff_cache/**",
+    ".tox/**",
+    ".coverage",
+    "htmlcov/**",
+    "**/*.example",
+    "**/*.example.*",
+    "**/*.example.cjs",
+    "**/*.example.mjs",
+)
 
 EXCLUDE_GLOBS_REQUIRED = (
     "exclude_globs is required (empty/missing refused by check_language_coverage)"

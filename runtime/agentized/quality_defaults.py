@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import languages_text as _lang_text
+
 DEFAULT_COVERAGE_PCT = 80
 SCHEMA_VERSION = 1
 
@@ -34,55 +36,9 @@ def default_quality_config() -> dict[str, Any]:
             }
         ],
         "languages": {
-            # detect:false is refused — always detect (AGE-24).
-            # Keep exclude list in sync with languages.DEFAULT_EXCLUDE_GLOBS.
-            "supported": ["python", "javascript", "typescript"],
-            "exclude_globs": [
-                "node_modules/**",
-                "vendor/**",
-                "third_party/**",
-                "dist/**",
-                "build/**",
-                "out/**",
-                "**/dist/**",
-                "**/build/**",
-                "**/out/**",
-                ".venv/**",
-                "venv/**",
-                "**/.venv/**",
-                "**/venv/**",
-                "**/__pycache__/**",
-                "**/.tox/**",
-                "**/site-packages/**",
-                "mutants/**",
-                "coverage/**",
-                "reports/**",
-                "**/*.min.js",
-                "**/generated/**",
-                "**/.git/**",
-                "target/**",
-                "**/target/**",
-                "Pods/**",
-                "**/Pods/**",
-                ".cursor/**",
-                ".claude/**",
-                ".codex/**",
-                ".agents/**",
-                "context/hooks/**",
-                ".pytest_cache/**",
-                "**/.pytest_cache/**",
-                ".mypy_cache/**",
-                "**/.mypy_cache/**",
-                ".ruff_cache/**",
-                "**/.ruff_cache/**",
-                ".tox/**",
-                ".coverage",
-                "htmlcov/**",
-                "**/*.example",
-                "**/*.example.*",
-                "**/*.example.cjs",
-                "**/*.example.mjs",
-            ],
+            # detect:false refused (AGE-24).
+            "supported": list(_lang_text.DEFAULT_SUPPORTED),
+            "exclude_globs": list(_lang_text.DEFAULT_EXCLUDE_GLOBS),
         },
         "mutation": {
             "enabled": True,

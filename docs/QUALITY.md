@@ -25,7 +25,6 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
 | `batch_release` | Reviewed PRs may share one CI; keep up-to-date branch protection |
 | `gates.pre_push` / `gates.ci` | Ordered gate names |
-| `languages` | Fail-closed detect (AGE-24): SUPPORTED_GATES per lang; no detect:false; only py/js/ts |
 
 ## Commands
 
@@ -33,7 +32,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 
 | Command | Role |
 |---------|------|
-| `./bin/agentized quality check` | Languages + module tests + coverage + smells + architecture + mutation |
+| `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + mutation |
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 | `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |

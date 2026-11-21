@@ -1,13 +1,9 @@
-"""Connect-time language refuse + dogfood excludes (under full-cover globs).
-
-Leaves connect.py identical to main; this module is mutated at 100%.
-"""
+"""Connect-time language refuse + dogfood excludes (full-cover globs; connect.py untouched)."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-# Dogfood-only excludes (Lead reject batch2 — not in DEFAULT_EXCLUDE_GLOBS).
 MANAGED_LANG_EXCLUDES = ("packages/**", "templates/**")
 
 
@@ -21,7 +17,6 @@ class ConnectRefused(Exception):
 
 
 def refuse_incomplete_languages(root: Path, context_rel: str) -> None:
-    """AGE-24: refuse before connect writes. Gates only if quality.json exists."""
     from agentized.languages import check_language_coverage
     from agentized.quality import load_quality, quality_path
 
@@ -37,7 +32,6 @@ def refuse_incomplete_languages(root: Path, context_rel: str) -> None:
 
 
 def merge_managed_language_excludes(root: Path, context_rel: str) -> dict[str, Any]:
-    """Ensure packages/** + templates/** are in languages.exclude_globs after connect."""
     from agentized.quality import load_quality, save_quality
 
     data = load_quality(root, context_rel)

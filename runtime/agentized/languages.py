@@ -178,56 +178,8 @@ ARCHITECTURE_TOOLS: dict[str, frozenset[str]] = {
     "typescript": frozenset({"dependency-cruiser", "eslint-boundaries"}),
 }
 
-DEFAULT_SUPPORTED = ("python", "javascript", "typescript")
-
-# Defaults MUST NOT exclude packages/** or templates/** — dogfood-only in
-# context/quality.json (Maxim Lead reject batch 2).
-DEFAULT_EXCLUDE_GLOBS = (
-    "node_modules/**",
-    "vendor/**",
-    "third_party/**",
-    "dist/**",
-    "build/**",
-    "out/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/out/**",
-    ".venv/**",
-    "venv/**",
-    "**/.venv/**",
-    "**/venv/**",
-    "**/__pycache__/**",
-    "**/.tox/**",
-    "**/site-packages/**",
-    "mutants/**",
-    "coverage/**",
-    "reports/**",
-    "**/*.min.js",
-    "**/generated/**",
-    "**/.git/**",
-    "target/**",
-    "**/target/**",
-    "Pods/**",
-    "**/Pods/**",
-    ".cursor/**",
-    ".claude/**",
-    ".codex/**",
-    ".agents/**",
-    "context/hooks/**",
-    ".pytest_cache/**",
-    "**/.pytest_cache/**",
-    ".mypy_cache/**",
-    "**/.mypy_cache/**",
-    ".ruff_cache/**",
-    "**/.ruff_cache/**",
-    ".tox/**",
-    ".coverage",
-    "htmlcov/**",
-    "**/*.example",
-    "**/*.example.*",
-    "**/*.example.cjs",
-    "**/*.example.mjs",
-)
+DEFAULT_SUPPORTED = _text.DEFAULT_SUPPORTED
+DEFAULT_EXCLUDE_GLOBS = _text.DEFAULT_EXCLUDE_GLOBS
 
 _EXT_IN_GLOB = re.compile(r"\.([a-z0-9]+)(?=$|[,}/])", re.IGNORECASE)
 

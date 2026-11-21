@@ -54,7 +54,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
     try:
-        # AGE-24: refuse before any connect writes (connect.py stays main-identical).
         refuse_incomplete_languages(root, args.context)
         result = connect(
             root,
