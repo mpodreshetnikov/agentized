@@ -16,11 +16,12 @@ _(пусто)_
 
 ## in-progress
 
+- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: bc-b989d062-e580-5802-a012-e4c217d2f8eb
 - [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) · claim: cloud-agent-4e38
 
 ## self-review
 
-- [T-261116-age22](T-261116-age22.md) — Dashboard V1 status gates (AGE-22) · claim: bc-b989d062-e580-5802-a012-e4c217d2f8eb
+_(пусто)_
 
 ## for-review
 
