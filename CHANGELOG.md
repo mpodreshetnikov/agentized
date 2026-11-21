@@ -4,7 +4,8 @@
 
 ### AGE-76 — PR tip hygiene gate
 
-- Hard `tasks-validate` tip hygiene: INDEX freshness; PR-linked tasks must be `self-review`/`done` with claim `_(пусто)_` or empty; every PR needs a matching `pr:` task.
+- Hard `tasks-validate` tip hygiene: INDEX freshness; PR-linked tasks must be `self-review`/`done` with claim `_(пусто)_` or empty; template `родитель` placeholder held; every PR needs a matching `pr:` task.
+- `connect` skeleton writes `tasks/INDEX.md` via `rebuild_task_index` (no hand-written MINIMAL_TASKS_INDEX_MD) so fresh connect passes tip hygiene.
 - In CI `pull_request`, `GITHUB_REF` wins; env/`--pr` overrides must agree.
 - `agentized ready`: `in-progress` → self-review + claim release; self-review is a no-op; other statuses refused.
 - Wired in dogfood + template CI and pre-push.

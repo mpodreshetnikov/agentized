@@ -4,15 +4,20 @@ import subprocess
 from pathlib import Path
 
 from agentized.connect import connect, ensure_context_skeleton
+from agentized.task_schema import rebuild_task_index
+from agentized.tip_hygiene import validate_index_freshness
 
 
 def test_ensure_skeleton_creates_minimal_layout(tmp_path: Path):
     result = ensure_context_skeleton(tmp_path, "context")
     assert result["created"] is True
     assert (tmp_path / "context" / "NAV.md").is_file()
-    assert (tmp_path / "context" / "tasks" / "INDEX.md").is_file()
+    tasks = tmp_path / "context" / "tasks"
+    assert (tasks / "INDEX.md").is_file()
     assert (tmp_path / "context" / "leases" / "INDEX.md").is_file()
     assert "context/NAV.md" in result["files"]
+    assert (tasks / "INDEX.md").read_text(encoding="utf-8") == rebuild_task_index(tasks)
+    assert validate_index_freshness(tasks).ok is True
 
 
 def test_ensure_skeleton_does_not_overwrite_existing_nav(tmp_path: Path):

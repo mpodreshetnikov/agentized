@@ -15,6 +15,7 @@ from .status_gates import (
     parse_task_fields,
 )
 from .task_schema import (
+    PLACEHOLDER_PARENT,
     append_progress,
     append_status_progress,
     rebuild_task_index,
@@ -36,6 +37,10 @@ _GITHUB_PULL_REF_RE = re.compile(r"^refs/pull/(\d+)(?:/|$)")
 
 MSG_TIP_STATUS = "{name}: tip hygiene: pr #{pr} task must be self-review or done (got {st})"
 MSG_TIP_CLAIM = "{name}: tip hygiene: pr #{pr} task must release claim (got {claim!r})"
+MSG_TIP_PARENT = (
+    "{name}: tip hygiene: pr #{pr} task must not keep template родитель/parent "
+    "(got {parent!r})"
+)
 MSG_TIP_INDEX = "tip hygiene: INDEX.md out of date — run agentized index and commit"
 MSG_TIP_UNREADABLE = "{name}: tip hygiene: unreadable task file: {detail}"
 MSG_TIP_NO_LINKED = "tip hygiene: no task with pr: pointing at #{pr}"
@@ -211,6 +216,11 @@ def validate_pr_linked_tasks(tasks_dir: Path, pr_number: int) -> GateResult:
         claim = _header_field(fields, "claim")
         if claim_is_held(claim):
             errors.append(MSG_TIP_CLAIM.format(name=path.name, pr=pr_number, claim=claim))
+        parent = _header_field(fields, "родитель")
+        if parent == PLACEHOLDER_PARENT:
+            errors.append(
+                MSG_TIP_PARENT.format(name=path.name, pr=pr_number, parent=parent)
+            )
     # any() so append(None) / empty-name mutants still trip NO_LINKED.
     if not any(linked):
         errors.append(MSG_TIP_NO_LINKED.format(pr=pr_number))

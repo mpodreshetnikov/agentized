@@ -31,4 +31,4 @@ Before opening a PR for Lead review:
 ./bin/agentized tasks-validate
 ```
 
-CI/`tasks-validate` hard-fails when INDEX is stale, or (on a pull request) when no task links `pr:` to this PR / status is not `self-review|done` / claim is not released. Details: [`docs/process-control.md`](docs/process-control.md) (Tip hygiene).
+CI/`tasks-validate` hard-fails when INDEX is stale, or (on a pull request) when no task links `pr:` to this PR / status is not `self-review|done` / claim is not released / template `родитель` placeholder remains. `connect` seeds INDEX via `rebuild_task_index`. Details: [`docs/process-control.md`](docs/process-control.md) (Tip hygiene).

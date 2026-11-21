@@ -9,7 +9,12 @@ import pytest
 
 from agentized import tip_hygiene as th
 from agentized.status_gates import TEXT_ENCODING, GateResult, run_tasks_validate
-from agentized.task_schema import PLACEHOLDER_CLAIM, last_progress_entry, rebuild_task_index
+from agentized.task_schema import (
+    PLACEHOLDER_CLAIM,
+    PLACEHOLDER_PARENT,
+    last_progress_entry,
+    rebuild_task_index,
+)
 from agentized.tip_hygiene import (
     CLAIM_EMPTY,
     CLAIM_RELEASED,
@@ -20,6 +25,7 @@ from agentized.tip_hygiene import (
     MSG_TIP_CLAIM,
     MSG_TIP_INDEX,
     MSG_TIP_NO_LINKED,
+    MSG_TIP_PARENT,
     MSG_TIP_PR_CONFLICT,
     MSG_TIP_PR_REQUIRED,
     MSG_TIP_STATUS,
@@ -212,6 +218,30 @@ def test_index_and_linked_tasks(tmp_path: Path):
     )
     ph = validate_pr_linked_tasks(tasks, 76)
     assert MSG_TIP_CLAIM.format(name="T-261121-ph.md", pr=76, claim=PLACEHOLDER_CLAIM) in ph.errors
+
+    # Template родитель/parent placeholder rejected; _(пусто)_ / real id OK.
+    (tasks / "T-261121-par.md").write_text(
+        _task(
+            "self-review",
+            extra=f"pr: #76\nreview_note: x",
+            task_id="T-261121-par",
+        ).replace("родитель: _(пусто)_", f"родитель: {PLACEHOLDER_PARENT}"),
+        encoding="utf-8",
+    )
+    par = validate_pr_linked_tasks(tasks, 76)
+    assert (
+        MSG_TIP_PARENT.format(
+            name="T-261121-par.md", pr=76, parent=PLACEHOLDER_PARENT
+        )
+        in par.errors
+    )
+    # _(пусто)_ parent still OK (root marker, not template).
+    assert MSG_TIP_PARENT.format(
+        name="T-261121-ok.md", pr=76, parent="_(пусто)_"
+    ) not in par.errors
+    assert MSG_TIP_PARENT.format(
+        name="T-261121-ok.md", pr=76, parent=PLACEHOLDER_PARENT
+    ) not in par.errors
 
 
 def test_continue_and_utf8_errors(tmp_path: Path):

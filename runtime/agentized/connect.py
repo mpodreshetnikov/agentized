@@ -19,6 +19,7 @@ from .paths import (
     DEFAULT_CONTEXT,
     save_state,
 )
+from .task_schema import rebuild_task_index
 
 AGENTS_BLOCK_TEMPLATE = """{begin}
 ## Project Context (Agentized)
@@ -883,27 +884,6 @@ MINIMAL_NAV_MD = """# NAV — карта Project Context
 Leases только предупреждают, запись не блокируют.
 """
 
-MINIMAL_TASKS_INDEX_MD = """# Задачи — живой индекс
-
-Генерируемый список **активной** работы. Не полный архив истории.
-
-Статусы в индексе: `open` · `in-progress` · `blocked`.
-
-Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.
-
-## open
-
-_(пусто — skeleton)_
-
-## in-progress
-
-_(пусто — skeleton)_
-
-## blocked
-
-_(пусто — skeleton)_
-"""
-
 MINIMAL_LEASES_INDEX_MD = """# Path leases — индекс
 
 Кто держит какие пути кода. Генерируемый индекс (skeleton — пусто).
@@ -920,7 +900,8 @@ def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> d
     """Create minimal Context (NAV.md, tasks/, leases/) if missing.
 
     If Context already has NAV.md, leave it alone — never overwrite user NAV
-    or existing index files.
+    or existing index files. tasks/INDEX.md is always ``rebuild_task_index``
+    output (never a hand-written skeleton) so tip hygiene INDEX freshness passes.
     """
     ctx = root / context_rel
     nav = ctx / "NAV.md"
@@ -933,12 +914,12 @@ def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> d
 
     created_files: list[str] = []
     ctx.mkdir(parents=True, exist_ok=True)
-    (ctx / "tasks").mkdir(parents=True, exist_ok=True)
+    tasks_dir = ctx / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
     (ctx / "leases").mkdir(parents=True, exist_ok=True)
 
     targets = (
         (nav, MINIMAL_NAV_MD),
-        (ctx / "tasks" / "INDEX.md", MINIMAL_TASKS_INDEX_MD),
         (ctx / "leases" / "INDEX.md", MINIMAL_LEASES_INDEX_MD),
     )
     for path, body in targets:
@@ -946,6 +927,14 @@ def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> d
             continue
         path.write_text(body.rstrip() + "\n", encoding="utf-8")
         created_files.append(str(path.relative_to(root)))
+
+    tasks_index = tasks_dir / "INDEX.md"
+    if not tasks_index.exists():
+        # Must equal agentized index / tip hygiene expected — never a hand skeleton.
+        tasks_index.write_text(
+            rebuild_task_index(tasks_dir).rstrip() + "\n", encoding="utf-8"
+        )
+        created_files.append(str(tasks_index.relative_to(root)))
 
     return {
         "created": bool(created_files),
