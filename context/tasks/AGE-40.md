@@ -16,6 +16,9 @@ _(append-only)_
 - 2026-11-21 06:40 UTC: claim by bc-51e6b140-fd13-5c50-98bf-67856ad7a6ac
 - 2026-11-21 08:41 UTC: claim by bc-51e6b140-fd13-5c50-98bf-67856ad7a6ac
 
+- 2026-11-21 08:42 UTC: rebase onto main e958ea3 (#40); drop T-8b9d hygiene (hygiene PR owns); tip pending CI
+- 2026-11-21 08:43 UTC: claim by bc-51e6b140-fd13-5c50-98bf-67856ad7a6ac
+
 ## Decision Log
 
 _(append-only)_

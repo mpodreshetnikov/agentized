@@ -104,13 +104,7 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     assert "over ≥100" not in result["message"]
     assert DOC == SIZE_DOC == "docs/process-control.md"
 
-    # ≤limit OK (AGE-40 classify uses >; process_control.size_check shares classify_size).
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 100)
-    at_limit = size_check(tmp_path)
-    assert at_limit["level"] == "warn"
-    assert at_limit["ok"] is True
-
-    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 101)
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
     over = size_check(tmp_path)
     assert over["level"] == "over"
     assert over["ok"] is False
@@ -509,14 +503,17 @@ def test_size_check_defaults_process_base_and_errors(tmp_path: Path, monkeypatch
     assert "vs origin/develop" in via_env["message"]
     assert "over >1500" in via_env["message"]
 
-    # Nullish reviewable_lines / warn_at_pct coerce via `or`
+    # AGE-40: reviewable_lines/warn_at_pct 0 fail closed (no silent coerce via `or`).
     (tmp_path / "context" / "process-control.json").write_text(
         '{"reviewable_lines": 0, "warn_at_pct": 0}\n', encoding="utf-8"
     )
-    coerced = size_check(tmp_path)
-    assert coerced["limit"] == 1500
-    assert coerced["warn_at"] == 1125
+    bad_zero = size_check(tmp_path)
+    assert bad_zero["ok"] is False
+    assert bad_zero["level"] == "error"
+    assert "reviewable_lines" in bad_zero["message"]
 
+    # Restore valid config so boom-git exercises diff_insertions, not field validation.
+    (tmp_path / "context" / "process-control.json").write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(
         "agentized.process_control.diff_insertions",
         lambda *_: (_ for _ in ()).throw(RuntimeError("boom-git")),
