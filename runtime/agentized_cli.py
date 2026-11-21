@@ -44,10 +44,6 @@ def _ctx(root: Path, args) -> Path:
     return resolve_context_dir(root, str(rel))
 
 
-def _path_under(ctx: Path, *parts: str) -> Path:
-    return path_under(ctx, *parts)
-
-
 def cmd_connect(args: argparse.Namespace) -> int:
     root = find_repo_root()
     harnesses = args.harness
@@ -424,8 +420,8 @@ def cmd_index(args: argparse.Namespace) -> int:
     try:
         ctx = _ctx(root, args)
         ctx_rel = str(ctx.relative_to(root.resolve()))
-        tasks_index_path = _path_under(ctx, "tasks", "INDEX.md")
-        leases_index_path = _path_under(ctx, "leases", "INDEX.md")
+        tasks_index_path = path_under(ctx, "tasks", "INDEX.md")
+        leases_index_path = path_under(ctx, "leases", "INDEX.md")
         tasks_dir = tasks_index_path.parent
         leases_dir = leases_index_path.parent
         tasks_index = rebuild_task_index(tasks_dir)
@@ -449,7 +445,6 @@ def cmd_index(args: argparse.Namespace) -> int:
 def cmd_autopilot(args: argparse.Namespace) -> int:
     """WIP autopilot + metrics. Does not own ``agentized board`` (HTML renderer)."""
     from agentized.autopilot import (
-        ensure_board_config,
         load_board,
         load_metrics_file,
         pick_next_task,
@@ -461,7 +456,6 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
     try:
         ctx = _ctx(root, args)
         ctx_rel = str(ctx.relative_to(root.resolve()))
-        ensure_board_config(root, ctx_rel)
         if args.autopilot_cmd == "show":
             data = load_board(root, ctx_rel)
             print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -477,15 +471,16 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
                 print(json.dumps(result["metrics"], ensure_ascii=False, indent=2))
             return 0
         if args.autopilot_cmd == "metrics":
-            data = load_metrics_file(root, ctx_rel)
-            if data is None or args.refresh:
+            if args.refresh:
                 data = write_metrics(root, context_rel=ctx_rel)["metrics"]
+            else:
+                data = load_metrics_file(root, ctx_rel)
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
         if args.autopilot_cmd == "next":
             cfg = load_board(root, ctx_rel)
             pick = pick_next_task(
-                list_tasks(_path_under(ctx, "tasks")),
+                list_tasks(path_under(ctx, "tasks")),
                 cfg,
                 now=datetime.now(timezone.utc),
             )

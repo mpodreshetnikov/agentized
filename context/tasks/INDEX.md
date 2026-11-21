@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-98aa](T-261121-98aa.md) — AGE-61 autopilot CLI + docs (#19B) (родитель: T-261116-12b0) · claim: age-61-worker
+_(пусто)_
 
 ## blocked
 
