@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-a2f1](T-261121-a2f1.md) — connect.py mut oracles A3 install_cursor (AGE-68) (родитель: T-261115-918b) · claim: _(пусто)_
 
 ## blocked
 
