@@ -15,6 +15,12 @@ from pathlib import Path
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
+from .test_smells_js import (
+    SKIP_DIR_PARTS,
+    TEST_FILE_SUFFIXES,
+    expand_brace_glob as _expand_brace_glob,
+    scan_js_ts_file as _scan_js_ts_file,
+)
 
 _WEAK_COMPARE_OPS = {ast.Is, ast.IsNot, ast.In, ast.NotIn}
 _MOCK_ASSERT_ATTRS = {
@@ -26,23 +32,6 @@ _MOCK_ASSERT_ATTRS = {
     "assert_has_calls",
     "assert_not_called",
 }
-
-
-def _expand_brace_glob(pattern: str) -> list[str]:
-    """Expand a single `{a,b}` brace group (enough for *.{test,spec}.{js,ts})."""
-    if "{" not in pattern or "}" not in pattern:
-        return [pattern]
-    start = pattern.index("{")
-    end = pattern.index("}", start)
-    body = pattern[start + 1 : end]
-    if "," not in body:
-        return [pattern]
-    prefix, suffix = pattern[:start], pattern[end + 1 :]
-    out: list[str] = []
-    for part in body.split(","):
-        for expanded in _expand_brace_glob(prefix + part + suffix):
-            out.append(expanded)
-    return out
 
 
 def _glob_match(rel: str, pattern: str) -> bool:
@@ -64,14 +53,12 @@ def _glob_match(rel: str, pattern: str) -> bool:
                 fnmatch.fnmatch(rel[i + 1 :], rest) for i, ch in enumerate(rel) if ch == "/"
             ):
                 return True
-            continue
         simplified = pat.replace("/**/", "/").replace("**/", "").replace("**", "*")
-        if fnmatch.fnmatch(rel, simplified):
+        if fnmatch.fnmatch(rel, simplified) or any(
+            fnmatch.fnmatch(rel[i + 1 :], simplified) for i, ch in enumerate(rel) if ch == "/"
+        ):
             return True
     return False
-
-
-_TEST_FILE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 
 
 def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
@@ -79,10 +66,10 @@ def _iter_test_files(root: Path, globs: list[str]) -> list[Path]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if path.suffix.lower() not in _TEST_FILE_SUFFIXES:
+        if path.suffix.lower() not in TEST_FILE_SUFFIXES:
             continue
         rel = path.relative_to(root).as_posix()
-        if any(part in {"node_modules", ".git", "mutants", "coverage", "dist", "build"} for part in rel.split("/")):
+        if any(part in SKIP_DIR_PARTS for part in rel.split("/")):
             continue
         if any(_glob_match(rel, g) for g in globs):
             out.append(path)
@@ -177,42 +164,6 @@ def _call_name(node: ast.AST) -> str:
         base = _call_name(node.value)
         return f"{base}.{node.attr}" if base else node.attr
     return ""
-
-
-_JS_WEAK_PATTERNS = (
-    (".toBeTruthy(", "weak_primary_oracle"),
-    (".toBeFalsy(", "weak_primary_oracle"),
-    (".toBeDefined(", "weak_primary_oracle"),
-    (".toBeUndefined(", "weak_primary_oracle"),
-    ("assert.ok(", "weak_primary_oracle"),
-    ("assert.equal(true", "weak_primary_oracle"),
-)
-
-
-def _scan_js_ts_file(path: Path, root: Path) -> list[dict]:
-    """Lightweight test-smell lint for JS/TS tests (Orbit weak-oracle patterns)."""
-    rel = path.relative_to(root).as_posix()
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return [{"file": rel, "line": 1, "kind": "read_error", "detail": str(exc)}]
-    findings: list[dict] = []
-    for i, line in enumerate(text.splitlines(), 1):
-        stripped = line.strip()
-        if stripped.startswith("//") or stripped.startswith("*"):
-            continue
-        for needle, kind in _JS_WEAK_PATTERNS:
-            if needle in line:
-                findings.append(
-                    {
-                        "file": rel,
-                        "line": i,
-                        "kind": kind,
-                        "detail": f"JS/TS weak oracle ({needle.strip('(')} ) — prefer exact value asserts",
-                    }
-                )
-                break
-    return findings
 
 
 def _scan_file(path: Path, root: Path) -> list[dict]:

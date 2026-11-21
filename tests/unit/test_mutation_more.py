@@ -83,7 +83,7 @@ def test_run_mutation_include_globs_filter_reaches_mutmut(tmp_path: Path, monkey
     )
     monkeypatch.setattr(
         mut,
-        "_changed_py_files",
+        "_changed_source_files",
         lambda *a, **k: [
             "runtime/agentized/board.py",
             "runtime/agentized/sub/pkg.py",

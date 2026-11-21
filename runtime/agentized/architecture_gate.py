@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import ast
 import json
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .architecture_js import (
+    run_dependency_cruiser as _run_dependency_cruiser,
+    run_eslint_boundaries as _run_eslint_boundaries,
+)
 from .gate_dispatch import architecture_tool_for_language, detect_languages
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
@@ -106,33 +109,6 @@ def _run_import_linter(root: Path, config_path: Path) -> tuple[int, str]:
     env["PYTHONPATH"] = runtime if not existing else f"{runtime}:{existing}"
     proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
-
-
-def _run_dependency_cruiser(root: Path, section: dict) -> tuple[int, str]:
-    config = root / str(section.get("js_config") or section.get("config") or ".dependency-cruiser.cjs")
-    source = str(section.get("js_source") or "src")
-    if not config.exists():
-        return 1, f"missing dependency-cruiser config: {config.name}"
-    npx = shutil.which("npx")
-    if not npx:
-        return 1, "npx not found — install Node to run dependency-cruiser"
-    cmd = [npx, "--yes", "dependency-cruiser", "--config", str(config), source]
-    proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
-    return proc.returncode or 0, ((proc.stdout or "") + (proc.stderr or "")).strip()[:2000]
-
-
-def _run_eslint_boundaries(root: Path, section: dict) -> tuple[int, str]:
-    config = section.get("eslint_config")
-    cmd = list(section.get("eslint_boundaries_command") or [])
-    if not cmd:
-        npx = shutil.which("npx")
-        if not npx:
-            return 1, "npx not found — install Node to run eslint-boundaries"
-        cmd = [npx, "--yes", "eslint", "."]
-        if config:
-            cmd.extend(["--config", str(config)])
-    proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
-    return proc.returncode or 0, ((proc.stdout or "") + (proc.stderr or "")).strip()[:2000]
 
 
 def _run_python_architecture(root: Path, section: dict) -> tuple[list[dict], str, str]:

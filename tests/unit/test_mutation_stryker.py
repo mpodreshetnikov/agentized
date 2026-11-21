@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from agentized import mutation as mut
+from agentized import mutation_stryker as ms
 
 
 def test_read_stryker_covered_from_json(tmp_path: Path):
@@ -27,32 +28,56 @@ def test_read_stryker_covered_from_json(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-    stats = mut._read_stryker_covered(tmp_path)
+    stats = ms.read_stryker_covered(tmp_path)
+    assert stats == {
+        "mutationScoreCovered": 66.67,
+        "mutationScore": 50.0,
+        "killed": 1,
+        "survived": 1,
+        "no_tests": 1,
+        "timeout": 1,
+        "totalMutants": 4,
+        "files": ["src/a.ts"],
+        "source": "reports/mutation/mutation.json",
+    }
+    # Alias on mutation module stays wired.
+    assert mut._read_stryker_covered(tmp_path) == stats
+
+
+def test_read_stryker_prefers_tool_metrics(tmp_path: Path):
+    reports = tmp_path / "reports" / "mutation"
+    reports.mkdir(parents=True)
+    (reports / "mutation-result.json").write_text(
+        json.dumps(
+            {
+                "mutationScoreOfCoveredCode": 100,
+                "mutationScore": 90,
+                "files": {"a.ts": {"mutants": [{"status": "Killed"}]}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    stats = ms.read_stryker_covered(tmp_path)
     assert stats is not None
-    assert stats["killed"] == 1
-    assert stats["survived"] == 1
-    assert stats["no_tests"] == 1
-    assert stats["timeout"] == 1
-    # covered = killed+survived+timeout = 3 → (killed+timeout)/covered = 2/3
-    assert stats["mutationScoreCovered"] == 66.67
+    assert stats["mutationScoreCovered"] == 100
+    assert stats["mutationScore"] == 90
+    assert stats["source"] == "reports/mutation/mutation-result.json"
 
 
 def test_read_stryker_missing(tmp_path: Path):
-    stats = mut._read_stryker_covered(tmp_path)
-    assert stats == {} or stats is None
-    assert (stats or {}).get("killed", 0) == 0
+    assert ms.read_stryker_covered(tmp_path) is None
 
 
-def test_find_stryker_wrapper_prefers_scripts(tmp_path: Path):
-    path = tmp_path / "scripts" / "quality" / "run-mutation-js.cjs"
-    path.parent.mkdir(parents=True)
-    path.write_text("console.log(1)\n", encoding="utf-8")
-    assert mut._find_stryker_wrapper(tmp_path) == path
+def test_find_stryker_wrapper_order(tmp_path: Path):
+    preferred = tmp_path / "scripts" / "quality" / "run-mutation-js.cjs"
+    preferred.parent.mkdir(parents=True)
+    preferred.write_text("console.log(1)\n", encoding="utf-8")
+    (tmp_path / "run-mutation-js.cjs").write_text("console.log(2)\n", encoding="utf-8")
+    assert ms.find_stryker_wrapper(tmp_path) == preferred
+    assert mut._find_stryker_wrapper(tmp_path) == preferred
 
 
-def test_run_stryker_gate_no_runner(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(mut, "_find_stryker_wrapper", lambda root: None)
-    monkeypatch.setattr(mut.shutil, "which", lambda name: None)
+def test_run_stryker_gate_no_runner(tmp_path: Path):
     rc = mut._run_stryker_gate(
         tmp_path,
         changed=["src/a.ts"],
@@ -63,24 +88,81 @@ def test_run_stryker_gate_no_runner(tmp_path: Path, monkeypatch):
     )
     assert rc == 1
     summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
-    assert "no_stryker_runner" in summary["reasons"]
+    assert summary["reasons"] == ["no_stryker_runner"]
+    assert summary["passed"] is False
 
 
 def test_run_stryker_gate_uses_wrapper(tmp_path: Path, monkeypatch):
     wrapper = tmp_path / "run-mutation-js.cjs"
     wrapper.write_text("// stub\n", encoding="utf-8")
-    monkeypatch.setattr(mut, "_find_stryker_wrapper", lambda root: wrapper)
+    reports = tmp_path / "reports" / "mutation"
+    reports.mkdir(parents=True)
+    (reports / "mutation.json").write_text(
+        json.dumps({"files": {"src/a.ts": {"mutants": [{"status": "Killed"}]}}}),
+        encoding="utf-8",
+    )
 
     class R:
         returncode = 0
 
-    calls = {}
+    calls: dict = {}
 
     def fake_run(cmd, **kwargs):
         calls["cmd"] = cmd
+        calls["env"] = kwargs.get("env") or {}
         return R()
 
-    monkeypatch.setattr(mut.subprocess, "run", fake_run)
+    monkeypatch.setattr(ms.subprocess, "run", fake_run)
+    rc = mut._run_stryker_gate(
+        tmp_path,
+        changed=["src/a.ts"],
+        mut={"break_on_survived": True},
+        base="origin/main",
+        min_score=100,
+        languages=["typescript"],
+    )
+    assert rc == 0
+    assert calls["cmd"] == ["node", str(wrapper)]
+    assert calls["env"]["MUTATION_BASE"] == "origin/main"
+    assert calls["env"]["STRYKER_BASE"] == "origin/main"
+    assert calls["env"]["MUTATION_MIN_SCORE_COVERED"] == "100"
+    summary = json.loads((reports / "mutation-summary.json").read_text())
+    assert summary["passed"] is True
+    assert summary["reasons"] == []
+    assert summary["languages"] == ["typescript"]
+
+
+def test_run_stryker_wrapper_exit_nonzero(tmp_path: Path, monkeypatch):
+    wrapper = tmp_path / "run-mutation-js.cjs"
+    wrapper.write_text("// stub\n", encoding="utf-8")
+
+    class R:
+        returncode = 7
+
+    monkeypatch.setattr(ms.subprocess, "run", lambda *a, **k: R())
+    assert (
+        mut._run_stryker_gate(
+            tmp_path,
+            changed=["src/a.ts"],
+            mut={},
+            base="origin/main",
+            min_score=100,
+            languages=["typescript"],
+        )
+        == 7
+    )
+    summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert summary["reasons"] == ["stryker_exit=7"]
+
+
+def test_run_stryker_missing_json_after_wrapper(tmp_path: Path, monkeypatch):
+    wrapper = tmp_path / "run-mutation-js.cjs"
+    wrapper.write_text("// stub\n", encoding="utf-8")
+
+    class R:
+        returncode = 0
+
+    monkeypatch.setattr(ms.subprocess, "run", lambda *a, **k: R())
     rc = mut._run_stryker_gate(
         tmp_path,
         changed=["src/a.ts"],
@@ -89,19 +171,14 @@ def test_run_stryker_gate_uses_wrapper(tmp_path: Path, monkeypatch):
         min_score=100,
         languages=["typescript"],
     )
-    assert rc == 0
-    assert calls["cmd"][0] == "node"
-    assert calls["cmd"][1] == str(wrapper)
+    assert rc == 1
+    summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
+    assert summary["reasons"] == ["missing_stryker_json"]
 
 
-def test_run_stryker_inline_gates_score(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(mut, "_find_stryker_wrapper", lambda root: None)
-    monkeypatch.setattr(mut.shutil, "which", lambda name: "/usr/bin/npx" if name == "npx" else None)
-
-    class R:
-        returncode = 0
-
-    monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
+def test_run_stryker_survived_fails(tmp_path: Path, monkeypatch):
+    wrapper = tmp_path / "run-mutation-js.cjs"
+    wrapper.write_text("// stub\n", encoding="utf-8")
     reports = tmp_path / "reports" / "mutation"
     reports.mkdir(parents=True)
     (reports / "mutation.json").write_text(
@@ -116,6 +193,11 @@ def test_run_stryker_inline_gates_score(tmp_path: Path, monkeypatch):
         ),
         encoding="utf-8",
     )
+
+    class R:
+        returncode = 0
+
+    monkeypatch.setattr(ms.subprocess, "run", lambda *a, **k: R())
     rc = mut._run_stryker_gate(
         tmp_path,
         changed=["src/a.ts"],
@@ -126,49 +208,41 @@ def test_run_stryker_inline_gates_score(tmp_path: Path, monkeypatch):
     )
     assert rc == 1
     summary = json.loads((reports / "mutation-summary.json").read_text())
-    assert any("survived=" in r or "score_covered=" in r for r in summary["reasons"])
+    assert any(r.startswith("survived=") or r.startswith("score_covered=") for r in summary["reasons"])
 
 
-def test_run_stryker_inline_missing_json(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(mut, "_find_stryker_wrapper", lambda root: None)
-    monkeypatch.setattr(mut.shutil, "which", lambda name: "/usr/bin/npx")
+def test_run_stryker_break_on_survived_false(tmp_path: Path, monkeypatch):
+    wrapper = tmp_path / "run-mutation-js.cjs"
+    wrapper.write_text("// stub\n", encoding="utf-8")
+    reports = tmp_path / "reports" / "mutation"
+    reports.mkdir(parents=True)
+    (reports / "mutation.json").write_text(
+        json.dumps(
+            {
+                "mutationScoreOfCoveredCode": 100,
+                "files": {
+                    "src/a.ts": {
+                        "mutants": [{"status": "Killed"}, {"status": "Survived"}]
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     class R:
         returncode = 0
 
-    monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
+    monkeypatch.setattr(ms.subprocess, "run", lambda *a, **k: R())
     rc = mut._run_stryker_gate(
         tmp_path,
         changed=["src/a.ts"],
-        mut={},
+        mut={"break_on_survived": False},
         base="origin/main",
-        min_score=100,
-        languages=["typescript"],
+        min_score=50,
+        languages=["javascript"],
     )
-    assert rc == 1
-    summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
-    assert "missing_stryker_json" in summary["reasons"]
-
-
-def test_run_stryker_inline_exit_nonzero(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(mut, "_find_stryker_wrapper", lambda root: None)
-    monkeypatch.setattr(mut.shutil, "which", lambda name: "/usr/bin/npx")
-
-    class R:
-        returncode = 7
-
-    monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
-    assert (
-        mut._run_stryker_gate(
-            tmp_path,
-            changed=["src/a.ts"],
-            mut={},
-            base="origin/main",
-            min_score=100,
-            languages=["typescript"],
-        )
-        == 7
-    )
+    assert rc == 0
 
 
 def test_changed_source_files_filters_tests(tmp_path: Path, monkeypatch):
@@ -209,13 +283,23 @@ def test_git_changed_names_fallback(tmp_path: Path, monkeypatch):
 
 
 def test_is_test_path_keeps_production_test_smells_module():
-    # Exact path→bool vector (list Eq) — not bare `is True`/`is False` oracles.
     paths = [
         "runtime/agentized/test_smells.py",
         "tests/unit/test_foo.py",
         "src/foo.test.ts",
         "src/__tests__/x.ts",
         "src/util.ts",
+        "pkg/foo_test.py",
+        "pkg/foo-test.js",
+        "pkg/foo.spec.js",
     ]
-    assert [mut._is_test_path(p) for p in paths] == [False, True, True, True, False]
-
+    assert [mut._is_test_path(p) for p in paths] == [
+        False,
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+    ]

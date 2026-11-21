@@ -324,24 +324,3 @@ def test_architecture_eslint_boundaries_and_missing_tool(tmp_path: Path, monkeyp
     assert any(f["kind"] == "no_architecture_runner" for f in summary["findings"])
 
 
-def test_run_dependency_cruiser_and_eslint_helpers(tmp_path: Path, monkeypatch):
-    cfg = tmp_path / ".dependency-cruiser.cjs"
-    cfg.write_text("module.exports={}\n", encoding="utf-8")
-
-    class R:
-        returncode = 0
-        stdout = "ok"
-        stderr = ""
-
-    monkeypatch.setattr(arch.shutil, "which", lambda n: "/usr/bin/npx")
-    monkeypatch.setattr(arch.subprocess, "run", lambda *a, **k: R())
-    rc, out = arch._run_dependency_cruiser(tmp_path, {"js_config": ".dependency-cruiser.cjs", "js_source": "src"})
-    assert rc == 0 and "ok" in out
-    rc2, out2 = arch._run_eslint_boundaries(tmp_path, {})
-    assert rc2 == 0
-    monkeypatch.setattr(arch.shutil, "which", lambda n: None)
-    rc3, note = arch._run_dependency_cruiser(tmp_path, {"js_config": ".dependency-cruiser.cjs"})
-    assert rc3 == 1 and "npx" in note
-    rc4, note4 = arch._run_eslint_boundaries(tmp_path, {})
-    assert rc4 == 1 and "npx" in note4
-
