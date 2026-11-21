@@ -275,6 +275,10 @@ def test_header_only_and_new_path(tmp_path: Path):
         "## Progress\n\nстатус: open\n"
     )
     assert "статус: open" not in header_block(end_status)
+    assert header_block("## Цель\n\nx\n") == ""  # starts with ##
+    # find (not rfind): first ## wins when several sections exist
+    multi = "# T\n\nстатус: open\n\n## Цель\n\ng\n\n## Progress\n\nnote\n"
+    assert header_block(multi) == "# T\n\nстатус: open\n"
     assert extract_status(end_status) == ""
     assert validate_task_text(end_status) == GateResult(False, (MSG_MISSING_STATUS,))
     # review_note in Progress is not evidence
@@ -290,6 +294,8 @@ def test_header_only_and_new_path(tmp_path: Path):
     )
     dups = (MSG_DUPLICATE_FIELD.format(key="статус"),)
     assert duplicate_field_errors(dup) == dups
+    assert validate_status_requirements(dup) == GateResult(False, dups)
+    assert validate_task_text(dup, check_transition=False) == GateResult(False, dups)
     trailer = _task("open") + "статус: open\n"
     assert duplicate_field_errors(trailer) == ()
     twin_val = _task("open").replace(
@@ -761,51 +767,6 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path):
         os.environ.pop("MUTATION_BASE", None)
     assert result.ok is False
     assert any("illegal transition open → done" in e for e in result.errors)
-
-
-def test_rebuild_task_index_active(tmp_path: Path):
-    from agentized.status_gates import INDEX_ACTIVE_STATUSES, rebuild_task_index_active
-
-    def write(name: str, status: str, *, title: str, parent: str, claim: str) -> None:
-        tid = name.removesuffix(".md")
-        (tmp_path / name).write_text(
-            f"# {tid} — {title}\n\nстатус: {status}\nтеги: t\n"
-            f"родитель: {parent}\nclaim: {claim}\n\nЦенность: v\n\n## Цель\n\nGoal.\n",
-            encoding="utf-8",
-        )
-
-    write("T-261116-idx.md", "queue", title="Demo", parent="AGE-22", claim="alice")
-    write(
-        "T-261116-qz.md", "queue", title="Second", parent="_(пусто)_", claim="_(пусто)_"
-    )
-    write("T-261116-ph.md", "open", title="Ph", parent="_x", claim="_y")
-    write(
-        "T-261116-done.md", "done", title="Done", parent="_(пусто)_", claim="_(пусто)_"
-    )
-    write(
-        "T-261116-ip.md", "in-progress", title="Work", parent="_(пусто)_", claim="bob"
-    )
-    write(
-        "T-261116-qq.md", "queued", title="Alias", parent="_(пусто)_", claim="_(пусто)_"
-    )
-    idx = rebuild_task_index_active(tmp_path)
-    assert "## open\n\n- [T-261116-ph](T-261116-ph.md) — Ph\n" in idx
-    assert (
-        "- [T-261116-idx](T-261116-idx.md) — Demo (родитель: AGE-22) · claim: alice"
-        in idx
-    )
-    assert "- [T-261116-qq](T-261116-qq.md) — Alias" in idx  # queued→queue
-    assert "- [T-261116-ip](T-261116-ip.md) — Work · claim: bob" in idx
-    assert "T-261116-done" not in idx
-    assert "_(пусто)_" in idx and "**не перемещается**" in idx
-    assert list(INDEX_ACTIVE_STATUSES) == [
-        "open",
-        "queue",
-        "in-progress",
-        "self-review",
-        "for-review",
-        "blocked",
-    ]
 
 
 def test_prepare_helpers_and_run_validate_kwargs(tmp_path: Path, monkeypatch):

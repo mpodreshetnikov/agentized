@@ -422,45 +422,6 @@ def resolve_validate_base_ref(repo_root: Path, *, explicit: str | None = None) -
     return "origin/main"
 
 
-def rebuild_task_index_active(tasks_dir: Path) -> str:
-    from .tasks import list_tasks
-
-    tasks = list_tasks(tasks_dir)
-    buckets: dict[str, list[str]] = {s: [] for s in INDEX_ACTIVE_STATUSES}
-    for t in tasks:
-        st = normalize_status(t.status)
-        if st not in buckets:
-            continue
-        parent = (
-            f" (родитель: {t.parent})"
-            if t.parent and (not t.parent.startswith("_"))
-            else ""
-        )
-        claim = (
-            f" · claim: {t.claim}" if t.claim and (not t.claim.startswith("_")) else ""
-        )
-        buckets[st].append(f"- [{t.task_id}]({t.path.name}) — {t.title}{parent}{claim}")
-
-    def section(name: str) -> str:
-        rows = buckets[name]
-        body = "\n".join(rows) if rows else "_(пусто)_"
-        return f"## {name}\n\n{body}\n"
-
-    sections = "\n".join(section(name) for name in INDEX_ACTIVE_STATUSES)
-    status_list = " · ".join(f"`{s}`" for s in INDEX_ACTIVE_STATUSES)
-    return (
-        "# Задачи — живой индекс\n\n"
-        "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
-        f"Статусы в индексе: {status_list}.\n\n"
-        "Поиск: этот индекс + grep по id / title / tags. "
-        "Не обходи весь каталог `tasks/`.\n\n"
-        f"{sections}\n"
-        "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). "
-        "Файлы задач лежат рядом с этим индексом; при смене статуса файл "
-        "**не перемещается**.\n"
-    )
-
-
 def validate_tasks_dir(
     tasks_dir: Path,
     *,
