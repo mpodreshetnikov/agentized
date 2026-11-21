@@ -13,7 +13,6 @@ from .task_schema import (
     allocate_task_id,
     format_id_list,
     list_tasks,
-    map_orbit_status,
     parse_id_list,
     rebuild_task_index,
     validate_kind_priority,
@@ -28,6 +27,27 @@ MSG_NO_FM = "no front matter / id"
 MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
 MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by)"
 VALUE_PLACEHOLDER = "_(нет ценности в источнике)_"
+
+
+# Orbit-only aliases; everything else via status_gates (kept local so #51 need not wait on split B).
+ORBIT_STATUS_MAP: dict[str, str] = {
+    "review": "for-review",
+}
+
+
+def map_orbit_status(status: str) -> str | None:
+    """Map Orbit status → Agentized; None if empty/unknown (fail loudly)."""
+    from .status_gates import is_known_status, normalize_status
+
+    key = status.strip().lower()
+    if not key:
+        return None
+    if key in ORBIT_STATUS_MAP:
+        return ORBIT_STATUS_MAP[key]
+    norm = normalize_status(key)
+    if is_known_status(norm):
+        return norm
+    return None
 
 
 @dataclass
@@ -284,6 +304,14 @@ def collect_orbit_task_files(source: Path) -> list[Path]:
     return sorted(source.rglob("T-*.md"))
 
 
+def list_non_orbit_markdown(source: Path) -> list[Path]:
+    """``.md`` files under a directory source that are not matched as ``T-*.md``."""
+    if not source.is_dir():
+        return []
+    orbit = set(collect_orbit_task_files(source))
+    return sorted(path for path in source.rglob("*.md") if path not in orbit)
+
+
 def _remap_id(raw: str, id_map: dict[str, str]) -> str | None:
     if raw in id_map:
         return id_map[raw]
@@ -330,6 +358,9 @@ def import_orbit_tasks(
     pending: list[tuple[OrbitTaskDraft, Path]] = []
     this_run_map: dict[str, str] = {}  # orbit/source id → agentized id
 
+    for path in list_non_orbit_markdown(source):
+        report.warnings.append(f"skip non-Orbit markdown (not T-*.md): {path}")
+
     for path in collect_orbit_task_files(source):
         report.sources.append(str(path))
         try:
@@ -361,6 +392,7 @@ def import_orbit_tasks(
                     report,
                     path,
                     f"skip ({MSG_EXISTS_ORBIT.format(oid=orbit_id)}): {existing}",
+                    err=False,
                 )
                 continue
             draft.task_id = allocate_task_id(dest_tasks)
@@ -388,13 +420,17 @@ def import_orbit_tasks(
             _skip(report, path, f"skip (duplicate id {draft.task_id}): {path}")
             continue
         if dest.exists():
-            _skip(report, path, f"skip (exists, no overwrite): {dest}")
+            _skip(report, path, f"skip (exists, no overwrite): {dest}", err=False)
             continue
         seen_ids.add(draft.task_id)
         pending.append((draft, dest))
         report.drafts.append(draft)
         report.warnings.extend(draft.warnings)
         report.would_write.append(str(dest))
+
+    if not report.sources:
+        report.errors.append("no Orbit task files (T-*.md) found under source")
+        return report
 
     # Remap depends_on / superseded_by using this-run + existing orbit_id map.
     id_map = {**existing_orbit_id_map(dest_tasks), **this_run_map}
