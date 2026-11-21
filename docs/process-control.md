@@ -29,7 +29,7 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 
 ## Spec approval gate (AGE-28)
 
-`spec_approval` off by default; enabled → fail-closed Spec+Approval. See `runtime/agentized/spec_approval*.py`.
+Optional fail-closed Spec+Approval (`runtime/agentized/spec_approval*.py`).
 
 ## Spec / decision hygiene
 

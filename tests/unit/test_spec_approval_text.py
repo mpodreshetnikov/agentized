@@ -13,7 +13,6 @@ from agentized.spec_approval_text import (
     section_body,
 )
 
-
 def test_section_tags_approvers():
     text = "# t\n\n## Spec\n\nBody\nline2\n\n## Approval\n\napproved-by: A\n"
     assert section_body(text, "## Spec") == "Body\nline2"
@@ -33,7 +32,6 @@ def test_section_tags_approvers():
     spaced = "## Spec\n\nBody after blank\n"
     assert section_body(spaced, "## Spec") == "Body after blank"
     assert parse_tags(None) == set()  # type: ignore[arg-type]
-
 
 def test_placeholder_and_email_match():
     placeholders = {

@@ -35,7 +35,6 @@ from agentized.spec_approval_defaults import (
     self_approval_message,
 )
 
-
 def test_constants_and_default():
     assert (MODE_DISABLED, MODE_SKIP, MODE_REFUSE, MODE_OK) == (
         "disabled",
@@ -90,7 +89,6 @@ def test_constants_and_default():
         "spec_heading": "## Spec",
         "approval_heading": "## Approval",
     }
-
 
 def test_message_builders():
     assert missing_spec_message("T-1", "## Spec") == (

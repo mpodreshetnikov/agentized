@@ -15,13 +15,11 @@ from agentized.spec_approval_io import (
 )
 from agentized.tasks import render_task_file
 
-
 def _write_task(tasks: Path, task_id: str, *, status: str, tags: str, claim: str, extra: str = "") -> None:
     body = render_task_file(task_id, "t", status=status, tags=tags, claim=claim)
     if extra:
         body = body.rstrip() + "\n\n" + extra + "\n"
     (tasks / f"{task_id}.md").write_text(body, encoding="utf-8")
-
 
 def test_resolve_and_participants(tmp_path: Path):
     assert _resolve_approval_heading(None) == "## Approval"
@@ -44,7 +42,6 @@ def test_resolve_and_participants(tmp_path: Path):
         encoding="utf-8",
     )
     assert _human_participants(tmp_path, "context") == ["bob@x.com"]
-
 
 def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     from agentized import spec_approval_io as io_mod
@@ -167,7 +164,6 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     assert lines == [3]
     assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading="") is True
     assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading=None) is True  # type: ignore[arg-type]
-
 
 def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     root = tmp_path
