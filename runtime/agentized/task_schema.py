@@ -61,6 +61,7 @@ PLACEHOLDER_TAGS = "_(нет)_"
 PLACEHOLDER_SECTION = "_(append-only)_"
 PLACEHOLDER_EMPTY = "_(пусто)_"
 DEFAULT_GOAL = "Что должно быть сделано."
+DEFAULT_VALUE = "Импорт из orbit-tasks — сохранить историю статусов без ручного копирования."
 PROGRESS_MARKER = "## Progress"
 INDEX_TITLE = "# Задачи — живой индекс"
 INDEX_INTRO = "Генерируемый список **активной** работы. Не полный архив истории."
@@ -138,6 +139,29 @@ def unknown_depends_on_ids(
             if dep not in known:
                 missing.append((t.task_id, dep))
     return missing
+
+
+ORBIT_STATUS_MAP: dict[str, str] = {
+    "idea": "idea",
+    "open": "open",
+    "queue": "queue",
+    "in-progress": "in-progress",
+    "review": "for-review",
+    "self-review": "self-review",
+    "for-review": "for-review",
+    "blocked": "blocked",
+    "done": "done",
+    "dropped": "canceled",
+    "canceled": "canceled",
+}
+
+
+def map_orbit_status(status: str) -> str | None:
+    """Map Orbit status string → Agentized status; None if unknown."""
+    key = (status or "").strip().lower()
+    if not key:
+        return "idea"
+    return ORBIT_STATUS_MAP.get(key)
 
 
 def validate_kind_priority(kind: str, priority: str) -> list[str]:
