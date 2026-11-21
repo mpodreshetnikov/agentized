@@ -17,8 +17,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/quality"]
-# "." first so mutmut's trampoline (mutants/agentized) wins over also_copied runtime/agentized.
-pythonpath = [".", "runtime"]
+pythonpath = ["runtime"]
 
 [tool.coverage.run]
 branch = true

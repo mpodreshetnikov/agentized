@@ -5,7 +5,7 @@ title = "Agentized"
 useDefault = true
 
 [allowlist]
-description = "Agentized generated/report paths"
+description = "Agentized generated/report paths (root-anchored)"
 paths = [
-  '''(^|/)(coverage|reports|mutants|\.artifacts)/''',
+  '''^(coverage|reports|mutants|\.venv)/''',
 ]

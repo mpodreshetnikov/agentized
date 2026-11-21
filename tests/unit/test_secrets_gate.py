@@ -10,9 +10,13 @@ from pathlib import Path
 import pytest
 
 from agentized.secrets_gate import (
+    MAX_DISABLE_DAYS,
     _build_cmd,
     _mode,
+    apply_secrets_connect,
     disable_decision_valid,
+    persist_secrets_policy,
+    pin_gitleaks_config,
     run_secrets_gate,
 )
 
@@ -81,14 +85,20 @@ def test_disabled_without_decision_hard_fails(tmp_path: Path):
     assert summary["passed"] is False
 
 
+def _decision(*, days: float = 7, approved_by: str = "Maxim", reason: str = "fixture") -> dict:
+    expires = (datetime.now(timezone.utc) + timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return {"reason": reason, "approved_by": approved_by, "expires": expires}
+
+
 def test_disabled_with_valid_decision_skips(tmp_path: Path):
-    expires = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     _quality(
         tmp_path,
         {
             "enabled": False,
             "mode": "hard",
-            "disable_decision": {"reason": "fixture repo, no secrets", "expires": expires},
+            "disable_decision": _decision(days=7),
         },
     )
     assert run_secrets_gate(tmp_path) == 0
@@ -104,14 +114,68 @@ def test_disabled_with_valid_decision_skips(tmp_path: Path):
 def test_disable_decision_valid_rules():
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    too_far = (datetime.now(timezone.utc) + timedelta(days=MAX_DISABLE_DAYS + 1)).isoformat()
+    edge = (datetime.now(timezone.utc) + timedelta(days=MAX_DISABLE_DAYS)).isoformat()
     cases = [
         ({}, False),
-        ({"disable_decision": {"reason": "x"}}, False),
-        ({"disable_decision": {"reason": "x", "expires": "not-a-date"}}, False),
-        ({"disable_decision": {"reason": "x", "expires": past}}, False),
-        ({"disable_decision": {"reason": "x", "expires": future}}, True),
+        ({"disable_decision": {"reason": "x", "approved_by": "Maxim"}}, False),
+        (
+            {
+                "disable_decision": {
+                    "reason": "x",
+                    "approved_by": "Maxim",
+                    "expires": "not-a-date",
+                }
+            },
+            False,
+        ),
+        (
+            {
+                "disable_decision": {
+                    "reason": "x",
+                    "approved_by": "Maxim",
+                    "expires": past,
+                }
+            },
+            False,
+        ),
+        (
+            {"disable_decision": {"reason": "x", "expires": future}},
+            False,
+        ),  # missing approved_by
+        (
+            {
+                "disable_decision": {
+                    "reason": "x",
+                    "approved_by": "Maxim",
+                    "expires": too_far,
+                }
+            },
+            False,
+        ),
+        (
+            {
+                "disable_decision": {
+                    "reason": "x",
+                    "approved_by": "Maxim",
+                    "expires": future,
+                }
+            },
+            True,
+        ),
+        (
+            {
+                "disable_decision": {
+                    "reason": "x",
+                    "approved_by": "Maxim",
+                    "expires": edge,
+                }
+            },
+            True,
+        ),
     ]
     assert [disable_decision_valid(cfg) for cfg, _ in cases] == [want for _, want in cases]
+    assert MAX_DISABLE_DAYS == 14
 
 
 def test_missing_binary_hard_fails(tmp_path: Path, monkeypatch):
@@ -444,3 +508,136 @@ def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
     assert summary["toolRc"] == 0
     assert summary["findings"] == []
     assert summary["passed"] is True
+
+
+def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
+    """AGE-29 reconnect policy: inject missing secrets; force-enable without decision."""
+    from agentized.quality import load_quality
+
+    ctx = tmp_path / "context"
+    ctx.mkdir(parents=True)
+    path = ctx / "quality.json"
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "test_smells": {"mode": "hard", "enabled": True},
+                "architecture": {"mode": "hard"},
+                "gates": {
+                    "pre_push": ["mechanical", "module_tests", "coverage"],
+                    "ci": ["mechanical", "module_tests", "coverage"],
+                },
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    info = persist_secrets_policy(tmp_path, "context")
+    assert "secrets" in info["upgraded_modes"]
+    cfg = load_quality(tmp_path)
+    assert cfg["secrets"]["mode"] == "hard"
+    assert cfg["secrets"]["tool"] == "gitleaks"
+    assert cfg["gates"]["ci"][0:2] == ["mechanical", "secrets"]
+    assert cfg["gates"]["pre_push"][0:2] == ["mechanical", "secrets"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["secrets"]["mode"] == "hard"
+    again = persist_secrets_policy(tmp_path, "context")
+    assert again["upgraded_modes"] == []
+
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "secrets": {"enabled": False, "mode": "warn", "tool": "gitleaks"},
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    forced = persist_secrets_policy(tmp_path, "context")
+    assert "secrets_enabled" in forced["upgraded_modes"]
+    assert "secrets" in forced["upgraded_modes"]
+    secrets = load_quality(tmp_path)["secrets"]
+    assert secrets["enabled"] is True
+    assert secrets["mode"] == "hard"
+
+    path.write_text(
+        json.dumps(
+            {
+                "coverage": {"lines": 80, "branches": 80},
+                "secrets": {
+                    "enabled": False,
+                    "mode": "hard",
+                    "tool": "gitleaks",
+                    "disable_decision": _decision(days=1, reason="temp fixture"),
+                },
+                "modules": [{"id": "keep", "source": ["src"]}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    kept = persist_secrets_policy(tmp_path, "context")
+    assert kept["upgraded_modes"] == []
+    kept_secrets = load_quality(tmp_path)["secrets"]
+    assert kept_secrets["enabled"] is False
+    assert kept_secrets["disable_decision"]["approved_by"] == "Maxim"
+
+
+def test_persist_secrets_noop_without_quality_file(tmp_path: Path):
+    assert persist_secrets_policy(tmp_path, "context") == {
+        "upgraded_modes": [],
+        "created": False,
+    }
+
+
+def test_pin_gitleaks_toml_managed(tmp_path: Path):
+    from agentized.managed import load_managed
+
+    (tmp_path / "context").mkdir(parents=True)
+    tpl = tmp_path / "templates" / "quality" / "gitleaks.toml.example"
+    tpl.parent.mkdir(parents=True)
+    tpl.write_text(
+        'title = "Agentized"\n\n[extend]\nuseDefault = true\n',
+        encoding="utf-8",
+    )
+    first = pin_gitleaks_config(tmp_path, "context")
+    assert first == "created"
+    dst = tmp_path / ".gitleaks.toml"
+    assert dst.is_file()
+    assert "useDefault = true" in dst.read_text(encoding="utf-8")
+    assert ".gitleaks.toml" in load_managed(tmp_path, "context")["files"]
+
+    second = pin_gitleaks_config(tmp_path, "context")
+    assert second == "unchanged"
+
+    dst.write_text("# user custom\n", encoding="utf-8")
+    third = pin_gitleaks_config(tmp_path, "context")
+    assert third == "skipped_user"
+    assert dst.read_text(encoding="utf-8") == "# user custom\n"
+
+
+def test_pin_gitleaks_missing_src(tmp_path: Path):
+    (tmp_path / "context").mkdir(parents=True)
+    tpl_dir = tmp_path / "templates" / "quality"
+    tpl_dir.mkdir(parents=True)
+    # Non-empty local templates/quality so we do not fall back to installed root.
+    (tpl_dir / "ci.yml").write_text("name: x\n", encoding="utf-8")
+    assert pin_gitleaks_config(tmp_path, "context") == "missing-src"
+
+
+def test_apply_secrets_connect_combines(tmp_path: Path):
+    (tmp_path / "context").mkdir(parents=True)
+    (tmp_path / "context" / "quality.json").write_text(
+        json.dumps({"coverage": {"lines": 80, "branches": 80}, "modules": []}) + "\n",
+        encoding="utf-8",
+    )
+    tpl = tmp_path / "templates" / "quality" / "gitleaks.toml.example"
+    tpl.parent.mkdir(parents=True)
+    tpl.write_text("[extend]\nuseDefault = true\n", encoding="utf-8")
+    out = apply_secrets_connect(tmp_path, "context")
+    assert "secrets" in out["upgraded_modes"]
+    assert out["gitleaks_config"] == "created"
+    assert (tmp_path / ".gitleaks.toml").is_file()

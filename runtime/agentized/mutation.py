@@ -28,15 +28,9 @@ use_git_change_detection = false
 ignore_lexemes =
   utf-8
   UTF-8
-# packages/ + runtime/ + templates/ required for skill/connect tests in the
-# sandbox. pytest pythonpath puts "." before "runtime" so the mutmut
-# trampoline (agentized/) is not shadowed by also_copied runtime/agentized.
 also_copy =
   tests/
   context/
-  packages/
-  runtime/
-  templates/
   pyproject.toml
   setup.cfg
 """

@@ -20,7 +20,7 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | AST-noop exclusion | After name/glob selection, drop files where `ast.dump(ast.parse(x), include_attributes=False)` matches base vs head **raw bytes** (encoding cookie respected). Missing base, decode/parse errors, and git errors **stay in scope** (fail-closed; never silent exclude). Excluded names are logged. |
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
-| `secrets` | Hard-by-default **gitleaks** scan (AGE-29); `.gitleaks.toml` must set `[extend] useDefault = true`; missing binary fails closed; `enabled=false` fails unless `disable_decision` has reason + unexpired `expires` (reconnect forces `enabled=true` otherwise) |
+| `secrets` | Hard-by-default **gitleaks** scan (AGE-29); `.gitleaks.toml` must set `[extend] useDefault = true`; missing binary fails closed; `enabled=false` fails unless human-only `disable_decision` has `reason` + `approved_by` + unexpired `expires` ≤14d (reconnect forces `enabled=true` otherwise) |
 | `property_based` | Hypothesis / fast-check pilot modules |
 | `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
@@ -44,9 +44,9 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
 
-On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` / `secrets.mode` from **`warn` → `hard`** when still set to warn (AGE-19/29 policy), and injects a default `secrets` section + gate entry when missing. Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19). AGE-29 secrets reconnect policy (`persist_secrets_policy` + `pin_gitleaks_config`) runs from the CLI after `connect`: injects a default `secrets` section + gate entry when missing, flips `secrets.mode` warn→hard, force-enables secrets without a valid human `disable_decision`, and pins `.gitleaks.toml` via managed.json. Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
-New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80. CI template installs gitleaks before `quality check`; local pre-push needs `gitleaks` on `PATH`.
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, secrets=`hard` (gitleaks), `mutationScoreCovered=100`, coverage=80. CI template installs gitleaks **8.21.2** with SHA256 verify before `quality check`; local pre-push needs `gitleaks` on `PATH`.
 
 ## Strong reviewer (AGE-11)
 

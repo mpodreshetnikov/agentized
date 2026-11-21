@@ -772,35 +772,17 @@ def ensure_githooks_path(root: Path) -> str:
     return "preserved-user"
 
 
-def pin_quality_templates(
-    root: Path,
-    context_rel: str = DEFAULT_CONTEXT,
-    *,
-    manifest: dict | None = None,
-) -> dict:
+def pin_quality_templates(root: Path) -> dict:
     """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
 
     External repos without `templates/quality` use the installed Agentized root.
-    AGE-29: pin `.gitleaks.toml` via managed.json (created / unchanged / skipped_user).
     """
     templates = _quality_templates_dir(root)
-    gitleaks_src = templates / "gitleaks.toml.example"
-    gitleaks_dst = root / ".gitleaks.toml"
-    if not gitleaks_src.exists():
-        gitleaks_status = "missing-src"
-    else:
-        man = manifest if manifest is not None else load_managed(root, context_rel)
-        gitleaks_status = managed_copy_file(
-            root, context_rel, gitleaks_src, gitleaks_dst, manifest=man
-        )
-        if manifest is None:
-            save_managed(root, context_rel, man)
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
-        "gitleaks_config": gitleaks_status,
         "js_guidance": (templates / "stryker.config.mjs.example").exists(),
         "templates_from": str(templates),
         "hooks_path": "skipped-no-git",
@@ -836,55 +818,17 @@ def ensure_quality_config(
     if created:
         save_quality(root, load_quality(root, context_rel), context_rel)
     else:
-        # AGE-19/29: warn→hard for smells/architecture/secrets on reconnect.
+        # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
-        # AGE-29: inject default secrets section when the on-disk file lacks it
-        # (load_quality always normalizes defaults into memory).
-        from .quality_defaults import default_quality_config
-        from .quality_io import read_json_object
-
-        raw = read_json_object(path)
         data = load_quality(root, context_rel)
         dirty = False
-        if "secrets" not in raw:
-            data["secrets"] = default_quality_config()["secrets"]
-            upgraded_modes.append("secrets")
-            dirty = True
-            gates = data.get("gates")
-            if isinstance(gates, dict):
-                for gate_key in ("pre_push", "ci"):
-                    names = list(gates.get(gate_key) or [])
-                    if "secrets" not in names:
-                        if "mechanical" in names:
-                            idx = names.index("mechanical") + 1
-                            names.insert(idx, "secrets")
-                        else:
-                            names.insert(0, "secrets")
-                        gates[gate_key] = names
-        for section_name in ("test_smells", "architecture", "secrets"):
+        for section_name in ("test_smells", "architecture"):
             section = data.get(section_name)
             if not isinstance(section, dict):
                 continue
             if str(section.get("mode") or "").lower() == "warn":
                 section["mode"] = "hard"
-                if section_name not in upgraded_modes:
-                    upgraded_modes.append(section_name)
-                dirty = True
-        # AGE-29: force secrets.enabled=true unless a valid disable_decision exists.
-        from .secrets_gate import disable_decision_valid
-
-        secrets = data.get("secrets")
-        if isinstance(secrets, dict):
-            enabled = secrets.get("enabled", True)
-            disabled = enabled is False or enabled == 0 or str(enabled).lower() in {
-                "false",
-                "0",
-                "no",
-            }
-            if disabled and not disable_decision_valid(secrets):
-                secrets["enabled"] = True
-                if "secrets_enabled" not in upgraded_modes:
-                    upgraded_modes.append("secrets_enabled")
+                upgraded_modes.append(section_name)
                 dirty = True
         if dirty:
             save_quality(root, data, context_rel)
@@ -1045,7 +989,7 @@ def connect(
     manifest = load_managed(root, context_rel)
     pinned = pin_context_skills_hooks(root, context_rel, manifest=manifest)
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
-    quality_templates = pin_quality_templates(root, context_rel, manifest=manifest)
+    quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
     process = ensure_process_control_config(root, context_rel)
     from .reporting import ensure_reporting_config

@@ -53,6 +53,15 @@ def cmd_connect(args: argparse.Namespace) -> int:
         harnesses=harnesses,
         coverage_pct=args.coverage,
     )
+    # AGE-29: secrets policy + gitleaks pin live outside connect.py (full-cover mut).
+    from agentized.secrets_gate import apply_secrets_connect
+
+    secrets_connect = apply_secrets_connect(root, args.context)
+    result["secrets"] = secrets_connect
+    if result.get("quality_templates") is not None:
+        result["quality_templates"]["gitleaks_config"] = secrets_connect.get(
+            "gitleaks_config"
+        )
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
