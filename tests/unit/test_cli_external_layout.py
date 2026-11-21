@@ -184,9 +184,7 @@ def test_lease_and_sync_status_use_registry(
     assert "active leases: 1" in sync
 
 
-def test_connect_bridges_after_connect_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_connect_bridges_after_connect_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Bridges must run only after connect() succeeds (no orphan bridges on failure)."""
     code, ext, ctx = _fresh_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
