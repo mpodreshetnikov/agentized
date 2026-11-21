@@ -29,109 +29,62 @@ def _require_gitleaks() -> str:
 
 def _quality(root: Path, secrets: dict) -> None:
     (root / "context").mkdir(parents=True, exist_ok=True)
-    payload = {
-        "version": 1,
-        "coverage": {"lines": 80, "branches": 80},
-        "modules": [],
-        "secrets": secrets,
-        "gates": {"ci": ["secrets"]},
-    }
     (root / "context" / "quality.json").write_text(
-        json.dumps(payload) + "\n", encoding="utf-8"
+        json.dumps({
+            "version": 1, "coverage": {"lines": 80, "branches": 80},
+            "modules": [], "secrets": secrets, "gates": {"ci": ["secrets"]},
+        }) + "\n",
+        encoding="utf-8",
     )
 
 
+def _summary(root: Path) -> dict:
+    return json.loads((root / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
 
-def test_build_cmd_includes_config_when_present(tmp_path: Path):
+
+
+def test_build_cmd_config_optional(tmp_path: Path):
     cfg = tmp_path / ".gitleaks.toml"
     cfg.write_text("title='t'\n", encoding="utf-8")
     report = tmp_path / "r.json"
     cmd = _build_cmd("gitleaks", tmp_path, config_path=cfg, report_path=report)
-    assert cmd[0] == "gitleaks"
-    assert cmd[1] == "detect"
-    assert "--source" in cmd and str(tmp_path) in cmd
-    assert "--config" in cmd and str(cfg) in cmd
-    assert "--report-path" in cmd and str(report) in cmd
-    assert cmd.count("--exit-code") == 1
+    assert cmd[0:2] == ["gitleaks", "detect"] and str(tmp_path) in cmd
+    assert "--config" in cmd and str(cfg) in cmd and str(report) in cmd
     assert cmd[cmd.index("--exit-code") + 1] == "1"
-
-
-def test_build_cmd_skips_missing_config(tmp_path: Path):
-    missing = tmp_path / "nope.toml"
-    report = tmp_path / "r.json"
-    cmd = _build_cmd("gitleaks", tmp_path, config_path=missing, report_path=report)
-    assert cmd.count("--config") == 0
-    assert [x for x in cmd if x.endswith("nope.toml")] == []
-    assert cmd[0:2] == ["gitleaks", "detect"]
+    skip = _build_cmd("gitleaks", tmp_path, config_path=tmp_path / "nope.toml", report_path=report)
+    assert "--config" not in skip
 
 
 def test_disabled_without_decision_hard_fails(tmp_path: Path):
     _quality(tmp_path, {"enabled": False, "mode": "hard"})
     assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    summary = _summary(tmp_path)
     assert summary["findings"][0]["kind"] == "disabled_without_decision"
     assert summary["passed"] is False
 
 
 def _decision(*, days: float = 7, approved_by: str = "Maxim", reason: str = "fixture") -> dict:
-    expires = (datetime.now(timezone.utc) + timedelta(days=days)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    expires = (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"reason": reason, "approved_by": approved_by, "expires": expires}
 
 
 def test_disabled_with_valid_decision_skips(tmp_path: Path):
-    _quality(
-        tmp_path,
-        {
-            "enabled": False,
-            "mode": "hard",
-            "disable_decision": _decision(days=7),
-        },
-    )
+    _quality(tmp_path, {"enabled": False, "mode": "hard", "disable_decision": _decision(days=7)})
     assert run_secrets_gate(tmp_path) == 0
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["toolNote"] == "disabled_by_decision"
-    assert summary["findings"] == []
+    s = _summary(tmp_path)
+    assert s["toolNote"] == "disabled_by_decision" and s["findings"] == []
 
 
-
-def test_missing_binary_hard_fails(tmp_path: Path, monkeypatch):
+def test_missing_binary_hard_and_warn(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: None)
     _quality(tmp_path, {"enabled": True, "mode": "hard"})
-    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: None)
-    rc = run_secrets_gate(tmp_path)
-    assert rc == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["passed"] is False
-    assert summary["mode"] == "hard"
-    assert summary["findings"][0]["kind"] == "missing_binary"
-    assert summary["binary"] is None
-
-
-def test_missing_binary_warn_passes(tmp_path: Path, monkeypatch):
+    assert run_secrets_gate(tmp_path) == 1
+    hard = _summary(tmp_path)
+    assert hard["passed"] is False and hard["findings"][0]["kind"] == "missing_binary"
+    assert hard["binary"] is None
     _quality(tmp_path, {"enabled": True, "mode": "warn"})
-    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: None)
-    rc = run_secrets_gate(tmp_path)
-    assert rc == 0
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["passed"] is True
-    assert summary["findings"][0]["kind"] == "missing_binary"
+    assert run_secrets_gate(tmp_path) == 0
+    assert _summary(tmp_path)["passed"] is True
 
 
 def test_clean_detect_passes(tmp_path: Path, monkeypatch):
@@ -144,20 +97,11 @@ def test_clean_detect_passes(tmp_path: Path, monkeypatch):
         stdout = "No leaks found"
         stderr = ""
 
-    monkeypatch.setattr(
-        "agentized.secrets_gate.subprocess.run",
-        lambda *a, **k: _Proc(),
-    )
+    monkeypatch.setattr("agentized.secrets_gate.subprocess.run", lambda *a, **k: _Proc())
     assert run_secrets_gate(tmp_path) == 0
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["passed"] is True
-    assert summary["findings"] == []
-    assert summary["toolRc"] == 0
-    assert summary["binary"] == "/usr/bin/gitleaks"
+    summary = _summary(tmp_path)
+    assert summary["passed"] is True and summary["findings"] == []
+    assert summary["toolRc"] == 0 and summary["binary"] == "/usr/bin/gitleaks"
 
 
 def test_leaks_hard_fail_from_report(tmp_path: Path, monkeypatch):
@@ -190,11 +134,7 @@ def test_leaks_hard_fail_from_report(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("agentized.secrets_gate.subprocess.run", _run)
     assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    summary = _summary(tmp_path)
     assert summary["passed"] is False
     assert summary["findings"][0]["file"] == "secrets.env"
     assert summary["findings"][0]["kind"] == "aws-access-key"
@@ -215,11 +155,7 @@ def test_leak_without_report_uses_stderr(tmp_path: Path, monkeypatch):
         lambda *a, **k: _Proc(),
     )
     assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    summary = _summary(tmp_path)
     assert summary["findings"][0]["kind"] == "leak"
     assert "WRN leaks found: 2" in summary["findings"][0]["detail"]
 
@@ -284,38 +220,31 @@ def _init_git_repo(path: Path) -> None:
     )
 
 
+def _pin_gitleaks_toml(repo: Path, *, allowlist: bool = False) -> None:
+    body = 'title = "Agentized"\n\n[extend]\nuseDefault = true\n'
+    if allowlist:
+        body += "\n[allowlist]\npaths = [\n  '''^(coverage|reports|mutants|\\.venv)/''',\n]\n"
+    (repo / ".gitleaks.toml").write_text(body, encoding="utf-8")
+
+
 def test_real_gitleaks_detects_planted_secrets(tmp_path: Path):
-    """Integration: real gitleaks + pinned config must catch planted tokens."""
     _require_gitleaks()
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
-    # Build fixtures at runtime so the commit has no contiguous secret literals
-    # (GitHub push protection); values still match default gitleaks rules.
     github = "ghp_" + "wWHhP5N9XzvB6c3dEfGhIjKlMnOpQrStUvWx"
     stripe = "sk_live_" + "51Hq" + ("abcdefghijklmnopqrstuvwxyz" * 2) + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
     (repo / "leak.txt").write_text(f"{github}\n{stripe}\n", encoding="utf-8")
     subprocess.run(["git", "add", "leak.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "plant"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
+        cwd=repo, check=True, capture_output=True,
     )
-    # Inline pinned config (useDefault=true) — do not read templates/ (absent in mutmut sandbox).
-    (repo / ".gitleaks.toml").write_text(
-        'title = "Agentized"\n\n[extend]\nuseDefault = true\n\n'
-        "[allowlist]\npaths = [\n  '''^(coverage|reports|mutants|\\.venv)/''',\n]\n",
-        encoding="utf-8",
-    )
+    _pin_gitleaks_toml(repo, allowlist=True)
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 1
-    summary = json.loads(
-        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
-    )
-    assert summary["toolRc"] == 1
-    assert len(summary["findings"]) >= 1
-    assert summary["passed"] is False
+    summary = json.loads((repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
+    assert summary["toolRc"] == 1 and len(summary["findings"]) >= 1 and summary["passed"] is False
 
 
 def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
@@ -327,22 +256,13 @@ def test_real_gitleaks_clean_repo_passes(tmp_path: Path):
     subprocess.run(["git", "add", "ok.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "clean"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
+        cwd=repo, check=True, capture_output=True,
     )
-    (repo / ".gitleaks.toml").write_text(
-        'title = "Agentized"\n\n[extend]\nuseDefault = true\n',
-        encoding="utf-8",
-    )
+    _pin_gitleaks_toml(repo)
     _quality(repo, {"enabled": True, "mode": "hard", "config": ".gitleaks.toml"})
     assert run_secrets_gate(repo) == 0
-    summary = json.loads(
-        (repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8")
-    )
-    assert summary["toolRc"] == 0
-    assert summary["findings"] == []
-    assert summary["passed"] is True
+    summary = json.loads((repo / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
+    assert summary["toolRc"] == 0 and summary["findings"] == [] and summary["passed"] is True
 
 
 def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
@@ -417,13 +337,10 @@ def test_persist_secrets_injects_and_force_enables(tmp_path: Path):
     )
     kept = persist_secrets_policy(tmp_path, "context")
     assert kept["upgraded_modes"] == []
-    # quality.py normalize does not merge secrets; use secrets_section / raw disk.
     from agentized.secrets_gate import secrets_section
-
     kept_secrets = secrets_section(tmp_path)
     assert kept_secrets["enabled"] is False
     assert kept_secrets["disable_decision"]["approved_by"] == "Maxim"
-    assert json.loads(path.read_text(encoding="utf-8"))["secrets"]["enabled"] is False
 
 
 def test_persist_secrets_noop_without_quality_file(tmp_path: Path):

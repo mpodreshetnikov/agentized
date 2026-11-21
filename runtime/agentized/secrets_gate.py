@@ -1,13 +1,8 @@
 """Hard gitleaks secret scan (AGE-29).
 
-Runs `gitleaks detect` against the repo. Default mode is hard/blocking on
-pre-push and CI (via `quality check` gates). Missing binary fails closed when
-mode=hard. `enabled: false` also fails closed unless a human-only
-disable_decision (reason + approved_by + expires ≤14d, unexpired) is recorded.
-
-Connect wiring lives here (not in connect.py) so AGE-29 stays out of the
-full-cover mutation diff for connect: CLI calls `apply_secrets_connect`
-after `connect()`.
+Default mode hard on pre-push/CI. Missing binary fails closed when mode=hard.
+`enabled: false` fails closed unless disable_decision (reason + approved_by +
+expires ≤14d) is recorded. CLI calls `apply_secrets_connect` after `connect()`.
 """
 from __future__ import annotations
 
@@ -41,14 +36,7 @@ def _mode(section: dict[str, Any]) -> str:
 
 
 def _is_disabled_flag(enabled: Any) -> bool:
-    if enabled is False:
-        return True
-    if enabled == 0:
-        return True
-    if enabled is True:
-        return False
-    text = str(enabled).strip().lower()
-    return text in _FALSEY
+    return str(enabled).strip().lower() in _FALSEY
 
 
 def _decision_field(decision: dict[str, Any], *keys: str) -> str:
@@ -70,7 +58,7 @@ def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = No
     reason = _decision_field(decision, "reason")
     approved_by = _decision_field(decision, "approved_by")
     expires_raw = _decision_field(decision, "expires", "expiry", "expires_at")
-    if len(reason) == 0 or len(approved_by) == 0 or len(expires_raw) == 0:
+    if not reason or not approved_by or not expires_raw:
         return False
     try:
         expires = datetime.fromisoformat(expires_raw)
@@ -78,7 +66,10 @@ def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = No
         return False
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=timezone.utc)
-    clock = now if now is not None else datetime.now(timezone.utc)
+    if now is None:
+        clock = datetime.now(timezone.utc)
+    else:
+        clock = now
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=timezone.utc)
     if expires <= clock:
@@ -147,15 +138,12 @@ def persist_secrets_policy(
         return {"upgraded_modes": upgraded, "created": False}
 
     raw = read_json_object(path)
-    # Work on a copy of on-disk JSON. quality._normalize omits secrets, so we
-    # must write secrets/gates through write_json_object (not save_quality).
+    # quality._normalize omits secrets → write via write_json_object.
     out = dict(raw)
-    dirty = False
 
     if "secrets" not in raw:
         out["secrets"] = dict(default_quality_config()["secrets"])
         upgraded.append("secrets")
-        dirty = True
         gates = out.get("gates")
         if isinstance(gates, dict):
             gates = dict(gates)
@@ -175,23 +163,19 @@ def persist_secrets_policy(
         out["secrets"] = secrets
         if _mode(secrets) == "warn":
             secrets["mode"] = "hard"
-            if "secrets" not in upgraded:
-                upgraded.append("secrets")
-            dirty = True
-        if "enabled" in secrets:
-            enabled = secrets["enabled"]
-        else:
-            enabled = True
-        if _is_disabled_flag(enabled):
+            upgraded.append("secrets")
+        if "enabled" in secrets and _is_disabled_flag(secrets["enabled"]):
             if not disable_decision_valid(secrets):
                 secrets["enabled"] = True
-                if "secrets_enabled" not in upgraded:
-                    upgraded.append("secrets_enabled")
-                dirty = True
+                upgraded.append("secrets_enabled")
 
-    if dirty is True:
+    if upgraded:
         write_json_object(path, out)
-    return {"upgraded_modes": upgraded, "created": False}
+    unique: list[str] = []
+    for tag in upgraded:
+        if tag not in unique:
+            unique.append(tag)
+    return {"upgraded_modes": unique, "created": False}
 
 
 def apply_secrets_connect(
@@ -282,7 +266,7 @@ def _finding_detail(item: dict[str, Any]) -> str:
         if raw is None:
             continue
         text = str(raw)
-        if len(text) > 0:
+        if text:
             return text[:240]
     return "secret detected"
 
@@ -290,7 +274,7 @@ def _finding_detail(item: dict[str, Any]) -> str:
 def _finding_file(item: dict[str, Any]) -> str:
     for key in ("File", "file"):
         raw = item.get(key)
-        if isinstance(raw, str) and len(raw) > 0:
+        if type(raw) is str and raw:
             return raw
     return ""
 
@@ -298,7 +282,7 @@ def _finding_file(item: dict[str, Any]) -> str:
 def _finding_kind(item: dict[str, Any]) -> str:
     for key in ("RuleID", "Rule"):
         raw = item.get(key)
-        if isinstance(raw, str) and len(raw) > 0:
+        if type(raw) is str and raw:
             return raw
     return "leak"
 
@@ -310,10 +294,11 @@ def _findings_from_report(report_path: Path, tool_note: str) -> list[dict[str, A
         try:
             loaded = json.loads(report_path.read_bytes().decode())
         except (json.JSONDecodeError, UnicodeDecodeError):
-            loaded = []
-        if isinstance(loaded, list):
-            leaks = loaded
-    for item in leaks[:50]:
+            pass
+        else:
+            if isinstance(loaded, list):
+                leaks = loaded
+    for item in leaks:
         if not isinstance(item, dict):
             continue
         findings.append(
@@ -325,8 +310,26 @@ def _findings_from_report(report_path: Path, tool_note: str) -> list[dict[str, A
         )
     if findings:
         return findings
-    note = tool_note if tool_note != "" else "gitleaks exit 1 (secrets detected)"
+    note = tool_note if tool_note else "gitleaks exit 1 (secrets detected)"
     return [{"file": "", "kind": "leak", "detail": note}]
+
+
+_PRINT_DETAIL = 200
+_TOOL_NOTE_MAX = 4000
+
+
+def _gate_result(mode: str, findings: list[dict[str, Any]]) -> int:
+    if findings:
+        print(f"[secrets] {len(findings)} finding(s) (mode={mode})")
+        first = findings[0]
+        loc = first["file"] or "(repo)"
+        print(f"  {loc}: {first['kind']}: {first['detail'][:_PRINT_DETAIL]}")
+    else:
+        print("[secrets] PASS (0 findings, tool=gitleaks)")
+    if mode == "warn":
+        print("[secrets] warn mode — not failing the gate")
+        return 0
+    return 1 if findings else 0
 
 
 def run_secrets_gate(
@@ -341,22 +344,21 @@ def run_secrets_gate(
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "gitleaks-report.json"
     summary_path = out_dir / "secrets-summary.json"
+    config_rel = DEFAULT_CONFIG
     raw_config = section.get("config")
-    if isinstance(raw_config, str) and raw_config.strip() != "":
-        config_rel = raw_config.strip()
-    else:
-        config_rel = DEFAULT_CONFIG
+    if isinstance(raw_config, str):
+        stripped = raw_config.strip()
+        if stripped:
+            config_rel = stripped
     config_path = root / config_rel
     if config_path.is_file():
         config_for_summary = config_rel
     else:
         config_for_summary = None
 
-    enabled = True if "enabled" not in section else section["enabled"]
-    if _is_disabled_flag(enabled):
+    if "enabled" in section and _is_disabled_flag(section["enabled"]):
         if disable_decision_valid(section):
-            skip_msg = "[secrets] disabled by recorded decision — skip"
-            print(skip_msg)
+            print("[secrets] disabled by recorded decision — skip")
             _write_summary(
                 summary_path,
                 mode=mode,
@@ -382,16 +384,10 @@ def run_secrets_gate(
             tool_rc=None,
             tool_note=detail,
         )
-        print(f"[secrets] 1 finding(s) (mode={mode})")
-        print(f"  (repo): disabled_without_decision: {detail[:200]}")
-        if mode == "warn":
-            print("[secrets] warn mode — not failing the gate")
-            return 0
-        return 1
+        return _gate_result(mode, findings)
 
     findings: list[dict[str, Any]] = []
-    tool_note = ""
-    tool_rc: int | None = None
+    tool_rc = None
     binary = _resolve_gitleaks(section)
 
     if binary is None:
@@ -405,7 +401,7 @@ def run_secrets_gate(
         cmd = _build_cmd(binary, root, config_path=config_path, report_path=report_path)
         proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True)
         tool_rc = proc.returncode
-        tool_note = f"{proc.stdout}{proc.stderr}".strip()[:4000]
+        tool_note = f"{proc.stdout}{proc.stderr}".strip()[:_TOOL_NOTE_MAX]
         if tool_rc == 1:
             findings = _findings_from_report(report_path, tool_note)
         elif tool_rc != 0:
@@ -413,7 +409,7 @@ def run_secrets_gate(
                 {
                     "file": "",
                     "kind": "tool_error",
-                    "detail": tool_note if tool_note != "" else f"gitleaks exit {tool_rc}",
+                    "detail": tool_note or f"gitleaks exit {tool_rc}",
                 }
             )
 
@@ -426,24 +422,7 @@ def run_secrets_gate(
         tool_rc=tool_rc,
         tool_note=tool_note,
     )
-
-    if findings:
-        print(f"[secrets] {len(findings)} finding(s) (mode={mode})")
-        for item in findings[:30]:
-            loc = item["file"] if item["file"] != "" else "(repo)"
-            print(f"  {loc}: {item['kind']}: {item['detail'][:200]}")
-        extra = len(findings) - 30
-        if extra > 0:
-            print(f"  … +{extra} more")
-    else:
-        print("[secrets] PASS (0 findings, tool=gitleaks)")
-
-    if mode == "warn":
-        print("[secrets] warn mode — not failing the gate")
-        return 0
-    if findings:
-        return 1
-    return 0
+    return _gate_result(mode, findings)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -453,7 +432,8 @@ def main(argv: list[str] | None = None) -> int:
         args = list(argv)
     context = DEFAULT_CONTEXT
     if "--context" in args:
-        context = args[args.index("--context") + 1]
+        idx = args.index("--context")
+        context = args[idx + 1]
     return run_secrets_gate(find_repo_root(), context=context)
 
 
