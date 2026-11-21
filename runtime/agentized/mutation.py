@@ -171,9 +171,7 @@ def run_mutation(
     min_score = float(mut.get("min_score_covered", 100))
     modules = list(cfg.get("modules") or [])
     prefixes = [
-        str(src).replace("\\", "/")
-        for module in modules
-        for src in module.get("source") or []
+        str(src).replace("\\", "/") for module in modules for src in module.get("source") or []
     ]
     if not modules:
         prefixes = []

@@ -103,9 +103,7 @@ def is_connect_bootstrap_path(path: str, context_rel: str = DEFAULT_CONTEXT) -> 
     return any(rel == p.rstrip("/") or rel.startswith(p) for p in prefixes)
 
 
-def parse_numstat_excluding_bootstrap(
-    stdout: str, context_rel: str = DEFAULT_CONTEXT
-) -> int:
+def parse_numstat_excluding_bootstrap(stdout: str, context_rel: str = DEFAULT_CONTEXT) -> int:
     """Sum insertions excluding connect bootstrap paths (AGE-85)."""
     total = 0
     for line in stdout.splitlines():
