@@ -41,10 +41,10 @@ def test_quality_module_installs_age31_connect_hook():
     from agentized.layer_gates import install_ensure_quality_hook
 
     assert quality_mod.QUALITY_FILENAME == "quality.json"
-    assert getattr(connect_mod.ensure_quality_config, "_age31_layer_hook", False) is True
-    before = connect_mod.ensure_quality_config
+    assert connect_mod.ensure_quality_config._age31_layer_hook is True
+    orig = connect_mod.ensure_quality_config._age31_orig
     install_ensure_quality_hook()
-    assert connect_mod.ensure_quality_config is before
+    assert connect_mod.ensure_quality_config._age31_orig is orig
 
 
 def test_load_missing_returns_defaults(tmp_path: Path):
