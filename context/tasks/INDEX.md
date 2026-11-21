@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-7c08](T-261121-7c08.md) — connect.py mut oracles A4 install_claude (AGE-68) (родитель: T-261115-918b) · claim: bc-1a014d86-d3de-5eff-b300-7c23faf801ab
+_(пусто)_
 
 ## blocked
 
