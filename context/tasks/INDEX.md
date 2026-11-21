@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-age25b](T-261121-age25b.md) — External Context hooks+docs (AGE-25 22b) (родитель: T-261115-918b) · claim: age25-reject
+_(пусто)_
 
 ## blocked
 
