@@ -1,4 +1,5 @@
 """Collaboration / process-control checks (claim before edits, reviewable PR size)."""
+
 from __future__ import annotations
 
 import fnmatch
@@ -106,7 +107,9 @@ def active_claims(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
     preferred = [
         t
         for t in list_tasks(tasks_dir)
-        if t.status == "in-progress" and (t.claim or "").strip() and not (t.claim or "").startswith("_")
+        if t.status == "in-progress"
+        and (t.claim or "").strip()
+        and not (t.claim or "").startswith("_")
     ]
     return [f"{t.task_id} ({t.claim}, {t.status})" for t in preferred] or out
 
@@ -133,9 +136,7 @@ def claim_check(
             "claims": claims,
         }
     agent = is_agent_session(env)
-    mode = str(
-        cfg.get("claim_mode_agent" if agent else "claim_mode_local") or "warn"
-    ).lower()
+    mode = str(cfg.get("claim_mode_agent" if agent else "claim_mode_local") or "warn").lower()
     msg = (
         "process-control: no in-progress task claim before code edits. "
         f"Claim first: `./bin/agentized claim <TASK_ID> --owner <you>`. See {DOC}."

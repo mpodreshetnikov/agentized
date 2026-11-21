@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Harness-agnostic session-start reminder for Agentized NAV pointer."""
+
 from __future__ import annotations
 
 import json

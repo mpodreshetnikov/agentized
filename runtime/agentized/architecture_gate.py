@@ -4,6 +4,7 @@ Python: prefer import-linter when installed; otherwise enforce simple
 forbidden-import edges from quality.json. JS/TS: see templates/quality
 dependency-cruiser example.
 """
+
 from __future__ import annotations
 
 import ast
@@ -130,7 +131,9 @@ def run_architecture_gate(
             if rc != 0:
                 findings.append(
                     {
-                        "file": str(config.relative_to(root)) if config.exists() else ".importlinter",
+                        "file": str(config.relative_to(root))
+                        if config.exists()
+                        else ".importlinter",
                         "kind": "import_linter",
                         "detail": tool_note or f"import-linter exit {rc}",
                     }

@@ -1,4 +1,5 @@
 """High-signal tests for quality.py merge/normalize (mutation hard gate)."""
+
 from __future__ import annotations
 
 import json
@@ -120,7 +121,7 @@ def test_custom_context_rel_and_exact_json_layout(tmp_path: Path):
     assert '"lines": 83.0' in text or '"lines": 83' in text
     # indent=2 layout (not compact, not indent=3)
     assert '\n  "version"' in text or '\n  "coverage"' in text
-    assert "\n   \"" not in text  # no 3-space indent markers from indent=3
+    assert '\n   "' not in text  # no 3-space indent markers from indent=3
     data = load_quality(nested, context_rel=ctx)
     assert data["coverage"]["lines"] == 83.0
     # Second save must succeed when the directory already exists (exist_ok path).

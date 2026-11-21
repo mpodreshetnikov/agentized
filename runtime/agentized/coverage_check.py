@@ -1,4 +1,5 @@
 """Per-module + combined coverage threshold gate (Orbit parallel-check mechanism)."""
+
 from __future__ import annotations
 
 import concurrent.futures

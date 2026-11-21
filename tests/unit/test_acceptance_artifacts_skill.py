@@ -1,4 +1,5 @@
 """Mechanical contract: acceptance-artifacts skill encodes the human 5-block standard."""
+
 from __future__ import annotations
 
 from pathlib import Path

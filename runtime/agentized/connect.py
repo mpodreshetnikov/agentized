@@ -124,9 +124,7 @@ def _managed_copy_tree(
             continue
         rel = item.relative_to(src)
         target = dst / rel
-        status = managed_copy_file(
-            root, context_rel, item, target, force=force, manifest=manifest
-        )
+        status = managed_copy_file(root, context_rel, item, target, force=force, manifest=manifest)
         result.setdefault(status, []).append(str(target))
     return result
 
@@ -260,7 +258,7 @@ def _render_reviewer_toml(src: Path, model: str, effort: str) -> str:
     return (
         'name = "reviewer"\n'
         'description = "Independent strong read-only reviewer for Agentized. '
-        "Reports severity findings; never edits, commits, merges, or approves.\"\n"
+        'Reports severity findings; never edits, commits, merges, or approves."\n'
         f'model = "{model}"\n'
         f'model_reasoning_effort = "{effort}"\n'
         'developer_instructions = """\n'
@@ -312,9 +310,7 @@ def pin_reviewer_agents(
     )
 
     def _write(path: Path, body: str) -> None:
-        status = managed_write_text(
-            root, context_rel, path, body, force=force, manifest=man
-        )
+        status = managed_write_text(root, context_rel, path, body, force=force, manifest=man)
         if status == "skipped_user":
             skipped.append(str(path))
         elif status == "bootstrapped":
@@ -402,7 +398,9 @@ def pin_context_skills_hooks(
     hooks_scripts.mkdir(parents=True, exist_ok=True)
     # remove stale .gitkeep once real content arrives
     for keep in (skills_dst / ".gitkeep", hooks_dst / ".gitkeep"):
-        if keep.exists() and any(skills_dst.glob("*/SKILL.md") if keep.parent == skills_dst else hooks_scripts.glob("*")):
+        if keep.exists() and any(
+            skills_dst.glob("*/SKILL.md") if keep.parent == skills_dst else hooks_scripts.glob("*")
+        ):
             keep.unlink()
     man = manifest if manifest is not None else load_managed(root, context_rel)
     # Skills: managed-hash (auto-update untouched; preserve user edits).
@@ -465,9 +463,7 @@ def install_cursor(
     hooks_json = {
         "version": 1,
         "hooks": {
-            "sessionStart": [
-                {"command": ".cursor/hooks/session_start.py"}
-            ],
+            "sessionStart": [{"command": ".cursor/hooks/session_start.py"}],
             "preToolUse": [
                 {
                     "command": ".cursor/hooks/process_guard.py",
@@ -478,12 +474,8 @@ def install_cursor(
                     "matcher": "Write|Edit|Shell|Bash",
                 },
             ],
-            "beforeShellExecution": [
-                {"command": ".cursor/hooks/ensure_agent_hooks.py"}
-            ],
-            "afterFileEdit": [
-                {"command": ".cursor/hooks/lease_warn.py"}
-            ],
+            "beforeShellExecution": [{"command": ".cursor/hooks/ensure_agent_hooks.py"}],
+            "afterFileEdit": [{"command": ".cursor/hooks/lease_warn.py"}],
         },
     }
     hooks_path = root / ".cursor" / "hooks.json"
@@ -542,7 +534,7 @@ def install_claude(
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\"",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"',
                 }
             ],
         }
@@ -553,7 +545,7 @@ def install_claude(
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py\"",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"',
                 }
             ],
         },
@@ -562,7 +554,7 @@ def install_claude(
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py\"",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py"',
                 }
             ],
         },
@@ -571,7 +563,7 @@ def install_claude(
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ensure_agent_hooks.py\"",
+                    "command": 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure_agent_hooks.py"',
                 }
             ],
         },
@@ -815,7 +807,9 @@ def ensure_process_control_config(root: Path, context_rel: str) -> dict:
     return {"path": str(path.relative_to(root)), "created": created}
 
 
-def ensure_quality_config(root: Path, context_rel: str, coverage_pct: float | int | None = None) -> dict:
+def ensure_quality_config(
+    root: Path, context_rel: str, coverage_pct: float | int | None = None
+) -> dict:
     from .quality import load_quality, save_quality, set_coverage_threshold, quality_path
 
     path = quality_path(root, context_rel)
@@ -1014,17 +1008,11 @@ def connect(
         "harnesses": {},
     }
     if "cursor" in harnesses:
-        results["harnesses"]["cursor"] = install_cursor(
-            root, context_rel, manifest=manifest
-        )
+        results["harnesses"]["cursor"] = install_cursor(root, context_rel, manifest=manifest)
     if "claude" in harnesses:
-        results["harnesses"]["claude"] = install_claude(
-            root, context_rel, manifest=manifest
-        )
+        results["harnesses"]["claude"] = install_claude(root, context_rel, manifest=manifest)
     if "codex" in harnesses:
-        results["harnesses"]["codex"] = install_codex(
-            root, context_rel, manifest=manifest
-        )
+        results["harnesses"]["codex"] = install_codex(root, context_rel, manifest=manifest)
 
     save_managed(root, context_rel, manifest)
 

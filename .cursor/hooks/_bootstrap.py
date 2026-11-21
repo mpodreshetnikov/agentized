@@ -3,6 +3,7 @@
 Safe to import from hook scripts before `agentized` is on sys.path.
 Never raises — returns workspace Path even when runtime is unavailable.
 """
+
 from __future__ import annotations
 
 import os

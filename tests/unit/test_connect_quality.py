@@ -54,9 +54,7 @@ def test_connect_quality_ships_full_cover_mutation_globs(tmp_path: Path):
     assert qinfo["created"] is True
     cfg = load_quality(tmp_path)
     assert cfg["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
-    assert default_quality_config()["mutation"]["include_globs"] == [
-        "runtime/agentized/*.py"
-    ]
+    assert default_quality_config()["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
 
 
 def test_ensure_quality_and_coverage(tmp_path: Path):
@@ -143,7 +141,11 @@ def test_connect_pins_quality(tmp_path: Path, monkeypatch):
     assert "NAV.md" in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
     assert result["quality_templates"]["pre_push"] in {"created", "updated", "unchanged"}
     assert result["quality_templates"]["hooks_path"] in {"set", "unchanged"}
-    assert pin_quality_templates(tmp_path)["pre_push"] in {"unchanged", "updated", "skipped-user-file"}
+    assert pin_quality_templates(tmp_path)["pre_push"] in {
+        "unchanged",
+        "updated",
+        "skipped-user-file",
+    }
     # second connect keeps a single AGENTIZED marker block
     again = connect(tmp_path, context_rel="context", harnesses=["cursor"])
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")

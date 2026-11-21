@@ -4,6 +4,7 @@ Required gate (Orbit Lead + Maxim intent): fail the build when the covered
 mutation score on changed sources is below context/quality.json threshold.
 Self-contained under runtime/agentized for connected foreign repos.
 """
+
 from __future__ import annotations
 
 import fnmatch
@@ -177,9 +178,7 @@ def run_mutation(
     include_globs = list(mut.get("include_globs") or [])
     if include_globs:
         changed = [
-            path
-            for path in changed
-            if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
+            path for path in changed if any(fnmatch.fnmatch(path, pat) for pat in include_globs)
         ]
     if not changed:
         path = _write_summary(
@@ -218,9 +217,7 @@ def run_mutation(
             return pre.returncode
 
     only = [
-        ("agentized/" + p[len("runtime/agentized/") :])
-        if p.startswith("runtime/agentized/")
-        else p
+        ("agentized/" + p[len("runtime/agentized/") :]) if p.startswith("runtime/agentized/") else p
         for p in changed
     ]
     setup = root / "setup.cfg"

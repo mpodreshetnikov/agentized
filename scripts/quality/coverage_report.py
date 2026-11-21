@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Thin wrapper — prefer: python3 -m agentized.coverage_report or agentized quality check."""
+
 from __future__ import annotations
 
 import sys

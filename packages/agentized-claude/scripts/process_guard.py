@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Claim-before-edits process guard. May deny Write/Edit in agent sessions."""
+
 from __future__ import annotations
 
 import json
@@ -29,11 +30,7 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    event = (
-        payload.get("hook_event_name")
-        or payload.get("hookEventName")
-        or "PreToolUse"
-    )
+    event = payload.get("hook_event_name") or payload.get("hookEventName") or "PreToolUse"
     allow = {
         "permission": "allow",
         "continue": True,

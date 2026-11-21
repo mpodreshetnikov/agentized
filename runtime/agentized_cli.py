@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Agentized minimal CLI — connect, tasks, leases, digests, checks."""
+
 from __future__ import annotations
 
 import argparse
@@ -116,9 +117,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             print(json.dumps(result, indent=2))
         return 0
     if args.review_cmd == "allow":
-        result = allow_review(
-            root, context_rel=ctx_rel, force=bool(args.force), scope=scope
-        )
+        result = allow_review(root, context_rel=ctx_rel, force=bool(args.force), scope=scope)
         stream = sys.stdout if result.get("ok") else sys.stderr
         stream.write(result["message"] + "\n")
         if args.json:
@@ -157,7 +156,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         rev = data.get("reviewer") or {}
         harness = getattr(args, "harness", None)
         if harness:
-            h = ((rev.get("harnesses") or {}).get(harness) or {})
+            h = (rev.get("harnesses") or {}).get(harness) or {}
             print(
                 f"reviewer[{harness}] → model={h.get('model')} effort={h.get('effort')} "
                 f"helper={rev.get('helper_model')} budget_max={rev.get('budget_max')}"
@@ -330,9 +329,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
     text = set_field(text, "статус", "in-progress")
     text = append_progress(text, f"claim by {args.owner}")
     path.write_text(text, encoding="utf-8")
-    (ctx / "tasks" / "INDEX.md").write_text(
-        rebuild_task_index(ctx / "tasks"), encoding="utf-8"
-    )
+    (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"claimed {args.task_id} → {args.owner} (статус: in-progress)")
     return 0
 
@@ -358,13 +355,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"нет задачи {args.task_id}", file=sys.stderr)
         return 1
     if args.status not in ALL_STATUSES:
-        print(f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}", file=sys.stderr)
+        print(
+            f"неизвестный статус {args.status}; ожидалось одно из {ALL_STATUSES}", file=sys.stderr
+        )
         return 1
     text = set_field(path.read_text(encoding="utf-8"), "статус", args.status)
     path.write_text(text, encoding="utf-8")
-    (ctx / "tasks" / "INDEX.md").write_text(
-        rebuild_task_index(ctx / "tasks"), encoding="utf-8"
-    )
+    (ctx / "tasks" / "INDEX.md").write_text(rebuild_task_index(ctx / "tasks"), encoding="utf-8")
     print(f"{args.task_id}: статус → {args.status} (файл не перемещался)")
     return 0
 
@@ -413,7 +410,11 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     # live index freshness (soft): statuses in INDEX vs files
     tasks = list_tasks(ctx / "tasks")
-    index_text = (ctx / "tasks" / "INDEX.md").read_text(encoding="utf-8") if (ctx / "tasks" / "INDEX.md").exists() else ""
+    index_text = (
+        (ctx / "tasks" / "INDEX.md").read_text(encoding="utf-8")
+        if (ctx / "tasks" / "INDEX.md").exists()
+        else ""
+    )
     for t in tasks:
         if t.status in ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
@@ -442,7 +443,11 @@ def cmd_check(args: argparse.Namespace) -> int:
     for w in warnings:
         print(f"  WARN: {w}")
     if args.json:
-        print(json.dumps({"ok": True, "warnings": warnings, "state": state}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"ok": True, "warnings": warnings, "state": state}, ensure_ascii=False, indent=2
+            )
+        )
     return 0
 
 
@@ -458,13 +463,13 @@ def cmd_lease(args: argparse.Namespace) -> int:
             print("(нет активных leases)")
             return 0
         for lease in leases:
-            print(f"{lease.task_id} owner={lease.owner} paths={', '.join(lease.paths)} expires={lease.expires}")
+            print(
+                f"{lease.task_id} owner={lease.owner} paths={', '.join(lease.paths)} expires={lease.expires}"
+            )
         return 0
 
     if args.lease_cmd == "acquire":
-        overlaps = find_overlaps(
-            list_leases(leases_dir), args.paths, ignore_task=args.task_id
-        )
+        overlaps = find_overlaps(list_leases(leases_dir), args.paths, ignore_task=args.task_id)
         if overlaps:
             print(warn_message(overlaps))
             print("(запись не блокируется)")
@@ -653,7 +658,9 @@ def build_parser() -> argparse.ArgumentParser:
     rv_sub = rv.add_subparsers(dest="review_cmd", required=True)
     rvs = rv_sub.add_parser("status", help="Show budget / watermark / model")
     rvs.add_argument("--context", default=None)
-    rvs.add_argument("--scope", default=None, help="Task/PR identity (default or AGENTIZED_REVIEW_SCOPE)")
+    rvs.add_argument(
+        "--scope", default=None, help="Task/PR identity (default or AGENTIZED_REVIEW_SCOPE)"
+    )
     rva = rv_sub.add_parser("allow", help="May the main agent call the reviewer now?")
     rva.add_argument("--force", action="store_true")
     rva.add_argument("--context", default=None)

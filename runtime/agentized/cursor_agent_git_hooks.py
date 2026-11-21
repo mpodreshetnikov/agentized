@@ -2,6 +2,7 @@
 
 Mechanism adapted from Orbit (T-261106-kp8 intent) — Agentized paths only.
 """
+
 from __future__ import annotations
 
 import base64

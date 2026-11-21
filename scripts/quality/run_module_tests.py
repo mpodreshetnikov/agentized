@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run each configured module test command from context/quality.json."""
+
 from __future__ import annotations
 
 import subprocess

@@ -3,6 +3,7 @@
 Self-contained under runtime/agentized so connected foreign repos can run
 `agentized quality check` without a scripts/quality/ tree.
 """
+
 from __future__ import annotations
 
 import json

@@ -8,6 +8,7 @@ errors, and git/read errors stay in scope (fail-closed).
 Wired from ``agentized quality check`` so ``mutation.py`` stays untouched
 (whole-file mutation would otherwise re-open the full gate surface).
 """
+
 from __future__ import annotations
 
 import ast

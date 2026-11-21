@@ -11,6 +11,7 @@ Wired as:
 
 Always allows the tool call (never blocks the shell).
 """
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,7 @@ except ImportError:
 
 def _is_git_mutating(command: str) -> bool:
     c = command.lower()
-    return "git " in f" {c}" and any(
-        tok in c for tok in (" commit", " push", "commit ", "push ")
-    )
+    return "git " in f" {c}" and any(tok in c for tok in (" commit", " push", "commit ", "push "))
 
 
 def main() -> int:
@@ -48,11 +47,7 @@ def main() -> int:
         except json.JSONDecodeError:
             payload = {"_raw": raw}
 
-    event = (
-        payload.get("hook_event_name")
-        or payload.get("hookEventName")
-        or "beforeShellExecution"
-    )
+    event = payload.get("hook_event_name") or payload.get("hookEventName") or "beforeShellExecution"
     allow = {
         "permission": "allow",
         "continue": True,

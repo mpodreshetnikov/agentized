@@ -64,9 +64,7 @@ def test_connect_wires_ensure_agent_hooks_all_harnesses(tmp_path: Path, monkeypa
     pre = claude["hooks"]["PreToolUse"]
     bash_hooks = [b for b in pre if b.get("matcher") == "Bash"]
     assert bash_hooks
-    cmds = " ".join(
-        h.get("command", "") for block in bash_hooks for h in block.get("hooks", [])
-    )
+    cmds = " ".join(h.get("command", "") for block in bash_hooks for h in block.get("hooks", []))
     assert "ensure_agent_hooks" in cmds
     assert (tmp_path / ".claude" / "hooks" / "ensure_agent_hooks.py").exists()
 
@@ -74,9 +72,7 @@ def test_connect_wires_ensure_agent_hooks_all_harnesses(tmp_path: Path, monkeypa
     pre = codex["hooks"]["PreToolUse"]
     bash_hooks = [b for b in pre if b.get("matcher") == "Bash"]
     assert bash_hooks
-    cmds = " ".join(
-        h.get("command", "") for block in bash_hooks for h in block.get("hooks", [])
-    )
+    cmds = " ".join(h.get("command", "") for block in bash_hooks for h in block.get("hooks", []))
     assert "ensure_agent_hooks" in cmds
     assert (tmp_path / ".codex" / "hooks" / "ensure_agent_hooks.py").exists()
 

@@ -1,4 +1,5 @@
 """Unit tests for agentized.tasks — selected by mutmut for tasks.py."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -109,11 +110,7 @@ def test_parse_task_empty_tags_keeps_parent_and_claim(tmp_path: Path):
 def test_parse_task_same_line_spaces_only_are_stripped(tmp_path: Path):
     path = _write(
         tmp_path / "T-261116-sp.md",
-        "# T-261116-sp — spaces\n\n"
-        "статус: blocked\n"
-        "теги:   \n"
-        "родитель:   \n"
-        "claim: bob\n",
+        "# T-261116-sp — spaces\n\nстатус: blocked\nтеги:   \nродитель:   \nclaim: bob\n",
     )
     meta = parse_task(path)
     assert meta is not None
@@ -248,12 +245,7 @@ def test_set_field_replace_insert_newline_and_blank_skip():
 def test_set_field_empty_claim_does_not_swallow_next_field():
     # Empty claim: then a following header — \\s* would eat the next line.
     text = (
-        "# T-261116-sf — set_field\n\n"
-        "статус: open\n"
-        "теги: x\n"
-        "родитель:\n"
-        "claim:\n"
-        "## Цель\n\nbody\n"
+        "# T-261116-sf — set_field\n\nстатус: open\nтеги: x\nродитель:\nclaim:\n## Цель\n\nbody\n"
     )
     claimed = set_field(text, "claim", "worker-a")
     assert claimed == (
@@ -269,9 +261,7 @@ def test_set_field_empty_claim_does_not_swallow_next_field():
     after_claim = set_field(flipped, "claim", "worker-b")
     assert after_claim == "# T-261116-sf — set_field\n\nclaim: worker-b\nстатус: open\n"
     after_status = set_field(after_claim, "статус", "in-progress")
-    assert after_status == (
-        "# T-261116-sf — set_field\n\nclaim: worker-b\nстатус: in-progress\n"
-    )
+    assert after_status == ("# T-261116-sf — set_field\n\nclaim: worker-b\nстатус: in-progress\n")
 
 
 def test_set_field_cli_claim_sequence_preserves_neighbors(tmp_path: Path):
@@ -323,11 +313,7 @@ def test_parse_task_crlf_and_trailing_whitespace(tmp_path: Path):
     )
     # Trailing spaces on same line must strip; empty parent still keeps claim.
     spaced = (
-        "# T-261116-sp2 — spaces\n\n"
-        "статус: blocked   \n"
-        "теги:   \n"
-        "родитель:   \n"
-        "claim:  bob  \n"
+        "# T-261116-sp2 — spaces\n\nстатус: blocked   \nтеги:   \nродитель:   \nclaim:  bob  \n"
     )
     meta2 = parse_task(_write(tmp_path / "T-261116-sp2.md", spaced))
     assert meta2 is not None
@@ -358,25 +344,17 @@ def test_append_progress_exact_with_frozen_time(monkeypatch):
         "did",
     )
     assert with_section == (
-        "# T — x\n\n## Progress\n\n_(append-only)_\n"
-        f"- {stamp}: did\n"
-        "\n## Decision Log\n\nz\n"
+        f"# T — x\n\n## Progress\n\n_(append-only)_\n- {stamp}: did\n\n## Decision Log\n\nz\n"
     )
     no_section = append_progress("# T — x\n", "start")
     assert no_section == f"# T — x\n\n## Progress\n\n- {stamp}: start\n"
     # Progress only (no following ##) → rest must be "" not "XXXX"; len(parts)==1
     only_prog = append_progress("# T — x\n\n## Progress\n\nold\n", "new")
-    assert only_prog == (
-        "# T — x\n\n## Progress\n\nold\n"
-        f"- {stamp}: new\n"
-    )
+    assert only_prog == (f"# T — x\n\n## Progress\n\nold\n- {stamp}: new\n")
     assert "XXXX" not in only_prog
     # Two real "## Progress" headers: split(marker, 1) required (bare split / split(,2) unpack-fail
     # or rsplit attaches the entry to the wrong section).
-    multi = (
-        "# T — x\n\n## Progress\n\nfirst\n\n## Decision Log\n\nmid\n\n"
-        "## Progress\n\nsecond\n"
-    )
+    multi = "# T — x\n\n## Progress\n\nfirst\n\n## Decision Log\n\nmid\n\n## Progress\n\nsecond\n"
     multi_out = append_progress(multi, "e2")
     assert multi_out == (
         "# T — x\n\n## Progress\n\nfirst\n"

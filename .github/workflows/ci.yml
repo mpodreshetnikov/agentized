@@ -27,6 +27,19 @@ jobs:
             echo "no requirements-dev.txt — skip"
           fi
 
+      - name: Ruff format (changed files)
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            if [[ -z "${BASE}" || "${BASE}" == "0000000000000000000000000000000000000000" ]]; then
+              BASE="$(git rev-parse HEAD^)"
+            fi
+          fi
+          ./scripts/quality/ruff_format_changed.sh "${BASE}"
+
       - name: Mechanical checks (if present)
         run: |
           if [[ -x ./tests/test_mechanical.sh ]]; then

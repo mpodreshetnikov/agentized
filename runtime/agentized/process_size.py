@@ -1,4 +1,5 @@
 """Fail-closed process-control JSON load and PR size helpers (AGE-35)."""
+
 from __future__ import annotations
 
 import json
@@ -18,9 +19,7 @@ def load_process_config_file(path: Path, defaults: dict[str, Any]) -> dict[str, 
         # Locale/UTF-8 text mode — avoid a "utf-8"/"UTF-8" lexeme mutant pair.
         data = json.loads(path.read_text())
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
-        raise ValueError(
-            f"process-control: invalid JSON in {path}: {exc}. See {DOC}."
-        ) from exc
+        raise ValueError(f"process-control: invalid JSON in {path}: {exc}. See {DOC}.") from exc
     if not isinstance(data, dict):
         raise ValueError(
             f"process-control: {path} must be a JSON object, got {type(data).__name__}. See {DOC}."

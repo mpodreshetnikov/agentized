@@ -6,6 +6,7 @@ project hooks wired; Cursor Cloud also needs the agent-hooks → `.githooks` cha
 Rollout: `context/env-check.json` → `cloud_git_hooks` is `warn` until the owner
 pastes the Dashboard Install & Start line, then flip to `refuse`.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,9 +19,7 @@ from .cursor_agent_git_hooks import git_hooks_problem
 from .paths import DEFAULT_CONTEXT, find_repo_root
 
 DOC = "docs/AGENT_ENVIRONMENT.md"
-INSTALL_LINE = (
-    "bash /agent/repos/agentized/scripts/cloud/configure-cursor-agent-hooks.sh"
-)
+INSTALL_LINE = "bash /agent/repos/agentized/scripts/cloud/configure-cursor-agent-hooks.sh"
 CURSOR_REQUIRED_EVENTS = ("sessionStart", "preToolUse")
 ENV_CHECK_FILENAME = "env-check.json"
 
@@ -157,8 +156,7 @@ def _project_hooks_ok(
         hooks = (settings or {}).get("hooks") or {}
         if not _has_session_start(hooks):
             return False, (
-                f".claude/settings.json missing SessionStart hooks "
-                f"(run connect). See {DOC}."
+                f".claude/settings.json missing SessionStart hooks (run connect). See {DOC}."
             )
         return True, "Claude project hooks present."
     if harness == "codex":
@@ -178,6 +176,7 @@ def _project_hooks_ok(
             f"{DOC}."
         )
     return False, f"unknown harness {harness}"
+
 
 def check(
     *,
@@ -203,7 +202,12 @@ def check(
             )
             if unknown_mode == "refuse":
                 return {"ok": False, "refused": True, "message": msg, "severity": "unknown"}
-            return {"ok": True, "refused": False, "message": "WARN: " + msg, "severity": "unknown-warn"}
+            return {
+                "ok": True,
+                "refused": False,
+                "message": "WARN: " + msg,
+                "severity": "unknown-warn",
+            }
         return {
             "ok": True,
             "refused": False,
@@ -295,8 +299,7 @@ def check(
             "ok": False,
             "refused": True,
             "message": (
-                f"agent-env-check: REFUSED. Codex session missing hooks ({hooks_msg}). "
-                f"See {DOC}."
+                f"agent-env-check: REFUSED. Codex session missing hooks ({hooks_msg}). See {DOC}."
             ),
             "severity": "codex",
         }

@@ -1,4 +1,5 @@
 """Pin default_quality_config — kills mutmut survivors on this module."""
+
 from __future__ import annotations
 
 from agentized.quality_defaults import (
