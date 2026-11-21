@@ -110,10 +110,12 @@ def cmd_connect(args: argparse.Namespace) -> int:
             rollback_code_context_bridges(layout, bridged)
         print(f"context layout error: {exc}", file=sys.stderr)
         return 1
-    except Exception:
+    except Exception as exc:
+        # Rollback bridges; seed/.gitignore stay (manual cleanup). No raw traceback.
         if layout is not None and bridged:
             rollback_code_context_bridges(layout, bridged)
-        raise
+        print(f"connect error: {exc}", file=sys.stderr)
+        return 1
     result["layout"] = {
         "placement": layout.placement,
         "registry": str(layout.registry_root),

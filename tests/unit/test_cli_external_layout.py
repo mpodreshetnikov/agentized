@@ -228,9 +228,12 @@ def test_connect_rolls_back_bridges_on_connect_failure(
         raise RuntimeError("connect failed")
 
     monkeypatch.setattr(cli, "connect", boom)
-    with pytest.raises(RuntimeError, match="connect failed"):
-        cli.cmd_connect(_ns())
-    assert (ext / "NAV.md").is_file()  # seed kept
+    assert cli.cmd_connect(_ns()) == 1
+    err = capsys.readouterr().err
+    assert "connect error: connect failed" in err
+    assert "Traceback" not in err
+    assert (ext / "NAV.md").is_file()  # seed kept (manual cleanup)
+    assert "context/tasks" in (code / ".gitignore").read_text(encoding="utf-8")
     assert not (ctx / "tasks").exists() or not (ctx / "tasks").is_symlink()
     assert not (ctx / "NAV.md").exists() or not (ctx / "NAV.md").is_symlink()
     assert not (code / "AGENTS.md").exists()
@@ -244,3 +247,56 @@ def test_connect_rolls_back_bridges_on_connect_failure(
     err = capsys.readouterr().err
     assert "context layout error: post-bridge layout boom" in err
     assert not (ctx / "tasks").is_symlink() if (ctx / "tasks").exists() else True
+
+
+def test_env_check_cli_applies_external_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """cmd_env_check runs apply_external_env_check (CLI 156–160)."""
+    code, ext, ctx = _empty_external(tmp_path)
+    monkeypatch.setattr(cli, "find_repo_root", lambda: code)
+    monkeypatch.chdir(code)
+    # Hooks may refuse first; stub check OK so CLI reaches apply_external_env_check.
+    from agentized import env_check as ec
+
+    monkeypatch.setattr(
+        ec,
+        "check",
+        lambda **kw: {
+            "ok": True,
+            "refused": False,
+            "message": "agent-env-check: hooks OK",
+            "audience": "owner",
+        },
+    )
+    # Empty external clone → refuse via apply_external_env_check.
+    assert cli.cmd_env_check(_ns()) == 1
+    err = capsys.readouterr().err
+    assert "agent-env-check: REFUSED" in err
+    assert "External Project Context" in err or "external" in err.lower()
+
+    # Seed registry so external gate passes.
+    (ext / "NAV.md").write_text("# n\n", encoding="utf-8")
+    (ext / "tasks").mkdir()
+    (ext / "leases").mkdir()
+    assert cli.cmd_env_check(_ns()) == 0
+    out = capsys.readouterr().out
+    assert "agent-env-check:" in out
+    assert "REFUSED" not in out
+
+
+def test_check_fails_without_nav_md(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """cmd_check reports missing NAV.md (CLI ~594)."""
+    code, ext, ctx = _empty_external(tmp_path)
+    monkeypatch.setattr(cli, "find_repo_root", lambda: code)
+    monkeypatch.chdir(code)
+    assert cli.cmd_connect(_ns()) == 0
+    capsys.readouterr()
+    (ctx / "NAV.md").unlink()
+    (ext / "NAV.md").unlink()
+    assert cli.cmd_check(_ns()) == 1
+    out = capsys.readouterr().out
+    assert "check FAIL" in out
+    assert "NAV.md" in out

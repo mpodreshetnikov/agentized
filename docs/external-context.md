@@ -19,7 +19,7 @@
 - `external.path` inside the code repo requires gitignore.
 - Clone Context to `external.path`, then `agentized connect` + `env-check` (exit **1** if clone missing/incomplete — local and cloud).
 - Registry dirs (`tasks`, `leases`, …, `NAV.md`) live in the external clone; connect creates **relative** bridges under `context/` for nested-path callers.
-- Bridges are **not committed**: connect appends the six paths to `.gitignore`. Foreign/conflict paths **refuse** (atomic: all six preflighted before any link). Local-only trees migrate; dirs that are empty or contain only `.gitkeep` count as empty.
+- Bridges are **not committed**: connect appends the six paths to `.gitignore`. Foreign/conflict paths **refuse** (atomic: all six preflighted before any link). Empty or `.gitkeep`-only dirs under `context/` may be cleared for bridges; **local→external migration of living registry content is manual** (copy into the external clone, then untrack in the code repo — see steps below). Connect does **not** auto-move trees.
 - Claim/status/index: CLI/connect resolve via `registry_root`; after bridges, `context/tasks` ≡ registry.
 
 ## Local → external switch (step by step)
