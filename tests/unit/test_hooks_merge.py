@@ -147,17 +147,47 @@ def test_wrong_shape_and_merges():
         },
     }
     out = merge_cursor_hooks(foreign, desired)
-    assert out["hooks"]["sessionStart"][0]["command"] == "echo foreign-start"
-    assert out["hooks"]["sessionStart"][1]["command"] == ".cursor/hooks/session_start.py"
-    assert "agentized" not in out["hooks"]["sessionStart"][1]
+    assert set(out.keys()) == {"version", "hooks"}
+    assert set(out["hooks"].keys()) == {"sessionStart", "preToolUse", "customEvent"}
+    assert out["hooks"]["sessionStart"] == [
+        {"command": "echo foreign-start"},
+        {"command": ".cursor/hooks/session_start.py"},
+    ]
+    assert out["hooks"]["preToolUse"] == [
+        {"command": "foreign/tool.py", "matcher": "Write"},
+        {
+            "command": ".cursor/hooks/process_guard.py",
+            "matcher": "Write|Edit",
+        },
+    ]
     assert out["hooks"]["customEvent"] == [{"command": "foreign/custom.py"}]
     assert out[CURSOR_VERSION_KEY] == 1
-    assert (
-        merge_cursor_hooks(
-            None, {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]}
-        )[CURSOR_VERSION_KEY]
-        == 1
+    created = merge_cursor_hooks(
+        None, {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]}
     )
+    assert created == {
+        "hooks": {
+            "sessionStart": [{"command": ".cursor/hooks/session_start.py"}]
+        },
+        CURSOR_VERSION_KEY: 1,
+    }
+    # previously_owned must drop unmarked cursor commands (kills None/kwarg mutants)
+    stale_cmd = ".cursor/hooks/old_renamed.py"
+    owned_out = merge_cursor_hooks(
+        {"hooks": {"sessionStart": [{"command": stale_cmd}, {"command": "keep-foreign"}]}},
+        {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]},
+        previously_owned=frozenset({stale_cmd}),
+    )
+    assert owned_out["hooks"]["sessionStart"] == [
+        {"command": "keep-foreign"},
+        {"command": ".cursor/hooks/session_start.py"},
+    ]
+    # blocks without nested hooks key stay foreign
+    assert merge_nested_hooks(
+        {"E": [{"matcher": "only"}]},
+        {},
+        harness="claude",
+    ) == {"E": [{"matcher": "only"}]}
 
     stale = "echo custom-owned"
     before = {"hooks": {"SessionStart": [{"hooks": [{"command": stale}]}]}}
