@@ -7,7 +7,8 @@ APPROVED_BY_RE = re.compile(r"(?im)^\s*approved-by:\s*(.+?)\s*$")
 EMAIL_RE = re.compile(r"<([^>]+)>")
 PLACEHOLDER_BODIES = frozenset({"todo", "tbd", "...", "…", "todo.", "tbd."})
 TODO_PREFIX = "todo"
-TODO_MAX_LEN = 8
+TBD_PREFIX = "tbd"
+ITALIC_PLACEHOLDER_MARK = "_("
 HEADING_PREFIX = "## "
 
 
@@ -46,19 +47,25 @@ def parse_approvers(approval_body: str) -> list[str]:
 
 
 def is_placeholder_spec(spec: str) -> bool:
-    """TODO / … / _(…) and empty bodies are not real Spec content."""
+    """TODO / TBD / … / _(…) lines and empty bodies are not real Spec content."""
     if spec is None:
         return True
     s = spec.strip()
     if not s:
         return True
-    if s.startswith("_("):
-        return True
-    first = s.splitlines()[0].strip().lower()
-    if first in PLACEHOLDER_BODIES:
-        return True
-    if first.startswith(TODO_PREFIX) and len(first) <= TODO_MAX_LEN:
-        return True
+    for line in s.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        low = stripped.lower()
+        if low in PLACEHOLDER_BODIES:
+            return True
+        if low.startswith(TODO_PREFIX) or low.startswith(TBD_PREFIX):
+            return True
+        if low.startswith("...") or stripped.startswith("…"):
+            return True
+        if ITALIC_PLACEHOLDER_MARK in stripped:
+            return True
     return False
 
 
@@ -76,6 +83,65 @@ def identity_emails(identity: str) -> set[str]:
     if "@" in s and s.count(" ") == 0 and s.count("<") == 0:
         return {s}
     return set()
+
+
+def _email_local_part(email: str) -> str:
+    return email.partition("@")[0]
+
+
+def _claim_local_parts(claim: str) -> set[str]:
+    """Local-part tokens used only for owner checks (not allowlist matching)."""
+    if claim is None:
+        return set()
+    claim_s = claim.strip().lower()
+    if not claim_s:
+        return set()
+    emails = identity_emails(claim)
+    if emails:
+        return {_email_local_part(e) for e in emails}
+    if " " in claim_s:
+        return set()
+    if "<" in claim_s:
+        return set()
+    return {claim_s}
+
+
+def _email_local_matches_claim(email: str, claim_locals: set[str]) -> bool:
+    if not claim_locals:
+        return False
+    if "@" not in email:
+        return False
+    local = _email_local_part(email)
+    if local in claim_locals:
+        return True
+    for lp in claim_locals:
+        if local.endswith("+" + lp):
+            return True
+    return False
+
+
+def is_claim_owner_identity(identity: str, claim: str) -> bool:
+    """True when identity is the claim owner (exact, full-email, or claim local-part)."""
+    if identity is None or claim is None:
+        return False
+    claim_s = claim.strip().lower()
+    ident = identity.strip()
+    if not claim_s:
+        return False
+    if not ident:
+        return False
+    if ident.lower() == claim_s:
+        return True
+    id_emails = identity_emails(ident)
+    claim_emails = identity_emails(claim)
+    if claim_emails:
+        if id_emails & claim_emails:
+            return True
+        locals_ = {_email_local_part(e) for e in claim_emails}
+        return any(_email_local_matches_claim(e, locals_) for e in id_emails)
+    if not id_emails:
+        return False
+    return any(_email_local_matches_claim(e, {claim_s}) for e in id_emails)
 
 
 def participant_email_matches(identity: str, allowlist: list[str]) -> bool:

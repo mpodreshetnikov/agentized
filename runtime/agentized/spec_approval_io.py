@@ -10,7 +10,9 @@ from .paths import DEFAULT_CONTEXT
 from .process_control import load_process_config
 from .spec_approval import evaluate_task_spec, spec_approval_from_config
 from .spec_approval_defaults import (
+    CFG_APPROVAL_HEADING,
     CFG_ENABLED,
+    DEFAULT_APPROVAL_HEADING,
     KEY_CHECKED,
     KEY_FAILURES,
     KEY_MESSAGE,
@@ -24,11 +26,25 @@ from .spec_approval_defaults import (
     checked_message,
     default_spec_approval,
 )
-from .spec_approval_text import APPROVED_BY_RE, identity_emails
+from .spec_approval_text import (
+    APPROVED_BY_RE,
+    HEADING_PREFIX,
+    identity_emails,
+    is_claim_owner_identity,
+)
 from .tasks import list_tasks
 
 AUTHOR_MAIL_RE = re.compile(r"^author-mail <([^>]+)>\s*$")
 FAILURE_JOIN = "; "
+
+
+def _resolve_approval_heading(raw: Any) -> str:
+    if raw is None:
+        return DEFAULT_APPROVAL_HEADING
+    text = str(raw).strip()
+    if not text:
+        return DEFAULT_APPROVAL_HEADING
+    return text
 
 
 def load_spec_approval(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
@@ -78,29 +94,42 @@ def _git_blame_emails(root: Path, path: Path, line_no: int) -> set[str]:
 def _email_is_claim_owner(email: str, claim: str, claim_emails: set[str]) -> bool:
     if email in claim_emails:
         return True
-    claim_l = (claim or "").strip().lower()
-    if not claim_l:
-        return False
-    if email == claim_l:
-        return True
-    return email.startswith(claim_l + "@")
+    return is_claim_owner_identity(email, claim)
 
 
-def approval_committed_by_non_owner(root: Path, task_path: Path, claim: str) -> bool:
-    """True when an approved-by line was last committed by someone other than claim."""
+def approval_committed_by_non_owner(
+    root: Path,
+    task_path: Path,
+    claim: str,
+    approval_heading: str = DEFAULT_APPROVAL_HEADING,
+) -> bool:
+    """True when an Approval-section approved-by line was committed by a non-owner."""
     try:
         text = task_path.read_text()
     except OSError:
         return False
-    claim_emails = identity_emails(claim)
-    line_no = 0
-    for line in text.splitlines():
-        line_no += 1
+    heading = _resolve_approval_heading(approval_heading)
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == heading:
+            start = i + 1
+            break
+    if start is None:
+        return False
+    end = len(lines)
+    for i in range(start, len(lines)):
+        line = lines[i]
+        if line.startswith(HEADING_PREFIX) and line.strip() != heading:
+            end = i
+            break
+    for i in range(start, end):
+        line = lines[i]
         if not APPROVED_BY_RE.match(line):
             continue
-        emails = _git_blame_emails(root, task_path, line_no)
+        emails = _git_blame_emails(root, task_path, i + 1)
         for email in emails:
-            if not _email_is_claim_owner(email, claim, claim_emails):
+            if not is_claim_owner_identity(email, claim):
                 return True
     return False
 
@@ -129,7 +158,13 @@ def spec_approval_check(
         if task.status not in SPEC_GATE_STATUSES:
             continue
         text = task.path.read_text()
-        non_owner = approval_committed_by_non_owner(root, task.path, task.claim)
+        heading = _resolve_approval_heading(policy.get(CFG_APPROVAL_HEADING))
+        non_owner = approval_committed_by_non_owner(
+            root,
+            task.path,
+            task.claim,
+            approval_heading=heading,
+        )
         result = evaluate_task_spec(
             task_id=task.task_id,
             claim=task.claim,

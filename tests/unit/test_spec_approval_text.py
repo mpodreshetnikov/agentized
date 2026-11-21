@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from agentized.spec_approval_text import (
+    _claim_local_parts,
+    _email_local_matches_claim,
+    _email_local_part,
     identity_emails,
+    is_claim_owner_identity,
     is_placeholder_spec,
     parse_approvers,
     parse_tags,
@@ -44,8 +48,11 @@ def test_placeholder_and_email_match():
         "todo.": is_placeholder_spec("todo."),
         "tbd": is_placeholder_spec("tbd"),
         "todo!": is_placeholder_spec("todo!"),
-        "todo!!!!": is_placeholder_spec("todo!!!!"),  # len 8 boundary
-        "todolong!": is_placeholder_spec("todolong!"),  # len 9 — not placeholder
+        "todo_colon": is_placeholder_spec("TODO: write the spec"),
+        "see_italic": is_placeholder_spec("See _(TBD)_"),
+        "ellipsis_fill": is_placeholder_spec("… fill in later"),
+        "dots_fill": is_placeholder_spec("... fill in later"),
+        "blank_then_todo": is_placeholder_spec("Real plan\n\nTODO: later"),
         "Ship the gate.": is_placeholder_spec("Ship the gate."),
         "multi\nline": is_placeholder_spec("Real plan\nmore"),
     }
@@ -59,8 +66,11 @@ def test_placeholder_and_email_match():
         "todo.": True,
         "tbd": True,
         "todo!": True,
-        "todo!!!!": True,
-        "todolong!": False,
+        "todo_colon": True,
+        "see_italic": True,
+        "ellipsis_fill": True,
+        "dots_fill": True,
+        "blank_then_todo": True,
         "Ship the gate.": False,
         "multi\nline": False,
     }
@@ -100,4 +110,79 @@ def test_placeholder_and_email_match():
         "name": False,
         "eve": False,
         "empty_allow": False,
+    }
+    owners = {
+        "exact": is_claim_owner_identity("alice", "Alice"),
+        "email_vs_angle": is_claim_owner_identity(
+            "alice@corp.com", "Alice <alice@corp.com>"
+        ),
+        "bare_claim_local": is_claim_owner_identity("alice@corp.com", "alice"),
+        "noreply": is_claim_owner_identity(
+            "12345678+alice@users.noreply.github.com", "alice"
+        ),
+        "noreply_angle": is_claim_owner_identity(
+            "12345678+alice@users.noreply.github.com",
+            "Alice <alice@corp.com>",
+        ),
+        "other": is_claim_owner_identity("bob@corp.com", "alice"),
+        "other_vs_angle": is_claim_owner_identity(
+            "bob@corp.com", "Alice <alice@corp.com>"
+        ),
+        "bare_no_email": is_claim_owner_identity("bob", "alice"),
+        "empty": is_claim_owner_identity("alice@corp.com", ""),
+        "none_claim": is_claim_owner_identity("alice@corp.com", None),  # type: ignore[arg-type]
+        "none_ident": is_claim_owner_identity(None, "alice"),  # type: ignore[arg-type]
+        "empty_ident": is_claim_owner_identity("", "alice"),
+        "xxxx_trap": is_claim_owner_identity("xxxx", None),  # type: ignore[arg-type]
+    }
+    assert owners == {
+        "exact": True,
+        "email_vs_angle": True,
+        "bare_claim_local": True,
+        "noreply": True,
+        "noreply_angle": True,
+        "other": False,
+        "other_vs_angle": False,
+        "bare_no_email": False,
+        "empty": False,
+        "none_claim": False,
+        "none_ident": False,
+        "empty_ident": False,
+        "xxxx_trap": False,
+    }
+    locals_got = {
+        "none": _claim_local_parts(None),  # type: ignore[arg-type]
+        "empty": _claim_local_parts(""),
+        "bare": _claim_local_parts("alice"),
+        "angle": _claim_local_parts("Alice <alice@corp.com>"),
+        "spaced": _claim_local_parts("Alice Bob"),
+        "lt": _claim_local_parts("alice<"),
+        "at_junk": _claim_local_parts("alice @x"),
+    }
+    assert locals_got == {
+        "none": set(),
+        "empty": set(),
+        "bare": {"alice"},
+        "angle": {"alice"},
+        "spaced": set(),
+        "lt": set(),
+        "at_junk": set(),
+    }
+    assert _email_local_part("alice@corp.com") == "alice"
+    assert _email_local_part("a@b@c.com") == "a"
+    match_got = {
+        "empty_locals": _email_local_matches_claim("alice@corp.com", set()),
+        "no_at": _email_local_matches_claim("alice", {"alice"}),
+        "hit": _email_local_matches_claim("alice@corp.com", {"alice"}),
+        "noreply": _email_local_matches_claim(
+            "9+alice@users.noreply.github.com", {"alice"}
+        ),
+        "miss": _email_local_matches_claim("bob@corp.com", {"alice"}),
+    }
+    assert match_got == {
+        "empty_locals": False,
+        "no_at": False,
+        "hit": True,
+        "noreply": True,
+        "miss": False,
     }

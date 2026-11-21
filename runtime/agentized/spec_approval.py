@@ -26,6 +26,7 @@ from .spec_approval_defaults import (
     self_approval_message,
 )
 from .spec_approval_text import (
+    is_claim_owner_identity,
     is_placeholder_spec,
     parse_approvers,
     parse_tags,
@@ -92,8 +93,7 @@ def evaluate_task_spec(
             KEY_MESSAGE: missing_approval_message(task_id, appr_h),
         }
     approvers = parse_approvers(approval)
-    claim_s = (claim or EMPTY).strip().lower()
-    other = [a for a in approvers if a.lower() != claim_s]
+    other = [a for a in approvers if not is_claim_owner_identity(a, claim or EMPTY)]
     allow: list[str] = []
     for p in human_participants or []:
         s = str(p).strip()

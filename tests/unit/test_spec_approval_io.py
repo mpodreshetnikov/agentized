@@ -8,6 +8,7 @@ from agentized.spec_approval_io import (
     _email_is_claim_owner,
     _git_blame_emails,
     _human_participants,
+    _resolve_approval_heading,
     approval_committed_by_non_owner,
     ensure_default_in_config,
     load_spec_approval,
@@ -29,6 +30,14 @@ def _write_task(
     if extra:
         body = body.rstrip() + "\n\n" + extra + "\n"
     (tasks / f"{task_id}.md").write_text(body, encoding="utf-8")
+
+
+def test_resolve_approval_heading():
+    assert _resolve_approval_heading(None) == "## Approval"
+    assert _resolve_approval_heading("") == "## Approval"
+    assert _resolve_approval_heading("   ") == "## Approval"
+    assert _resolve_approval_heading("## Signoff") == "## Signoff"
+    assert _resolve_approval_heading("  ## Signoff  ") == "## Signoff"
 
 
 def test_human_participants_edges(tmp_path: Path):
@@ -173,19 +182,23 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
         ),
         "exact": _email_is_claim_owner("alice", "alice", set()),
         "prefix": _email_is_claim_owner("alice@x.com", "alice", set()),
+        "noreply": _email_is_claim_owner(
+            "12345678+alice@users.noreply.github.com", "alice", set()
+        ),
         "no": _email_is_claim_owner("bob@x.com", "alice", set()),
         "empty_claim": _email_is_claim_owner("bob@x.com", "", set()),
         "none_claim": _email_is_claim_owner("bob@x.com", None, set()),  # type: ignore[arg-type]
         "empty_set_and": _email_is_claim_owner("bob@x.com", "bob", set()),
         # empty claim must not become "XXXX" owner match
         "xxxx_trap": _email_is_claim_owner("xxxx@x.com", "", set()),
-        # single-char claim still owns prefix (kills len==1 early-return mutant)
+        # single-char claim still owns local-part
         "single": _email_is_claim_owner("a@x.com", "a", set()),
     }
     assert got == {
         "in_set": True,
         "exact": True,
         "prefix": True,
+        "noreply": True,
         "no": False,
         "empty_claim": False,
         "none_claim": False,
@@ -193,6 +206,113 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
         "xxxx_trap": False,
         "single": True,
     }
+
+    # Stray approved-by immediately before Approval must not count
+    stray = tmp_path / "stray.md"
+    stray.write_text(
+        "# t\n## Spec\napproved-by: bob@example.com\n"
+        "## Approval\napproved-by: alice\n",
+        encoding="utf-8",
+    )
+    blame_lines: list[int] = []
+
+    def capture_line(root, task_path, line_no):
+        blame_lines.append(line_no)
+        # Spec bob=3; Approval alice=5
+        if line_no == 3:
+            return {"bob@example.com"}
+        return {"alice@example.com"}
+
+    monkeypatch.setattr(
+        "agentized.spec_approval_io._git_blame_emails", capture_line
+    )
+    assert (
+        approval_committed_by_non_owner(
+            tmp_path, stray, "Alice <alice@example.com>"
+        )
+        is False
+    )
+    assert blame_lines == [5]
+
+    # Custom Approval heading must be honored (not always DEFAULT)
+    custom = tmp_path / "custom.md"
+    custom.write_text(
+        "# t\n\n## Signoff\napproved-by: bob@example.com\n",
+        encoding="utf-8",
+    )
+    blame_lines.clear()
+
+    def bob_blame(root, task_path, line_no):
+        blame_lines.append(line_no)
+        return {"bob@example.com"}
+
+    monkeypatch.setattr(
+        "agentized.spec_approval_io._git_blame_emails", bob_blame
+    )
+    assert (
+        approval_committed_by_non_owner(
+            tmp_path, custom, "alice", approval_heading="## Signoff"
+        )
+        is True
+    )
+    assert blame_lines == [4]
+    assert (
+        approval_committed_by_non_owner(tmp_path, custom, "alice") is False
+    )
+
+    # Missing Approval heading → False; next ## section must not leak
+    missing = tmp_path / "missing.md"
+    missing.write_text("# t\n\n## Spec\n\nok\n", encoding="utf-8")
+    assert approval_committed_by_non_owner(tmp_path, missing, "alice") is False
+
+    bounded = tmp_path / "bounded.md"
+    bounded.write_text(
+        "# t\n\n## Approval\napproved-by: alice\n## Other\n"
+        "approved-by: bob@example.com\n",
+        encoding="utf-8",
+    )
+    blame_lines.clear()
+
+    def section_blame(root, task_path, line_no):
+        blame_lines.append(line_no)
+        return {"alice@example.com"} if line_no == 4 else {"bob@example.com"}
+
+    monkeypatch.setattr(
+        "agentized.spec_approval_io._git_blame_emails", section_blame
+    )
+    assert (
+        approval_committed_by_non_owner(
+            tmp_path, bounded, "Alice <alice@example.com>"
+        )
+        is False
+    )
+    assert blame_lines == [4]
+
+    # approved-by on the first line after the heading (start = i+1)
+    tight = tmp_path / "tight.md"
+    tight.write_text(
+        "# t\n## Approval\napproved-by: bob@example.com\n",
+        encoding="utf-8",
+    )
+    blame_lines.clear()
+    monkeypatch.setattr(
+        "agentized.spec_approval_io._git_blame_emails", bob_blame
+    )
+    assert approval_committed_by_non_owner(tmp_path, tight, "alice") is True
+    assert blame_lines == [3]
+
+    assert (
+        approval_committed_by_non_owner(
+            tmp_path, tight, "alice", approval_heading=""
+        )
+        is True
+    )
+    assert (
+        approval_committed_by_non_owner(
+            tmp_path, tight, "alice", approval_heading=None  # type: ignore[arg-type]
+        )
+        is True
+    )
 
 
 def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
@@ -324,8 +444,8 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     non_owner_calls: list[tuple] = []
     eval_claims: list[object] = []
 
-    def spy_non_owner(root_arg, task_path, claim):
-        non_owner_calls.append((root_arg, task_path, claim))
+    def spy_non_owner(root_arg, task_path, claim, approval_heading=None):
+        non_owner_calls.append((root_arg, task_path, claim, approval_heading))
         return True
 
     real_eval = __import__(
@@ -347,10 +467,11 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     via_git = spec_approval_check(root, policy=policy)
     assert via_git["ok"] is True
     assert non_owner_calls
-    for root_arg, task_path, claim in non_owner_calls:
+    for root_arg, task_path, claim, heading in non_owner_calls:
         assert root_arg is root
         assert task_path is not None
         assert claim is not None
+        assert heading == "## Approval"
     assert "alice" in eval_claims
 
     loaded = load_spec_approval(root)
@@ -385,3 +506,36 @@ def test_blocked_lane_is_checked(tmp_path: Path, monkeypatch):
     result = spec_approval_check(root)
     assert result["ok"] is False
     assert result["checked"] == 1
+
+
+def test_custom_approval_heading_passed_to_blame(tmp_path: Path, monkeypatch):
+    root = tmp_path
+    ctx = root / "context"
+    tasks = ctx / "tasks"
+    tasks.mkdir(parents=True)
+    (ctx / "process-control.json").write_text(
+        '{"version":1,"spec_approval":{"enabled":true,'
+        '"approval_heading":"## Signoff"},'
+        '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
+        encoding="utf-8",
+    )
+    _write_task(
+        tasks,
+        "T-260101-hhhh",
+        status="in-progress",
+        tags="complex",
+        claim="alice",
+        extra="## Spec\n\nPlan.\n\n## Signoff\n\napproved-by: bob@example.com\n",
+    )
+    seen: list[str] = []
+
+    def spy(root_arg, task_path, claim, approval_heading=None):
+        seen.append(approval_heading)
+        return False
+
+    monkeypatch.setattr(
+        "agentized.spec_approval_io.approval_committed_by_non_owner", spy
+    )
+    out = spec_approval_check(root)
+    assert out["ok"] is True
+    assert seen == ["## Signoff"]

@@ -116,7 +116,16 @@ def test_evaluate_task_spec_matrix():
         KEY_MESSAGE: missing_spec_message("T-2", DEFAULT_SPEC_HEADING),
     }
 
-    for body in ("_(todo)_", "TODO", "…", "...", "tbd"):
+    for body in (
+        "_(todo)_",
+        "TODO",
+        "…",
+        "...",
+        "tbd",
+        "TODO: write the spec",
+        "See _(TBD)_",
+        "… fill in later",
+    ):
         placeholder = evaluate_task_spec(
             task_id="T-3",
             claim="alice",
@@ -166,6 +175,38 @@ def test_evaluate_task_spec_matrix():
         KEY_TASK_ID: "T-6",
         KEY_MESSAGE: self_approval_message("T-6", "Alice"),
     }
+
+    # Name claim + that person's full email on allowlist must not self-approve
+    owner_on_allow = evaluate_task_spec(
+        task_id="T-6b",
+        claim="Alice <alice@corp.com>",
+        tags="complex",
+        text=(
+            "# T-6b\n\n## Spec\n\nDo X.\n\n## Approval\n\n"
+            "approved-by: alice@corp.com\n"
+        ),
+        policy=policy,
+        human_participants=["alice@corp.com", "bob@x.test"],
+    )
+    assert owner_on_allow == {
+        KEY_OK: False,
+        KEY_MODE: MODE_REFUSE,
+        KEY_TASK_ID: "T-6b",
+        KEY_MESSAGE: self_approval_message("T-6b", "Alice <alice@corp.com>"),
+    }
+    bare_owner_email = evaluate_task_spec(
+        task_id="T-6c",
+        claim="alice",
+        tags="complex",
+        text=(
+            "# T-6c\n\n## Spec\n\nDo X.\n\n## Approval\n\n"
+            "approved-by: alice@corp.com\n"
+        ),
+        policy=policy,
+        human_participants=["alice@corp.com"],
+    )
+    assert bare_owner_email[KEY_OK] is False
+    assert bare_owner_email[KEY_MODE] == MODE_REFUSE
 
     # Other approver without allowlist match and no non-owner → refuse
     no_allow = evaluate_task_spec(
