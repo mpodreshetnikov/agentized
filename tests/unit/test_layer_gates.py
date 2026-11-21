@@ -122,8 +122,15 @@ def test_skip_prefixes_agentized_only(tmp_path: Path):
     assert lg.is_agentized_repo(tmp_path) is False
     assert lg.skip_rel_prefixes(tmp_path) == ()
     assert lg.detect_e2e(tmp_path)["present"] is True
-    (tmp_path / "runtime" / "agentized").mkdir(parents=True)
     (tmp_path / "templates" / "quality").mkdir(parents=True)
+    # templates alone is not enough (kills has_pkg `and`→`or`).
+    assert lg.is_agentized_repo(tmp_path) is False
+    # Top-level agentized/ pkg (no runtime/agentized) still counts.
+    (tmp_path / "agentized").mkdir()
+    assert lg.is_agentized_repo(tmp_path) is True
+    (tmp_path / "agentized").rmdir()
+    (tmp_path / "runtime" / "agentized").mkdir(parents=True)
+    assert lg.is_agentized_repo(tmp_path) is True
     assert lg.skip_rel_prefixes(tmp_path) == ("templates/", "tests/fixtures/")
     assert lg.skip_rel_prefixes(tmp_path, {"skip_rel_prefixes": ["vendor/"]}) == ("vendor/",)
 def test_disable_decision_rules():
@@ -441,8 +448,13 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
     req_only.mkdir()
     (req_only / "requirements.txt").write_text("django\n", encoding="utf-8")
     (req_only / "requirements-bin.txt").write_bytes(b"alembic==1\n\xff\xfe\n")
-    (req_only / "requirements-broken.txt").symlink_to("/nonexistent/age31-missing")
-    found3 = lg._read_python_deps(req_only, ())
+    noperm = req_only / "requirements-noperm.txt"
+    noperm.write_text("unused\n", encoding="utf-8")
+    noperm.chmod(0o000)
+    try:
+        found3 = lg._read_python_deps(req_only, ())
+    finally:
+        noperm.chmod(0o644)
     assert {rel for rel, _ in found3} >= {"requirements.txt", "requirements-bin.txt"}
     assert any("django" in n for _, n in found3) and any("alembic" in n for _, n in found3)
     # Quoted-only dep (no line-start match) — kills `in`/`not in` quote mutants.
