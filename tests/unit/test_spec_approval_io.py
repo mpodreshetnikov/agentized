@@ -211,8 +211,8 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     _wt(tasks, "T-260101-gggg")
     multi = spec_approval_check(root, policy=policy)
     assert multi["ok"] is False and "; " in multi["message"] and "None" not in multi["message"]
-    (tasks / "T-gggg.md").unlink()
-    (tasks / "T-aaaa.md").unlink()
+    (tasks / "T-260101-gggg.md").unlink()
+    (tasks / "T-260101-aaaa.md").unlink()
     _wt(tasks, "T-260101-ffff", st="blocked", extra=SPEC_BLK)
     ok = spec_approval_check(root, policy=policy)
     assert ok == {
@@ -272,7 +272,7 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
-    for leftover in ("T-bbbb.md", "T-dddd.md", "T-eeee.md"):
+    for leftover in ("T-260101-bbbb.md", "T-260101-dddd.md", "T-260101-eeee.md"):
         p = tasks / leftover
         if p.exists():
             p.unlink()
@@ -289,7 +289,7 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         '"merge_policy":{"human_participants":["bob@example.com"]}}\n',
         encoding="utf-8",
     )
-    (tasks / "T-ffff.md").unlink()
+    (tasks / "T-260101-ffff.md").unlink()
     _wt(tasks, "T-260101-hhhh", extra=SPEC_SO)
     seen: list[str] = []
 
