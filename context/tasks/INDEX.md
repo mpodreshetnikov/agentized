@@ -14,7 +14,6 @@ _(пусто)_
 
 - [T-261116-b569](T-261116-b569.md) — Task header empty-field regex harden (AGE-43) · claim: bc-9cfe6d3d-a2ed-563d-9eb9-ba55ee58a25a
 - [T-261116-e153](T-261116-e153.md) — Hard configurable PR size on pre-push (AGE-32 W10) · claim: cloud-agent-4e38
-- [T-261121-9ce5](T-261121-9ce5.md) — AST-equivalent mutation exclusion (AGE-55) · claim: bc-76d20087-0d7d-52f6-aef4-98ca34da4b04
 
 ## blocked
 
