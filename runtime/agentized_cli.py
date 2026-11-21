@@ -23,6 +23,12 @@ from agentized.leases import (
     warn_message,
 )
 from agentized.context_paths import path_under, resolve_context_dir
+from agentized.context_layout import (
+    apply_external_env_check,
+    prepare_connect_layout,
+    require_registry_ready,
+    resolve_layout,
+)
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import run_tasks_validate
@@ -39,9 +45,37 @@ from agentized.tasks import (
 )
 
 
-def _ctx(root: Path, args) -> Path:
-    rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
-    return resolve_context_dir(root, str(rel))
+def _context_rel(root: Path, args) -> str:
+    return getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
+
+
+def _layout(root: Path, args):
+    rel = _context_rel(root, args)
+    resolve_context_dir(root, str(rel))  # AGE-30: refuse abs / .. / escape
+    try:
+        return resolve_layout(root, rel)
+    except ValueError as exc:
+        print(f"context layout error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def _ctx(root: Path, args, *, require_ready: bool = False) -> Path:
+    """Registry root (tasks/decisions/goals/…) — may be an external Context clone."""
+    layout = _layout(root, args)
+    if require_ready:
+        try:
+            require_registry_ready(layout)
+        except ValueError as exc:
+            print(f"context layout error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+    return layout.registry_root
+
+
+def _display_path(root: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return str(path.resolve())
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
@@ -49,12 +83,22 @@ def cmd_connect(args: argparse.Namespace) -> int:
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
+    try:
+        layout = prepare_connect_layout(root, args.context)
+    except ValueError as exc:
+        print(f"context layout error: {exc}", file=sys.stderr)
+        return 1
     result = connect(
         root,
         context_rel=args.context,
         harnesses=harnesses,
         coverage_pct=args.coverage,
     )
+    result["layout"] = {
+        "placement": layout.placement,
+        "registry": str(layout.registry_root),
+        "config": str((root / args.context / "context.json").relative_to(root)),
+    }
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
@@ -89,7 +133,11 @@ def cmd_env_check(args: argparse.Namespace) -> int:
 
     root = find_repo_root()
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
-    result = check(repo_root=root, context_rel=ctx_rel)
+    result = apply_external_env_check(
+        check(repo_root=root, context_rel=ctx_rel),
+        root,
+        ctx_rel,
+    )
     stream = sys.stdout if result["ok"] else sys.stderr
     stream.write(result["message"] + "\n")
     if args.json:
@@ -292,7 +340,7 @@ def cmd_quality(args: argparse.Namespace) -> int:
 
 def cmd_new(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
+    ctx = _ctx(root, args, require_ready=True)
     tasks_dir = ctx / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -315,14 +363,14 @@ def cmd_new(args: argparse.Namespace) -> int:
     path = tasks_dir / f"{task_id}.md"
     path.write_text(text, encoding="utf-8")
     (tasks_dir / "INDEX.md").write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
-    print(f"создано: {path.relative_to(root)}")
+    print(f"создано: {_display_path(root, path)}")
     print(f"id: {task_id}")
     return 0
 
 
 def cmd_claim(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
+    ctx = _ctx(root, args, require_ready=True)
     path = ctx / "tasks" / f"{args.task_id}.md"
     if not path.exists():
         print(f"нет задачи {args.task_id}", file=sys.stderr)
@@ -346,7 +394,7 @@ def cmd_progress(args: argparse.Namespace) -> int:
         return 1
     text = append_progress(path.read_text(encoding="utf-8"), args.text)
     path.write_text(text, encoding="utf-8")
-    print(f"progress appended → {path.relative_to(root)}")
+    print(f"progress appended → {_display_path(root, path)}")
     return 0
 
 
@@ -419,7 +467,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     root = find_repo_root()
     try:
         ctx = _ctx(root, args)
-        ctx_rel = str(ctx.relative_to(root.resolve()))
+        ctx_rel = _context_rel(root, args)
         tasks_index_path = path_under(ctx, "tasks", "INDEX.md")
         leases_index_path = path_under(ctx, "leases", "INDEX.md")
         tasks_dir = tasks_index_path.parent
@@ -433,9 +481,10 @@ def cmd_index(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print("пересобраны:")
-    print(f"  {ctx_rel}/tasks/INDEX.md")
-    print(f"  {ctx_rel}/leases/INDEX.md")
+    print(f"  {_display_path(root, ctx / 'tasks' / 'INDEX.md')}")
+    print(f"  {_display_path(root, ctx / 'leases' / 'INDEX.md')}")
     print(f"  {metrics['path']}")
+
     if args.print:
         print("\n--- tasks/INDEX.md ---\n")
         print(tasks_index)
@@ -455,7 +504,7 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
     root = find_repo_root()
     try:
         ctx = _ctx(root, args)
-        ctx_rel = str(ctx.relative_to(root.resolve()))
+        ctx_rel = _context_rel(root, args)
         if args.autopilot_cmd == "show":
             data = load_board(root, ctx_rel)
             print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -507,7 +556,9 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
+    layout = _layout(root, args)
+    ctx = layout.registry_root
+    code_ctx = layout.code_context
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -517,18 +568,20 @@ def cmd_check(args: argparse.Namespace) -> int:
         agents = (root / "AGENTS.md").read_text(encoding="utf-8")
         if "NAV.md" not in agents:
             errors.append("AGENTS.md без указателя на NAV.md — нужен connect")
-    if not (ctx / "NAV.md").exists():
-        errors.append(f"нет {ctx.relative_to(root)}/NAV.md")
-    for required in (
-        "tasks/INDEX.md",
-        "leases/INDEX.md",
-        "skills",
-        "hooks",
-        "quality.json",
-    ):
+    if not layout.nav_path().exists():
+        errors.append(f"нет NAV.md at {_display_path(root, layout.nav_path())}")
+    for required in ("tasks/INDEX.md", "leases/INDEX.md"):
         if not (ctx / required).exists():
-            errors.append(f"нет {ctx.relative_to(root)}/{required}")
-    if not (ctx / "skills" / "quality-gates" / "SKILL.md").exists():
+            errors.append(f"нет {_display_path(root, ctx / required)}")
+    for required in ("skills", "hooks", "quality.json", "process-control.json"):
+        if not (code_ctx / required).exists():
+            errors.append(f"нет {_display_path(root, code_ctx / required)} (code-repo config)")
+    if layout.is_external:
+        from agentized.context_layout import external_clone_problems
+
+        for problem in external_clone_problems(layout):
+            errors.append(problem)
+    if not (code_ctx / "skills" / "quality-gates" / "SKILL.md").exists():
         warnings.append("нет pinned skill quality-gates — запустите connect")
 
     # live index freshness (soft): statuses in INDEX vs files
@@ -540,11 +593,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     from agentized.tasks import dependency_cycles_for_dir
 
     tasks = list_tasks(ctx / "tasks")
-    index_text = (
-        (ctx / "tasks" / "INDEX.md").read_text(encoding="utf-8")
-        if (ctx / "tasks" / "INDEX.md").exists()
-        else ""
-    )
+    index_path = ctx / "tasks" / "INDEX.md"
+    index_text = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
     for t in tasks:
         for err in validate_task_status(t.status):
             errors.append(f"{t.task_id}: {err}")
@@ -578,12 +628,23 @@ def cmd_check(args: argparse.Namespace) -> int:
             print(f"  WARN: {w}")
         return 1
     print("check OK")
+    print(f"  placement: {layout.placement}")
+    print(f"  registry: {_display_path(root, ctx)}")
+    print(f"  code config: {_display_path(root, code_ctx)}")
     for w in warnings:
         print(f"  WARN: {w}")
     if args.json:
         print(
             json.dumps(
-                {"ok": True, "warnings": warnings, "state": state}, ensure_ascii=False, indent=2
+                {
+                    "ok": True,
+                    "warnings": warnings,
+                    "state": state,
+                    "placement": layout.placement,
+                    "registry": str(ctx),
+                },
+                ensure_ascii=False,
+                indent=2,
             )
         )
     return 0
@@ -615,7 +676,7 @@ def cmd_lease(args: argparse.Namespace) -> int:
         path = leases_dir / f"{args.task_id}.md"
         path.write_text(text, encoding="utf-8")
         (leases_dir / "INDEX.md").write_text(rebuild_lease_index(leases_dir), encoding="utf-8")
-        print(f"lease acquired: {path.relative_to(root)}")
+        print(f"lease acquired: {_display_path(root, path)}")
         return 0
 
     if args.lease_cmd == "release":
@@ -646,14 +707,17 @@ def cmd_lease(args: argparse.Namespace) -> int:
 
 def cmd_sync_status(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
+    layout = _layout(root, args)
+    ctx = layout.registry_root
     state = load_state(root)
     tasks = list_tasks(ctx / "tasks")
     active = [t for t in tasks if t.status in ACTIVE_STATUSES]
     leases = list_leases(ctx / "leases")
     print("sync-status")
     print(f"  connected: {'yes' if state else 'no'}")
-    print(f"  context: {ctx.relative_to(root)}/")
+    print(f"  placement: {layout.placement}")
+    print(f"  registry: {_display_path(root, ctx)}/")
+    print(f"  code config: {_display_path(root, layout.code_context)}/")
     print(f"  active tasks: {len(active)}")
     for t in active:
         claim = t.claim if t.claim and not t.claim.startswith("_") else "—"
@@ -756,7 +820,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
     gk = out_dir / ".gitkeep"
     if gk.exists():
         gk.unlink()
-    print(f"digest: {path.relative_to(root)}")
+    print(f"digest: {_display_path(root, path)}")
     return 0
 
 

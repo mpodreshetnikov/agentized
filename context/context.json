@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "placement": "nested",
+  "external": {
+    "path": "",
+    "remote": ""
+  },
+  "_comment": "placement=nested keeps tasks/decisions/goals in this context/. Set placement=external and external.path/remote to use a separate private Context git clone; quality/process/env-check stay here for CI."
+}

@@ -18,6 +18,7 @@
 | Quality config | [`quality.json`](quality.json) | Coverage thresholds (default 80%) · modules · mutation hard gate |
 | Env-check config | [`env-check.json`](env-check.json) | `cloud_git_hooks` warn\|refuse · unknown_agent |
 | Process-control | [`process-control.json`](process-control.json) | Claim before edits · reviewable PR size (hard gate) |
+| Context placement | [`context.json`](context.json) | `nested` \| `external` path/remote (AGE-25); CI config stays here |
 | Runtime | [`../runtime/agentized_cli.py`](../runtime/agentized_cli.py) | connect / env-check / process / new / claim / lease / digest / check / quality |
 | Autopilot / metrics | [`../docs/autopilot.md`](../docs/autopilot.md) | WIP next-task + board metrics (`agentized autopilot`; not HTML board) |
 | Контракт connect | [`../docs/connect-contract.md`](../docs/connect-contract.md) | Что ставится в workspace |
@@ -43,7 +44,7 @@
 
 ## Два режима размещения Context
 
-1. **Вложенный каталог** (этот репозиторий): `context/` внутри code-репо — текущий режим dogfooding.
-2. **Отдельный git-репозиторий** Context: тот же каркас (`NAV.md`, `tasks/`, …) живёт в своём репо; code-репо указывает на него через блок в корневом `AGENTS.md`. Отдельный репо здесь **не создаём** — только описываем режим.
+1. **Вложенный каталог** (этот репозиторий): `context/` внутри code-репо — текущий режим dogfooding (`context.json` → `placement: nested`).
+2. **Отдельный git-репозиторий** Context: `tasks/` / `decisions/` / `goals/` (и NAV/leases/digests) в private clone; `context.json` → `placement: external` + `path`/`remote`. Quality / process / env-check / skills / hooks остаются в code-репо `context/` для CI. См. [`docs/external-context.md`](../docs/external-context.md).
 
 Канон: [`docs/target-architecture.md`](../docs/target-architecture.md) (§4.1, §6, §11).
