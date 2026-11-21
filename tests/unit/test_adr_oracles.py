@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agentized import adr as adr_mod
-from agentized.adr import ADR_STATUSES, allocate_adr_id, create_adr, render_adr, slugify, utc_day
+from agentized.adr import ADR_STATUS_ERROR, ADR_STATUSES, allocate_adr_id, create_adr, render_adr, slugify, utc_day
 
 FIXED = datetime(2020, 1, 2, 3, 4, tzinfo=timezone.utc)
 
@@ -112,3 +112,11 @@ def test_allocate_token_width_exhaustion_and_create(tmp_path: Path, monkeypatch)
     assert "status: accepted\n" in body and "status: ACCEPTED\n" not in body
     assert any(c["parents"] is True and c["exist_ok"] is True for c in mk)
     assert writes == ["utf-8", "utf-8"]
+
+def test_create_adr_rejects_unknown_status(tmp_path: Path):
+    with pytest.raises(ValueError) as ei:
+        create_adr(tmp_path, "X", status="nope")
+    assert str(ei.value) == ADR_STATUS_ERROR.format(status="nope", allowed=ADR_STATUSES)
+    assert "accepted" in ADR_STATUSES
+    path = create_adr(tmp_path, "Заголовок", status="proposed")
+    assert path.name.endswith("-zagolovok.md")
