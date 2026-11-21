@@ -167,10 +167,8 @@ def test_safe_create_pre_push_chmod_execute_bits(tmp_path: Path):
     assert mode & 0o111 == 0o111
 
 
-def test_safe_create_non_pre_push_skips_chmod_branch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Kill inverted ``src.name == "pre-push"`` on create (would chmod ci.yml)."""
+def test_safe_create_non_hook_skips_chmod_branch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Kill inverted hook-name check on create (would chmod ci.yml)."""
     src = tmp_path / "ci.yml"
     src.write_text(f"# {QUALITY_MARKER}\nname: CI\n", encoding="utf-8")
     dst = tmp_path / ".github" / "workflows" / "ci.yml"
@@ -218,20 +216,19 @@ def test_safe_update_marked_different_returns_updated(
 
 
 def test_safe_update_pre_push_chmod_or_not_and(tmp_path: Path):
-    """Kill ``| 0o111`` → ``& 0o111`` / ``chmod(None)`` on marked update."""
+    """Kill ``| 0o111`` → ``& 0o111`` / ``chmod(None)`` on marked update (pre-push only until connect pin follow-up)."""
     src = tmp_path / "pre-push"
     src.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\nNEW\n", encoding="utf-8")
     dst = tmp_path / ".githooks" / "pre-push"
-    dst.parent.mkdir(parents=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\nOLD\n", encoding="utf-8")
     os.chmod(dst, 0o644)
     assert _safe_install_template(src, dst) == "updated"
-    mode = dst.stat().st_mode
-    assert mode & 0o111 == 0o111
+    assert dst.stat().st_mode & 0o111 == 0o111
 
 
-def test_safe_update_non_pre_push_no_chmod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Kill inverted pre-push check on update branch."""
+def test_safe_update_non_hook_no_chmod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Kill inverted hook-name check on update branch."""
     src = tmp_path / "tpl-ci.yml"
     src.write_text(f"# {QUALITY_MARKER}\nNEW\n", encoding="utf-8")
     dst = tmp_path / ".github" / "workflows" / "ci.yml"

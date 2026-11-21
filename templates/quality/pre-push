@@ -31,6 +31,11 @@ echo "[agentized pre-push] process size"
 
 echo "[agentized pre-push] process format-disables"
 "${CLI[@]}" process format-disables
+# AGE-27 agent-merge (stdin: local_ref local_sha remote_ref remote_sha).
+while read -r _ local_sha _ remote_sha; do
+  [[ -n "${local_sha:-}" ]] || continue
+  "${CLI[@]}" process agent-merge --remote "${remote_sha:-0000000000000000000000000000000000000000}" --local "$local_sha"
+done
 
 echo "[agentized pre-push] quality check (coverage + mutation)"
 "${CLI[@]}" quality check

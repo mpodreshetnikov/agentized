@@ -34,6 +34,8 @@ Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` i
 
 **Connect baseline (AGE-85):** when HEAD has `{context}/.agentized/managed.json` but the size base does not (first connect push, or no `origin/main` yet), insertions on connect-installed bootstrap paths (`AGENTS.md`, `{context}/**`, `.githooks/`, harness dirs, …) are excluded from the count. User/source paths still count — not a generic bypass. After `managed.json` exists on the base, the normal full diff applies. `process format-disables` on that first push (no `origin/main`) scans the whole HEAD tree vs the empty tree — every disable counts; only the ancestry check is dropped. Hook scripts that connect installs ship with no disable comments.
 
+## Merge / authorship (AGE-27) — Defaults: `agent_merge=allowed`; `human_authorship.enabled=true` + `strip_agent_trailers=true`; `human_participants=[]` until connect fills from `git user.email` **before** other writes (missing email → REFUSED). **Author must be allowlisted** — `Co-authored-by:` never launders a stranger/agent author. Connect installs executable `.githooks/commit-msg` with pre-push.
+
 ## Tip hygiene (AGE-76)
 
 Hard gate inside `agentized tasks-validate` (dogfood pre-push / CI). Always checks `context/tasks/INDEX.md` equals `agentized index` rebuild. (`connect` skeleton → `rebuild_task_index` is AGE-68 — not this gate.) Template quality CI/pre-push do **not** run tip hygiene until that seed lands.
@@ -79,17 +81,13 @@ Optional `spec_approval` policy (defaults off). Pure evaluation lives in
 CLI / CI / pre-push wiring for `process spec-approval` ships in a follow-up PR.
 
 ## Spec / decision hygiene
-
 Keep decisions in `context/decisions/` when they change process rules. Prefer one claimable child task per reviewable PR; split when approaching the size limit.
 
 ### ADR format
-
 Create with `agentized adr --title "…" [--status proposed|accepted|superseded|deprecated] [--tasks T-…,T-…]`. Files are `context/decisions/ADR-YYMMDD-xxx-<slug>.md` with YAML front matter (`id`, quoted `title`, `status`, `date`, `tasks`) then `# Title` / Context / Decision / Consequences. Default status is **`proposed`** (human confirms heavy artifacts). Titles refuse blank/control characters; task ids must match `T-YYMMDD-xxxx`.
 
 ## No GitHub Stacked PRs
 
 **Banned going forward.** Every PR targets `main` (or the repo default branch), never another feature/PR branch. Sequence merges (land A, then open B from updated `main`), or ship one PR. Do not use GitHub Stacked PRs / `stack_on` for new Agentized work.
 
-## Connect
-
-`agentized connect` pins `process-control.json` (no clobber) and wires `process_guard.py` into Cursor / Claude / Codex hooks. Keep Cursor `failClosed: true` when editing hooks. External repos without local `packages/` or `templates/quality` use the **installed Agentized root**.
+## Connect — `agentized connect` pins process-control + executable `pre-push`/`commit-msg` + hooks (`failClosed` on Cursor). External repos use the **installed Agentized root** if local `packages/` / `templates/quality` are absent. Authorship preflight: see Merge / authorship above.
