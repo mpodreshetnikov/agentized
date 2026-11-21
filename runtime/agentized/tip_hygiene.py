@@ -8,9 +8,9 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .status_gates import (
+    TEXT_ENCODING,
     GateResult,
     extract_status,
-    normalize_status,
     parse_task_fields,
 )
 from .task_schema import (
@@ -23,6 +23,8 @@ from .task_schema import (
 
 TIP_OK_STATUSES: frozenset[str] = frozenset({"self-review", "done"})
 INDEX_NAME = "INDEX.md"
+READY_PROGRESS = "ready: claim released"
+ENV_PR_KEYS: tuple[str, ...] = ("AGENTIZED_PR", "TIP_HYGIENE_PR", "GITHUB_PR_NUMBER")
 
 # Captures #N / PR #N / github.com/owner/repo/pull/N
 _PR_NUM_RE = re.compile(r"(?i)(?:https://github\.com/[^/\s]+/[^/\s]+/pull/|#|PR\s*#?)(\d+)\b")
@@ -34,6 +36,21 @@ MSG_TIP_INDEX = "tip hygiene: INDEX.md out of date — run agentized index and c
 MSG_TIP_UNREADABLE = "{name}: tip hygiene: unreadable task file: {detail}"
 MSG_READY_NOTE = "ready requires non-empty review_note"
 MSG_READY_MISSING = "ready: missing task {task_id}"
+
+
+def _read_text(path: Path) -> str:
+    return path.read_bytes().decode(TEXT_ENCODING)
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.write_bytes(text.encode(TEXT_ENCODING))
+
+
+def _header_field(fields: dict[str, str], key: str) -> str:
+    val = fields.get(key)
+    if val is None:
+        return ""
+    return val.strip()
 
 
 def extract_pr_number(value: str | None) -> int | None:
@@ -61,21 +78,34 @@ def resolve_pr_number(
             digits = str(explicit).strip()
             if digits.isdigit():
                 n = int(digits)
-        return n if n and n > 0 else None
+        if n is None or n <= 0:
+            return None
+        return n
     e = os.environ if env is None else env
-    for key in ("AGENTIZED_PR", "TIP_HYGIENE_PR", "GITHUB_PR_NUMBER"):
-        raw = (e.get(key) or "").strip()
+    for key in ENV_PR_KEYS:
+        raw = e.get(key)
+        if raw is None:
+            continue
+        raw = raw.strip()
         if not raw:
             continue
-        n = extract_pr_number(raw if not raw.isdigit() else f"#{raw}")
+        candidate = raw if not raw.isdigit() else f"#{raw}"
+        n = extract_pr_number(candidate)
         if n is not None and n > 0:
             return n
-    ref = (e.get("GITHUB_REF") or "").strip()
+    ref_raw = e.get("GITHUB_REF")
+    if ref_raw is None:
+        return None
+    ref = ref_raw.strip()
+    if not ref:
+        return None
     m = _GITHUB_PULL_REF_RE.match(ref)
-    if m:
-        n = int(m.group(1))
-        return n if n > 0 else None
-    return None
+    if not m:
+        return None
+    n = int(m.group(1))
+    if n <= 0:
+        return None
+    return n
 
 
 def claim_is_held(claim: str | None) -> bool:
@@ -96,7 +126,7 @@ def validate_index_freshness(tasks_dir: Path) -> GateResult:
     if not index_path.is_file():
         return GateResult(False, (MSG_TIP_INDEX,))
     try:
-        actual = index_path.read_text(encoding="utf-8")
+        actual = _read_text(index_path)
     except OSError:
         return GateResult(False, (MSG_TIP_INDEX,))
     if actual != expected:
@@ -108,18 +138,18 @@ def validate_pr_linked_tasks(tasks_dir: Path, pr_number: int) -> GateResult:
     errors: list[str] = []
     for path in sorted(tasks_dir.glob("T-*.md")):
         try:
-            text = path.read_text(encoding="utf-8")
+            text = _read_text(path)
         except (OSError, UnicodeDecodeError) as exc:
             errors.append(MSG_TIP_UNREADABLE.format(name=path.name, detail=exc))
             continue
         fields = parse_task_fields(text)
-        pr_raw = (fields.get("pr") or "").strip()
+        pr_raw = _header_field(fields, "pr")
         if not task_points_at_pr(pr_raw, pr_number):
             continue
-        st = extract_status(text) or normalize_status(fields.get("статус"))
+        st = extract_status(text)
         if st not in TIP_OK_STATUSES:
-            errors.append(MSG_TIP_STATUS.format(name=path.name, pr=pr_number, st=st or ""))
-        claim = (fields.get("claim") or "").strip()
+            errors.append(MSG_TIP_STATUS.format(name=path.name, pr=pr_number, st=st))
+        claim = _header_field(fields, "claim")
         if claim_is_held(claim):
             errors.append(MSG_TIP_CLAIM.format(name=path.name, pr=pr_number, claim=claim))
     return GateResult(ok=not errors, errors=tuple(errors))
@@ -158,7 +188,7 @@ def apply_ready(
     if pr is not None and str(pr).strip():
         out = set_field(out, "pr", str(pr).strip())
     out = append_status_progress(out, "self-review")
-    out = append_progress(out, "ready: claim released")
+    out = append_progress(out, READY_PROGRESS)
     return out
 
 
@@ -172,7 +202,7 @@ def write_ready(
     path = tasks_dir / f"{task_id}.md"
     if not path.is_file():
         raise FileNotFoundError(MSG_READY_MISSING.format(task_id=task_id))
-    text = apply_ready(path.read_text(encoding="utf-8"), review_note=review_note, pr=pr)
-    path.write_text(text, encoding="utf-8")
-    (tasks_dir / INDEX_NAME).write_text(rebuild_task_index(tasks_dir), encoding="utf-8")
+    text = apply_ready(_read_text(path), review_note=review_note, pr=pr)
+    _write_text(path, text)
+    _write_text(tasks_dir / INDEX_NAME, rebuild_task_index(tasks_dir))
     return path
