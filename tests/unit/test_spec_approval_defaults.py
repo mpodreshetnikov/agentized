@@ -1,4 +1,5 @@
 """Tests for spec_approval_defaults (mutation-covered)."""
+
 from __future__ import annotations
 
 from agentized.spec_approval_defaults import (
@@ -34,6 +35,7 @@ from agentized.spec_approval_defaults import (
     ok_message,
     self_approval_message,
 )
+
 
 def test_constants_and_default():
     assert (MODE_DISABLED, MODE_SKIP, MODE_REFUSE, MODE_OK) == (
@@ -76,9 +78,7 @@ def test_constants_and_default():
         "in-progress",
     )
     assert STATUS_IN_PROGRESS in SPEC_GATE_STATUSES
-    assert SPEC_GATE_STATUSES == frozenset(
-        {"in-progress", "self-review", "for-review", "blocked"}
-    )
+    assert SPEC_GATE_STATUSES == frozenset({"in-progress", "self-review", "for-review", "blocked"})
     assert "done" not in SPEC_GATE_STATUSES
     assert "dropped" not in SPEC_GATE_STATUSES
     assert "canceled" not in SPEC_GATE_STATUSES
@@ -89,6 +89,7 @@ def test_constants_and_default():
         "spec_heading": "## Spec",
         "approval_heading": "## Approval",
     }
+
 
 def test_message_builders():
     assert missing_spec_message("T-1", "## Spec") == (

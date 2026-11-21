@@ -1,4 +1,5 @@
 """Text helpers for spec-approval ."""
+
 from __future__ import annotations
 
 import re
@@ -40,9 +41,7 @@ def parse_approvers(approval_body: str) -> list[str]:
     if approval_body is None:
         return []
     return [
-        m.group(1).strip()
-        for m in APPROVED_BY_RE.finditer(approval_body)
-        if m.group(1).strip()
+        m.group(1).strip() for m in APPROVED_BY_RE.finditer(approval_body) if m.group(1).strip()
     ]
 
 

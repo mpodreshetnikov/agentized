@@ -1,4 +1,5 @@
 """Tests for AGE-28 spec_approval decisions (mutation-gated module)."""
+
 from __future__ import annotations
 
 from agentized.process_control import default_process_config
@@ -31,6 +32,7 @@ from agentized.spec_approval_defaults import (
     self_approval_message,
 )
 
+
 def test_config_defaults_and_overrides():
     assert default_spec_approval() == {
         CFG_ENABLED: False,
@@ -59,13 +61,12 @@ def test_config_defaults_and_overrides():
         CFG_SPEC_HEADING: "## Design",
         CFG_APPROVAL_HEADING: DEFAULT_APPROVAL_HEADING,
     }
-    empty_tag = spec_approval_from_config(
-        {"spec_approval": {"complex_tag": "   "}}
-    )
+    empty_tag = spec_approval_from_config({"spec_approval": {"complex_tag": "   "}})
     assert empty_tag[CFG_COMPLEX_TAG] == DEFAULT_COMPLEX_TAG
     # process_control stays on main (full-cover mutation); defaults live in from_config
     assert "spec_approval" not in default_process_config()
     assert default_spec_approval()[CFG_ENABLED] is False
+
 
 def test_task_needs_spec():
     cases = (
@@ -79,6 +80,7 @@ def test_task_needs_spec():
     )
     outcomes = [task_needs_spec(tags, needle) for tags, needle in cases]
     assert outcomes == [True, True, False, False, False, False, True]
+
 
 def test_evaluate_task_spec_matrix():
     policy = default_spec_approval()
@@ -177,10 +179,7 @@ def test_evaluate_task_spec_matrix():
         task_id="T-6b",
         claim="Alice <alice@corp.com>",
         tags="complex",
-        text=(
-            "# T-6b\n\n## Spec\n\nDo X.\n\n## Approval\n\n"
-            "approved-by: alice@corp.com\n"
-        ),
+        text=("# T-6b\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: alice@corp.com\n"),
         policy=policy,
         human_participants=["alice@corp.com", "bob@x.test"],
     )
@@ -194,10 +193,7 @@ def test_evaluate_task_spec_matrix():
         task_id="T-6c",
         claim="alice",
         tags="complex",
-        text=(
-            "# T-6c\n\n## Spec\n\nDo X.\n\n## Approval\n\n"
-            "approved-by: alice@corp.com\n"
-        ),
+        text=("# T-6c\n\n## Spec\n\nDo X.\n\n## Approval\n\napproved-by: alice@corp.com\n"),
         policy=policy,
         human_participants=["alice@corp.com"],
     )

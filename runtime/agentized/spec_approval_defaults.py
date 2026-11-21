@@ -1,4 +1,5 @@
 """Defaults + constant lexemes for spec-approval ."""
+
 from __future__ import annotations
 
 from typing import Any

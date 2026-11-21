@@ -1,4 +1,5 @@
 """File/CLI I/O for spec-approval ."""
+
 from __future__ import annotations
 
 import re

@@ -1,4 +1,5 @@
 """IO tests for AGE-28 spec_approval_check (mutation-covered)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,11 +15,17 @@ from agentized.spec_approval_io import (
     spec_approval_check,
 )
 from agentized.tasks import render_task_file
-def _write_task(tasks: Path, task_id: str, *, status: str, tags: str, claim: str, extra: str = "") -> None:
+
+
+def _write_task(
+    tasks: Path, task_id: str, *, status: str, tags: str, claim: str, extra: str = ""
+) -> None:
     body = render_task_file(task_id, "t", status=status, tags=tags, claim=claim)
     if extra:
         body = body.rstrip() + "\n\n" + extra + "\n"
     (tasks / f"{task_id}.md").write_text(body, encoding="utf-8")
+
+
 def test_resolve_and_participants(tmp_path: Path):
     assert _resolve_approval_heading(None) == "## Approval"
     assert _resolve_approval_heading("") == "## Approval"
@@ -40,9 +47,12 @@ def test_resolve_and_participants(tmp_path: Path):
         encoding="utf-8",
     )
     assert _human_participants(tmp_path, "context") == ["bob@x.com"]
+
+
 def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     from agentized import spec_approval_io as io_mod
     from agentized.spec_approval_io import _blame_line_args
+
     real_blame = io_mod._git_blame_emails
     path = tmp_path / "t.md"
     path.write_text(
@@ -113,8 +123,8 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     lines: list[int] = []
     monkeypatch.setattr(
         "agentized.spec_approval_io._git_blame_emails",
-        lambda r, p, n: lines.append(n) or (
-            {"bob@example.com"} if n == 3 else {"alice@example.com"}
+        lambda r, p, n: (
+            lines.append(n) or ({"bob@example.com"} if n == 3 else {"alice@example.com"})
         ),
     )
     assert approval_committed_by_non_owner(tmp_path, stray, "Alice <alice@example.com>") is False
@@ -127,7 +137,10 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
         "agentized.spec_approval_io._git_blame_emails",
         lambda r, p, n: lines.append(n) or {"bob@example.com"},
     )
-    assert approval_committed_by_non_owner(tmp_path, custom, "alice", approval_heading="## Signoff") is True
+    assert (
+        approval_committed_by_non_owner(tmp_path, custom, "alice", approval_heading="## Signoff")
+        is True
+    )
     assert lines == [4]
     assert approval_committed_by_non_owner(tmp_path, custom, "alice") is False
     missing = tmp_path / "missing.md"
@@ -142,8 +155,8 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     lines.clear()
     monkeypatch.setattr(
         "agentized.spec_approval_io._git_blame_emails",
-        lambda r, p, n: lines.append(n) or (
-            {"alice@example.com"} if n == 3 else {"bob@example.com"}
+        lambda r, p, n: (
+            lines.append(n) or ({"alice@example.com"} if n == 3 else {"bob@example.com"})
         ),
     )
     assert approval_committed_by_non_owner(tmp_path, bounded, "Alice <alice@example.com>") is False
@@ -161,6 +174,7 @@ def test_git_blame_and_non_owner(tmp_path: Path, monkeypatch):
     assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading="") is True
     assert approval_committed_by_non_owner(tmp_path, tight, "alice", approval_heading=None) is True  # type: ignore[arg-type]
 
+
 def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     root = tmp_path
     ctx = root / "context"
@@ -173,7 +187,11 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     )
     _write_task(tasks, "T-260101-aaaa", status="in-progress", tags="complex", claim="alice")
     assert spec_approval_check(root) == {
-        "ok": True, "mode": "disabled", "message": "", "failures": [], "checked": 0,
+        "ok": True,
+        "mode": "disabled",
+        "message": "",
+        "failures": [],
+        "checked": 0,
     }
     policy = default_spec_approval()
     policy["enabled"] = True
@@ -184,11 +202,19 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     assert refused["ok"] is False and refused["mode"] == "refuse" and refused["checked"] == 1
 
     _write_task(
-        tasks, "T-260101-bbbb", status="in-progress", tags="complex", claim="alice",
+        tasks,
+        "T-260101-bbbb",
+        status="in-progress",
+        tags="complex",
+        claim="alice",
         extra="## Spec\n\nDo it.\n\n## Approval\n\napproved-by: bob@example.com\n",
     )
     _write_task(
-        tasks, "T-260101-eeee", status="done", tags="complex", claim="alice",
+        tasks,
+        "T-260101-eeee",
+        status="done",
+        tags="complex",
+        claim="alice",
         extra="## Spec\n\nDone plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
     )
     _write_task(tasks, "T-260101-cccc", status="open", tags="complex", claim="alice")
@@ -201,12 +227,19 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     (tasks / "T-260101-gggg.md").unlink()
     (tasks / "T-260101-aaaa.md").unlink()
     _write_task(
-        tasks, "T-260101-ffff", status="blocked", tags="complex", claim="alice",
+        tasks,
+        "T-260101-ffff",
+        status="blocked",
+        tags="complex",
+        claim="alice",
         extra="## Spec\n\nBlocked plan.\n\n## Approval\n\napproved-by: bob@example.com\n",
     )
     ok = spec_approval_check(root, policy=policy)
     assert ok == {
-        "ok": True, "mode": "ok", "checked": 2, "failures": [],
+        "ok": True,
+        "mode": "ok",
+        "checked": 2,
+        "failures": [],
         "message": checked_message(2),
     }
 
@@ -223,12 +256,18 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     assert spec_approval_check(root, context_rel="altctx")["mode"] != "disabled"
 
     _write_task(
-        tasks, "T-260101-ffff", status="blocked", tags="complex", claim="alice",
+        tasks,
+        "T-260101-ffff",
+        status="blocked",
+        tags="complex",
+        claim="alice",
         extra="## Spec\n\nReal.\n\n## Approval\n\napproved-by: alice\n",
     )
     non_owner_calls: list = []
     eval_claims: list = []
-    real_eval = __import__("agentized.spec_approval", fromlist=["evaluate_task_spec"]).evaluate_task_spec
+    real_eval = __import__(
+        "agentized.spec_approval", fromlist=["evaluate_task_spec"]
+    ).evaluate_task_spec
 
     def spy_non_owner(root_arg, task_path, claim, approval_heading=None):
         non_owner_calls.append((root_arg, task_path, claim, approval_heading))
@@ -250,7 +289,10 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     assert "alice" in eval_claims
     assert load_spec_approval(root)["enabled"] is False
     assert ensure_default_in_config({"version": 1})["spec_approval"]["enabled"] is False
-    assert ensure_default_in_config({"spec_approval": {"enabled": True}})["spec_approval"]["enabled"] is True
+    assert (
+        ensure_default_in_config({"spec_approval": {"enabled": True}})["spec_approval"]["enabled"]
+        is True
+    )
 
     (ctx / "process-control.json").write_text(
         '{"version":1,"spec_approval":{"enabled":true},'
@@ -276,7 +318,11 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     )
     (tasks / "T-260101-ffff.md").unlink()
     _write_task(
-        tasks, "T-260101-hhhh", status="in-progress", tags="complex", claim="alice",
+        tasks,
+        "T-260101-hhhh",
+        status="in-progress",
+        tags="complex",
+        claim="alice",
         extra="## Spec\n\nPlan.\n\n## Signoff\n\napproved-by: bob@example.com\n",
     )
     seen: list[str] = []
@@ -285,8 +331,6 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
         seen.append(approval_heading)
         return False
 
-    monkeypatch.setattr(
-        "agentized.spec_approval_io.approval_committed_by_non_owner", spy_heading
-    )
+    monkeypatch.setattr("agentized.spec_approval_io.approval_committed_by_non_owner", spy_heading)
     assert spec_approval_check(root)["ok"] is True
     assert seen == ["## Signoff"]

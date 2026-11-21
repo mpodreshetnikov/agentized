@@ -1,4 +1,5 @@
 """Text helper tests for AGE-28 (mutation-covered)."""
+
 from __future__ import annotations
 
 from agentized.spec_approval_text import (
@@ -12,6 +13,7 @@ from agentized.spec_approval_text import (
     participant_email_matches,
     section_body,
 )
+
 
 def test_section_tags_approvers():
     text = "# t\n\n## Spec\n\nBody\nline2\n\n## Approval\n\napproved-by: A\n"
@@ -32,6 +34,7 @@ def test_section_tags_approvers():
     spaced = "## Spec\n\nBody after blank\n"
     assert section_body(spaced, "## Spec") == "Body after blank"
     assert parse_tags(None) == set()  # type: ignore[arg-type]
+
 
 def test_placeholder_and_email_match():
     placeholders = {
@@ -109,21 +112,15 @@ def test_placeholder_and_email_match():
     }
     owners = {
         "exact": is_claim_owner_identity("alice", "Alice"),
-        "email_vs_angle": is_claim_owner_identity(
-            "alice@corp.com", "Alice <alice@corp.com>"
-        ),
+        "email_vs_angle": is_claim_owner_identity("alice@corp.com", "Alice <alice@corp.com>"),
         "bare_claim_local": is_claim_owner_identity("alice@corp.com", "alice"),
-        "noreply": is_claim_owner_identity(
-            "12345678+alice@users.noreply.github.com", "alice"
-        ),
+        "noreply": is_claim_owner_identity("12345678+alice@users.noreply.github.com", "alice"),
         "noreply_angle": is_claim_owner_identity(
             "12345678+alice@users.noreply.github.com",
             "Alice <alice@corp.com>",
         ),
         "other": is_claim_owner_identity("bob@corp.com", "alice"),
-        "other_vs_angle": is_claim_owner_identity(
-            "bob@corp.com", "Alice <alice@corp.com>"
-        ),
+        "other_vs_angle": is_claim_owner_identity("bob@corp.com", "Alice <alice@corp.com>"),
         "bare_no_email": is_claim_owner_identity("bob", "alice"),
         "empty": is_claim_owner_identity("alice@corp.com", ""),
         "none_claim": is_claim_owner_identity("alice@corp.com", None),  # type: ignore[arg-type]
@@ -152,9 +149,7 @@ def test_placeholder_and_email_match():
         "empty_locals": _email_local_matches_claim("alice@corp.com", set()),
         "no_at": _email_local_matches_claim("alice", {"alice"}),
         "hit": _email_local_matches_claim("alice@corp.com", {"alice"}),
-        "noreply": _email_local_matches_claim(
-            "9+alice@users.noreply.github.com", {"alice"}
-        ),
+        "noreply": _email_local_matches_claim("9+alice@users.noreply.github.com", {"alice"}),
         "miss": _email_local_matches_claim("bob@corp.com", {"alice"}),
     }
     assert match_got == {
