@@ -363,23 +363,18 @@ def set_field(text: str, field_name: str, value: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
-
-_PROGRESS_BULLET_RE = re.compile(
-    r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC): (.+)$", re.MULTILINE
-)
-
-
-def progress_body(text: str) -> str:
-    """Return the Progress section body (after ``## Progress`` until next ``##``)."""
-    if PROGRESS_MARKER not in text:
-        return ""
-    after = text.split(PROGRESS_MARKER, 1)[1]
-    return after.split("\n## ", 1)[0]
+_PROGRESS_BULLET_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC): (.+)$", re.MULTILINE)
 
 
 def last_progress_entry(text: str) -> str | None:
     """Return the entry text of the last Progress bullet, or None."""
-    matches = _PROGRESS_BULLET_RE.findall(progress_body(text))
+    start = text.find(PROGRESS_MARKER)
+    if start < 0:
+        return None
+    after = text[start + len(PROGRESS_MARKER) :]
+    end = after.find("\n## ")
+    body = after if end < 0 else after[:end]
+    matches = _PROGRESS_BULLET_RE.findall(body)
     if not matches:
         return None
     return matches[-1][1]

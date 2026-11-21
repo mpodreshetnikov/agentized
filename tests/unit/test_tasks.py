@@ -18,7 +18,6 @@ from agentized.tasks import (
     last_progress_entry,
     list_tasks,
     parse_task,
-    progress_body,
     rebuild_task_index,
     render_task_file,
     set_field,
@@ -404,9 +403,8 @@ def test_append_progress_never_prepends_existing_history(monkeypatch):
         "\n## Decision Log\n\nz\n"
     )
     out = append_progress(base, "newer tip")
-    body = progress_body(out)
     # Newest line is last (append), not first after the marker (prepend).
-    assert body.index("claim by a") < body.index("work done") < body.index("newer tip")
+    assert out.index("claim by a") < out.index("work done") < out.index("newer tip")
     assert out == (
         "# T — x\n\n## Progress\n\n_(append-only)_\n"
         "- 2026-11-21 09:00 UTC: claim by a\n"
@@ -415,8 +413,43 @@ def test_append_progress_never_prepends_existing_history(monkeypatch):
         "\n## Decision Log\n\nz\n"
     )
     # Prepend would put the new stamp immediately after _(append-only)_.
-    assert not body.lstrip().startswith(
+    prog = out.split("## Progress", 1)[1].split("\n## ", 1)[0]
+    assert not prog.lstrip().startswith(
         f"_(append-only)_\n- {stamp}: newer tip\n- 2026-11-21 09:00"
+    )
+
+
+def test_last_progress_entry_uses_first_progress_section():
+    """Kill find/slice/len mutants on last_progress_entry Progress extraction."""
+    assert last_progress_entry("# no progress") is None
+    assert last_progress_entry("## Progress\n\n_(append-only)_\n") is None
+    two = (
+        "# T\n\n## Progress\n\n"
+        "- 2026-11-21 09:00 UTC: first-section\n"
+        "\n## Decision Log\n\n"
+        "- 2026-11-21 10:00 UTC: not-progress\n"
+        "\n## Progress\n\n"
+        "- 2026-11-21 11:00 UTC: second-section\n"
+    )
+    # First ## Progress only (find, not rfind); Decision Log bullets ignored.
+    assert last_progress_entry(two) == "first-section"
+    only = "# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: older\n- 2026-11-21 09:30 UTC: newer\n"
+    assert last_progress_entry(only) == "newer"
+    # Marker length: truncated marker must not match.
+    assert last_progress_entry("# T\n\n## Progres\n\n- 2026-11-21 09:00 UTC: x\n") is None
+    # start == 0: kill start < 0 → <=0 / <1 (must still find Progress at file start).
+    assert last_progress_entry("## Progress\n\n- 2026-11-21 09:00 UTC: at-start\n") == "at-start"
+    # No following ## section: kill end-branch `and False` (after[:-1] truncates entry).
+    assert (
+        last_progress_entry("# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: only-section")
+        == "only-section"
+    )
+    # end == 0 (Progress immediately followed by next ##): must not leak Decision bullets.
+    assert (
+        last_progress_entry(
+            "## Progress\n## Decision Log\n\n- 2026-11-21 09:00 UTC: from-decision\n"
+        )
+        is None
     )
 
 
@@ -600,7 +633,6 @@ def test_tasks_reexports_match_schema():
 
 def test_tasks_getattr_unknown_message():
     import pytest
-
     from agentized import tasks as tasks_mod
 
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'") as ei:
