@@ -230,18 +230,15 @@ def test_index_and_linked_tasks(tmp_path: Path):
     )
     par = validate_pr_linked_tasks(tasks, 76)
     assert (
-        MSG_TIP_PARENT.format(
-            name="T-261121-par.md", pr=76, parent=PLACEHOLDER_PARENT
-        )
+        MSG_TIP_PARENT.format(name="T-261121-par.md", pr=76, parent=PLACEHOLDER_PARENT)
         in par.errors
     )
     # _(пусто)_ parent still OK (root marker, not template).
-    assert MSG_TIP_PARENT.format(
-        name="T-261121-ok.md", pr=76, parent="_(пусто)_"
-    ) not in par.errors
-    assert MSG_TIP_PARENT.format(
-        name="T-261121-ok.md", pr=76, parent=PLACEHOLDER_PARENT
-    ) not in par.errors
+    assert MSG_TIP_PARENT.format(name="T-261121-ok.md", pr=76, parent="_(пусто)_") not in par.errors
+    assert (
+        MSG_TIP_PARENT.format(name="T-261121-ok.md", pr=76, parent=PLACEHOLDER_PARENT)
+        not in par.errors
+    )
 
 
 def test_continue_and_utf8_errors(tmp_path: Path):
