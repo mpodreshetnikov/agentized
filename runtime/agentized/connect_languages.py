@@ -1,10 +1,11 @@
-"""Connect-time language refuse + dogfood excludes (full-cover globs; connect.py untouched)."""
+"""Connect-time language refuse (full-cover globs; connect.py untouched).
+
+Dogfood-only excludes (packages/**, templates/**) stay in this repo's
+context/quality.json — never written by connect (Lead / Self-Review).
+"""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-
-MANAGED_LANG_EXCLUDES = ("packages/**", "templates/**")
 
 
 class ConnectRefused(Exception):
@@ -27,24 +28,6 @@ def refuse_incomplete_languages(root: Path, context_rel: str) -> None:
         cfg=load_quality(root, context_rel),
         require_gates=qpath.is_file(),
     )
-    if not lang_check.get("ok", True):
+    # Missing ok → refuse (fail-closed).
+    if not lang_check.get("ok", False):
         raise ConnectRefused(lang_check["message"], details=lang_check)
-
-
-def merge_managed_language_excludes(root: Path, context_rel: str) -> dict[str, Any]:
-    from agentized.quality import load_quality, save_quality
-
-    data = load_quality(root, context_rel)
-    lang = data.get("languages")
-    if not isinstance(lang, dict):
-        lang = {}
-        data["languages"] = lang
-    excludes = [str(x) for x in (lang.get("exclude_globs") or [])]
-    for pat in MANAGED_LANG_EXCLUDES:
-        if pat not in excludes:
-            excludes.append(pat)
-    lang["exclude_globs"] = excludes
-    if not lang.get("supported"):
-        lang["supported"] = ["python", "javascript", "typescript"]
-    save_quality(root, data, context_rel)
-    return data

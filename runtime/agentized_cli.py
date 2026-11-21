@@ -43,11 +43,7 @@ def _ctx(root: Path, args) -> Path:
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
-    from agentized.connect_languages import (
-        ConnectRefused,
-        merge_managed_language_excludes,
-        refuse_incomplete_languages,
-    )
+    from agentized.connect_languages import ConnectRefused, refuse_incomplete_languages
 
     root = find_repo_root()
     harnesses = args.harness
@@ -61,7 +57,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
             harnesses=harnesses,
             coverage_pct=args.coverage,
         )
-        merge_managed_language_excludes(root, args.context)
     except ConnectRefused as exc:
         print(exc.message, file=sys.stderr)
         if args.json:
