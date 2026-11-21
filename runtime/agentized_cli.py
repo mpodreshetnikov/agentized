@@ -22,6 +22,7 @@ from agentized.leases import (
     render_lease_file,
     warn_message,
 )
+from agentized.context_paths import path_under, resolve_context_dir
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import run_tasks_validate
@@ -40,7 +41,7 @@ from agentized.tasks import (
 
 def _ctx(root: Path, args) -> Path:
     rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
-    return root / rel
+    return resolve_context_dir(root, str(rel))
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
@@ -413,19 +414,95 @@ def cmd_board(args: argparse.Namespace) -> int:
 
 
 def cmd_index(args: argparse.Namespace) -> int:
+    from agentized.autopilot import write_metrics
+
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    tasks_index = rebuild_task_index(ctx / "tasks")
-    leases_index = rebuild_lease_index(ctx / "leases")
-    (ctx / "tasks" / "INDEX.md").write_text(tasks_index, encoding="utf-8")
-    (ctx / "leases" / "INDEX.md").write_text(leases_index, encoding="utf-8")
+    try:
+        ctx = _ctx(root, args)
+        ctx_rel = str(ctx.relative_to(root.resolve()))
+        tasks_index_path = path_under(ctx, "tasks", "INDEX.md")
+        leases_index_path = path_under(ctx, "leases", "INDEX.md")
+        tasks_dir = tasks_index_path.parent
+        leases_dir = leases_index_path.parent
+        tasks_index = rebuild_task_index(tasks_dir)
+        leases_index = rebuild_lease_index(leases_dir)
+        tasks_index_path.write_text(tasks_index, encoding="utf-8")
+        leases_index_path.write_text(leases_index, encoding="utf-8")
+        metrics = write_metrics(root, context_rel=ctx_rel)
+    except (OSError, ValueError, TypeError, OverflowError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     print("пересобраны:")
-    print(f"  {ctx.relative_to(root)}/tasks/INDEX.md")
-    print(f"  {ctx.relative_to(root)}/leases/INDEX.md")
+    print(f"  {ctx_rel}/tasks/INDEX.md")
+    print(f"  {ctx_rel}/leases/INDEX.md")
+    print(f"  {metrics['path']}")
     if args.print:
         print("\n--- tasks/INDEX.md ---\n")
         print(tasks_index)
     return 0
+
+
+def cmd_autopilot(args: argparse.Namespace) -> int:
+    """WIP autopilot + metrics. Does not own ``agentized board`` (HTML renderer)."""
+    from agentized.autopilot import (
+        load_board,
+        load_metrics_file,
+        pick_next_task,
+        set_wip_limit,
+        write_metrics,
+    )
+
+    root = find_repo_root()
+    try:
+        ctx = _ctx(root, args)
+        ctx_rel = str(ctx.relative_to(root.resolve()))
+        if args.autopilot_cmd == "show":
+            data = load_board(root, ctx_rel)
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        if args.autopilot_cmd == "set-wip":
+            data = set_wip_limit(root, int(args.limit), context_rel=ctx_rel)
+            print(f"wip_limit → {data.get('wip_limit')}")
+            return 0
+        if args.autopilot_cmd == "refresh":
+            result = write_metrics(root, context_rel=ctx_rel)
+            print(f"metrics → {result['path']}")
+            if args.json:
+                print(json.dumps(result["metrics"], ensure_ascii=False, indent=2))
+            return 0
+        if args.autopilot_cmd == "metrics":
+            if args.refresh:
+                data = write_metrics(root, context_rel=ctx_rel)["metrics"]
+            else:
+                data = load_metrics_file(root, ctx_rel)
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        if args.autopilot_cmd == "next":
+            cfg = load_board(root, ctx_rel)
+            pick = pick_next_task(
+                list_tasks(path_under(ctx, "tasks")),
+                cfg,
+                now=datetime.now(timezone.utc),
+            )
+            if args.json:
+                print(json.dumps(pick, ensure_ascii=False, indent=2))
+            elif pick.get("task"):
+                task = pick["task"]
+                print(
+                    f"next: {task['id']} — {task['title']} "
+                    f"(WIP {pick['wip_current']}/{pick['wip_limit']})"
+                )
+            else:
+                print(f"next: none ({pick.get('reason')})")
+            return 0
+    except (OSError, ValueError, TypeError, OverflowError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(
+        "usage: agentized autopilot show|set-wip|next|metrics|refresh",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -813,10 +890,31 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--context", default=None)
     bd.set_defaults(func=cmd_board)
 
-    ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
+    ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases + board metrics")
     ix.add_argument("--context", default=None)
     ix.add_argument("--print", action="store_true")
     ix.set_defaults(func=cmd_index)
+
+    ap = sub.add_parser(
+        "autopilot",
+        help="WIP autopilot + board metrics (dashboard data; not HTML board render)",
+    )
+    ap_sub = ap.add_subparsers(dest="autopilot_cmd", required=True)
+    aps = ap_sub.add_parser("show", help="Show context/board.json")
+    aps.add_argument("--context", default=None)
+    apw = ap_sub.add_parser("set-wip", help="Set configurable WIP limit")
+    apw.add_argument("limit", type=int)
+    apw.add_argument("--context", default=None)
+    apn = ap_sub.add_parser("next", help="Recommend next queue/open task under WIP")
+    apn.add_argument("--context", default=None)
+    apn.add_argument("--json", action="store_true")
+    apm = ap_sub.add_parser("metrics", help="Show board/metrics.json (--refresh to recompute)")
+    apm.add_argument("--context", default=None)
+    apm.add_argument("--refresh", action="store_true")
+    apr = ap_sub.add_parser("refresh", help="Write context/board/metrics.json")
+    apr.add_argument("--context", default=None)
+    apr.add_argument("--json", action="store_true")
+    ap.set_defaults(func=cmd_autopilot)
 
     ch = sub.add_parser("check", help="Проверить connect layout и целостность")
     ch.add_argument("--context", default=None)
