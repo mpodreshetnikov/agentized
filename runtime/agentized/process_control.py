@@ -14,8 +14,6 @@ from .process_size import (
     DOC,
     diff_insertions,
     load_process_config_file,
-)
-from .process_size import (
     size_check as _size_check_canonical,
 )
 from .tasks import CLAIM_STATUSES, list_tasks
