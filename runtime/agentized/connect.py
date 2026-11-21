@@ -811,12 +811,14 @@ def ensure_quality_config(
     root: Path, context_rel: str, coverage_pct: float | int | None = None
 ) -> dict:
     from .quality import load_quality, save_quality, set_coverage_threshold, quality_path
+    from .quality_detect import detect_quality_config
 
     path = quality_path(root, context_rel)
     created = not path.exists()
     upgraded_modes: list[str] = []
     if created:
-        save_quality(root, load_quality(root, context_rel), context_rel)
+        # AGE-85: derive modules/tests from consumer layout (or empty valid config).
+        save_quality(root, detect_quality_config(root), context_rel)
     else:
         # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
