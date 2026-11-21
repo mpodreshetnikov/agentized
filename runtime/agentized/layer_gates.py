@@ -216,13 +216,7 @@ def detect_e2e(root: Path, *, skip_prefixes: tuple[str, ...] | None = None) -> d
 def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None) -> dict[str, Any]:
     prefixes = skip_rel_prefixes(root) if skip_prefixes is None else skip_prefixes
     evidence: list[dict[str, str]] = []
-    for marker in DB_DIR_ROOT_NAMES:
-        if _is_skipped_rel(marker, prefixes):
-            continue
-        if _dir_has_real_files(root, marker, prefixes):
-            kind = _looks_like_db_dir(marker)
-            if kind is not None:
-                evidence.append({"kind": kind, "path": marker})
+    # Walk + markers only (no duplicate root-name loop — that left dual-path survivors).
     for name in DB_FILE_MARKERS:
         if (root / name).is_file() and not _is_skipped_rel(name, prefixes):
             evidence.append({"kind": "marker_file", "path": name})
@@ -238,7 +232,7 @@ def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None)
                 continue
             try:
                 if path.stat().st_size == 0 or not path.read_text(
-                    encoding="utf-8", errors="ignore"
+                    _JSON_ENCODING, "ignore"
                 ).strip():
                     continue
             except OSError:
@@ -253,7 +247,7 @@ def detect_db_layer(root: Path, *, skip_prefixes: tuple[str, ...] | None = None)
                 evidence.append({"kind": "orm_dep", "path": rel, "detail": ",".join(hit)})
         if path.suffix == ".sql":
             try:
-                head = path.read_text(encoding="utf-8", errors="ignore")[:4000].lower()
+                head = path.read_text(_JSON_ENCODING, "ignore")[:4000].lower()
             except OSError:
                 continue
             if "select plan(" in head or "pgtap" in head or "tap:" in head:

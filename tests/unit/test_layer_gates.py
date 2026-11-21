@@ -84,17 +84,26 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     (tests / "test_t.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
     (tmp_path / "schema.sql").write_text("CREATE TABLE x(id int);\n", encoding="utf-8")
     (tmp_path / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
+    (tmp_path / "schema.prisma").write_text("model T { id Int }\n", encoding="utf-8")
+    # size-1 real file under pgtap/ (kills st_size==0→1 skip)
+    pgt = tmp_path / "pgtap"
+    pgt.mkdir()
+    (pgt / "t.sql").write_text("x", encoding="utf-8")
+    # whitespace-only dir must stay absent (kills size==0 `or`→`and`)
+    ws = tmp_path / "flyway" / "sql"
+    ws.mkdir(parents=True)
+    (ws / "blank.sql").write_text("\n\n", encoding="utf-8")
+    # placeholder before real sibling (kills placeholder continue→break)
+    (mig / ".gitkeep").write_text("", encoding="utf-8")
     # Default skip_prefixes=None (not ()) — kills None/and-False trampoline mutants.
     det = lg.detect_db_layer(tmp_path)
-    kinds = {e["kind"] for e in det["evidence"]}
-    assert "migrations_dir" in kinds and "marker_file" in kinds
     assert {"kind": "migrations_dir", "path": "db/migrations"} in det["evidence"]
     assert {"kind": "marker_file", "path": "schema.sql"} in det["evidence"]
     assert {"kind": "marker_file", "path": "alembic.ini"} in det["evidence"]
-    assert det["framework"] in {"pgtap", "sql"}
-    # Skip early root marker; continue (not break) to db/migrations.
-    skipped = lg.detect_db_layer(tmp_path, skip_prefixes=("migrations",))
-    assert {"kind": "migrations_dir", "path": "db/migrations"} in skipped["evidence"]
+    assert {"kind": "marker_file", "path": "schema.prisma"} in det["evidence"]
+    assert {"kind": "pgtap_dir", "path": "pgtap"} in det["evidence"]
+    assert {"kind": "migrations_dir", "path": "flyway/sql"} not in det["evidence"]
+    assert det["framework"] == "pgtap"
     # Alphabetical skip-dir before db/: continue (not break) past skipped files.
     (tmp_path / "a_skip").mkdir()
     (tmp_path / "a_skip" / "x.txt").write_text("x\n", encoding="utf-8")
@@ -114,7 +123,9 @@ def test_detect_db_and_nested_orm(tmp_path: Path):
     (orm / "package.json").write_text(json.dumps({"dependencies": {"prisma": "5"}}), encoding="utf-8")
     (orm / "db" / "tests").mkdir(parents=True)
     (orm / "db" / "tests" / "t.sql").write_text("SELECT 1;\n", encoding="utf-8")
-    assert lg.detect_db_layer(orm, skip_prefixes=())["framework"] == "prisma"
+    orm_det = lg.detect_db_layer(orm, skip_prefixes=())
+    assert orm_det["framework"] == "prisma"
+    assert {"kind": "orm_dep", "path": "package.json", "detail": "prisma"} in orm_det["evidence"]
 def test_skip_prefixes_agentized_only(tmp_path: Path):
     (tmp_path / "templates" / "e2e").mkdir(parents=True)
     (tmp_path / "templates" / "e2e" / "a.spec.ts").write_text("test('a')\n", encoding="utf-8")
@@ -457,12 +468,13 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
         noperm.chmod(0o644)
     assert {rel for rel, _ in found3} >= {"requirements.txt", "requirements-bin.txt"}
     assert any("django" in n for _, n in found3) and any("alembic" in n for _, n in found3)
-    # Quoted-only dep (no line-start match) — kills `in`/`not in` quote mutants.
+    # Quoted-only deps — kills `in`/`not in` quote mutants (incl. false positives).
     qonly = tmp_path / "qonly"
     qonly.mkdir()
-    (qonly / "pyproject.toml").write_text("install_requires=['sqlalchemy']\n", encoding="utf-8")
+    (qonly / "pyproject.toml").write_text('install_requires=["django", \'alembic\']\n', encoding="utf-8")
     found4 = lg._read_python_deps(qonly, ())
-    assert any("sqlalchemy" in n for _, n in found4)
+    names4 = set().union(*(n for _, n in found4))
+    assert names4 == {"django", "alembic"}
     (tmp_path / "marker.txt").write_text("yes", encoding="utf-8")
     rc, out = lg._run_command(tmp_path, "test -f marker.txt && echo HELLO_GATE")
     assert rc == 0 and isinstance(out, str) and "HELLO_GATE" in out
