@@ -79,6 +79,7 @@ def test_load_defaults_when_missing(tmp_path: Path):
 
 
 def test_size_check_levels(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
     (tmp_path / "context").mkdir()
     (tmp_path / "context" / "process-control.json").write_text(
         '{"reviewable_lines": 100, "warn_at_pct": 50}\n',
@@ -750,6 +751,7 @@ def test_main_argv_none_context_paths_and_newlines(tmp_path: Path, monkeypatch, 
         "OPENCODE",
         "AI_AGENT",
         "AGENT",
+        "PROCESS_BASE",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("agentized.process_control.find_repo_root", lambda: tmp_path)
