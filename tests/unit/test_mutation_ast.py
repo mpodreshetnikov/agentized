@@ -1,4 +1,5 @@
 """AST-equivalent mutation exclusion (AGE-55 / Option A)."""
+
 from __future__ import annotations
 
 import json
@@ -135,9 +136,7 @@ def test_exclude_continue_not_break_on_multi(tmp_path: Path, monkeypatch):
     (tmp_path / fmt).parent.mkdir(parents=True)
     (tmp_path / fmt).write_bytes(FORMAT_ONLY)
     monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
-    kept, excluded = mast.exclude_ast_equivalent(
-        tmp_path, "origin/main", [missing, fmt]
-    )
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [missing, fmt])
     assert kept == [missing]
     assert excluded == [fmt]
 
@@ -158,14 +157,10 @@ def test_exclude_parse_continue_not_break(tmp_path: Path, monkeypatch):
         return BASE_SRC
 
     monkeypatch.setattr(mast, "git_show_blob", blob)
-    kept, excluded = mast.exclude_ast_equivalent(
-        tmp_path, "origin/main", [bad_head, fmt]
-    )
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [bad_head, fmt])
     assert kept == [bad_head]
     assert excluded == [fmt]
-    kept2, excluded2 = mast.exclude_ast_equivalent(
-        tmp_path, "origin/main", [bad_base, fmt]
-    )
+    kept2, excluded2 = mast.exclude_ast_equivalent(tmp_path, "origin/main", [bad_base, fmt])
     assert kept2 == [bad_base]
     assert excluded2 == [fmt]
 
