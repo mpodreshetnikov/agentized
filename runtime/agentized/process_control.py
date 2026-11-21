@@ -101,17 +101,15 @@ def active_claims(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
         claim = (task.claim or "").strip()
         if not claim or claim.startswith("_"):
             continue
-        if task.status == "in-progress" or claim:
-            out.append(f"{task.task_id} ({claim}, {task.status})")
-    # Prefer in-progress with non-empty claim
-    preferred = [
-        t
-        for t in list_tasks(tasks_dir)
-        if t.status == "in-progress"
-        and (t.claim or "").strip()
-        and not (t.claim or "").startswith("_")
-    ]
-    return [f"{t.task_id} ({t.claim}, {t.status})" for t in preferred] or out
+        out.append(f"{task.task_id} ({claim}, {task.status})")
+    # Prefer in-progress with non-empty claim (same strip/_ rules as above).
+    preferred = []
+    for task in list_tasks(tasks_dir):
+        claim = (task.claim or "").strip()
+        if task.status != "in-progress" or not claim or claim.startswith("_"):
+            continue
+        preferred.append(f"{task.task_id} ({claim}, {task.status})")
+    return preferred or out
 
 
 def claim_check(
@@ -136,14 +134,16 @@ def claim_check(
             "claims": claims,
         }
     agent = is_agent_session(env)
-    mode = str(cfg.get("claim_mode_agent" if agent else "claim_mode_local") or "warn").lower()
+    mode_key = "claim_mode_agent" if agent else "claim_mode_local"
+    raw_mode = cfg.get(mode_key)
+    mode = str(raw_mode).lower() if raw_mode else "warn"
     msg = (
         "process-control: no in-progress task claim before code edits. "
         f"Claim first: `./bin/agentized claim <TASK_ID> --owner <you>`. See {DOC}."
     )
     if mode == "refuse":
         return {"ok": False, "mode": "refuse", "message": "REFUSED. " + msg, "paths": watched}
-    return {"ok": True, "mode": "warn", "message": "WARN. " + msg, "paths": watched}
+    return {"ok": True, "mode": mode, "message": "WARN. " + msg, "paths": watched}
 
 
 def size_check(
@@ -178,13 +178,13 @@ def size_check(
         "base": base,
         "message": (
             f"process-control: PR size {insertions} insertions vs {base} "
-            f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over ≥{limit}). See {DOC}."
+            f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over >{limit}). See {DOC}."
         ),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(argv or sys.argv[1:])
+    args = list(sys.argv[1:] if argv is None else argv)
     root = find_repo_root()
     context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
     if args and args[0] == "size":
@@ -193,11 +193,11 @@ def main(argv: list[str] | None = None) -> int:
         stream.write(result["message"] + "\n")
         return 0 if result["ok"] else 1
     if args and args[0] == "claim":
-        paths = []
+        paths = ["runtime/agentized/x.py"]
         if "--paths" in args:
             i = args.index("--paths")
             paths = args[i + 1 :]
-        result = claim_check(root, paths or ["runtime/agentized/x.py"], context_rel=context)
+        result = claim_check(root, paths, context_rel=context)
         stream = sys.stdout if result["ok"] else sys.stderr
         if result.get("message"):
             stream.write(result["message"] + "\n")
