@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# AGENTIZED:QUALITY — authorship / strip agent trailers (AGE-27).
+set -euo pipefail
+MSG_FILE="${1:-}"
+[[ -n "$MSG_FILE" ]] || exit 0
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT"
+if [[ -x ./bin/agentized ]]; then CLI=(./bin/agentized)
+elif [[ -f runtime/agentized_cli.py ]]; then CLI=(python3 runtime/agentized_cli.py)
+elif command -v agentized >/dev/null 2>&1; then CLI=(agentized); else echo "[agentized commit-msg] ERROR: agentized CLI not found" >&2; exit 1; fi
+"${CLI[@]}" process commit-msg "$MSG_FILE"
