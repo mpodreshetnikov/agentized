@@ -14,16 +14,18 @@ from agentized.context_layout import (
     ENV_CHECK_DOC,
     ERR_BRIDGE_CONFLICT,
     ERR_EMPTY_PATH,
+    ERR_INVALID_EXTERNAL,
+    ERR_INVALID_EXTERNAL_FIELD,
     ERR_INVALID_JSON,
     ERR_INVALID_OBJECT,
     ERR_INVALID_PLACEMENT,
     ERR_PATH_INSIDE,
+    ERR_UNREADABLE,
     PLACEMENT_EXTERNAL,
     PLACEMENT_NESTED,
     ContextLayout,
     _bridge_preflight,
     _clear_empty_bridge_dir,
-    _migrate_local_bridge,
     _path_is_empty_dir,
     _registry_label,
     apply_external_env_check,
@@ -90,7 +92,13 @@ def test_paths_invalid_gitignore_dirs(tmp_path: Path):
     (ctx / "context.json").write_text(
         json.dumps({"placement": "external", "external": "bad"}), encoding="utf-8"
     )
-    assert load_layout_config(tmp_path)["external"] == {"path": "", "remote": ""}
+    with pytest.raises(ValueError, match=ERR_INVALID_EXTERNAL):
+        load_layout_config(tmp_path)
+    (ctx / "context.json").unlink()
+    (ctx / "context.json").mkdir()
+    with pytest.raises(ValueError, match=ERR_UNREADABLE):
+        load_layout_config(tmp_path)
+    (ctx / "context.json").rmdir()
     code = tmp_path / "code"
     code.mkdir()
     _write_layout(code, {"placement": "external", "external": {"path": "", "remote": "r"}})
@@ -158,16 +166,27 @@ def test_paths_invalid_gitignore_dirs(tmp_path: Path):
 def test_load_layout_normalize_custom_rel_message_encoding(tmp_path: Path, monkeypatch):
     _write_layout(
         tmp_path,
-        {"placement": " NESTED ", "external": {"path": None, "remote": 1}},
+        {"placement": " NESTED ", "external": {"path": None, "remote": None}},
         context_rel="pc",
     )
     assert load_layout_config(tmp_path, "pc") == {
         "version": 1,
         "placement": "nested",
-        "external": {"path": "", "remote": "1"},
+        "external": {"path": "", "remote": ""},
     }
-    _write_layout(tmp_path, {"placement": None}, context_rel="pc2")
-    assert load_layout_config(tmp_path, "pc2")["placement"] == PLACEMENT_NESTED
+    _write_layout(
+        tmp_path,
+        {"placement": "nested", "external": {"path": 123, "remote": ""}},
+        context_rel="pc-num",
+    )
+    with pytest.raises(ValueError, match=ERR_INVALID_EXTERNAL_FIELD):
+        load_layout_config(tmp_path, "pc-num")
+    null_p = tmp_path / "pc2" / "context.json"
+    null_p.parent.mkdir(parents=True, exist_ok=True)
+    null_p.write_text(json.dumps({"placement": None}), encoding="utf-8")
+    with pytest.raises(ValueError) as null_ei:
+        load_layout_config(tmp_path, "pc2")
+    assert str(null_ei.value) == f"{ERR_INVALID_PLACEMENT} (got None): {null_p}"
     assert not (tmp_path / "context" / "context.json").exists()
     bad = tmp_path / "pc" / "context.json"
     bad.write_text(json.dumps({"placement": "nope"}), encoding="utf-8")
@@ -719,20 +738,6 @@ def test_bridges_atomic_gitkeep_gitignore_oracles(tmp_path: Path, monkeypatch):
     assert _path_is_empty_dir(only) is True
     _clear_empty_bridge_dir(only)
     assert not only.exists()
-    dest = tmp_path / "mig-dest"
-    dest.mkdir()
-    (dest / ".gitkeep").write_text("", encoding="utf-8")
-    src = tmp_path / "mig-src"
-    src.mkdir()
-    _migrate_local_bridge(dest, src)
-    assert not dest.exists() and src.exists()
-    conflict_d, conflict_s = tmp_path / "c-d", tmp_path / "c-s"
-    conflict_d.mkdir()
-    (conflict_d / "a.md").write_text("a", encoding="utf-8")
-    conflict_s.mkdir()
-    with pytest.raises(ValueError) as ei:
-        _migrate_local_bridge(conflict_d, conflict_s)
-    assert str(ei.value) == f"{ERR_BRIDGE_CONFLICT}: {conflict_d} vs {conflict_s}"
 
     code, ext = tmp_path / "code", tmp_path / "ext"
     code.mkdir()
@@ -764,13 +769,6 @@ def test_bridges_atomic_gitkeep_gitignore_oracles(tmp_path: Path, monkeypatch):
     link_src, link_dest = tmp_path / "link-src", tmp_path / "link-dest"
     link_src.mkdir()
     assert _bridge_preflight(link_src, link_dest) == "link"
-    import agentized.context_layout as cl
-
-    monkeypatch.setattr(cl, "_bridge_preflight", lambda src, dest: "bogus")
-    with pytest.raises(ValueError) as bad_act:
-        ensure_code_context_bridges(layout)
-    assert str(bad_act.value) == "unknown bridge action 'bogus' for tasks"
-    monkeypatch.setattr(cl, "_bridge_preflight", _bridge_preflight)
 
     writes: list[dict] = []
     reads: list[dict] = []

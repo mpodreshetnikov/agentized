@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261116-0bb8](T-261116-0bb8.md) — External Context git repo (AGE-25 W3) (родитель: T-261115-918b) · claim: age25-reject
 
 ## blocked
 

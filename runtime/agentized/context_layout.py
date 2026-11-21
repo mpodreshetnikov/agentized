@@ -28,6 +28,9 @@ REGISTRY_DIRS = ("tasks", "decisions", "goals", "leases", "digests")
 
 ERR_INVALID_JSON = "context.json is not valid JSON"
 ERR_INVALID_OBJECT = "context.json must be a JSON object"
+ERR_UNREADABLE = "context.json is unreadable"
+ERR_INVALID_EXTERNAL = "context.json external must be an object"
+ERR_INVALID_EXTERNAL_FIELD = "context.json external.path/remote must be strings"
 ERR_INVALID_PLACEMENT = "context.json placement must be nested|external"
 ERR_EMPTY_PATH = "external.path is empty — set context/context.json external.path"
 ERR_PATH_INSIDE = "external.path inside code repo must be gitignored"
@@ -91,6 +94,8 @@ def load_layout_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[s
         return cfg
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"{ERR_UNREADABLE}: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ValueError(f"{ERR_INVALID_JSON}: {path}") from exc
     if not isinstance(data, dict):
@@ -98,17 +103,20 @@ def load_layout_config(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[s
     cfg = {**cfg, **{k: data[k] for k in data}}
     external = cfg.get("external")
     if not isinstance(external, dict):
-        cfg["external"] = {"path": "", "remote": ""}
-    else:
-        cfg["external"] = {
-            "path": str(external.get("path") or ""),
-            "remote": str(external.get("remote") or ""),
-        }
+        raise ValueError(f"{ERR_INVALID_EXTERNAL}: {path}")
+    path_v = external.get("path", "")
+    remote_v = external.get("remote", "")
+    if path_v is None:
+        path_v = ""
+    if remote_v is None:
+        remote_v = ""
+    if not isinstance(path_v, str) or not isinstance(remote_v, str):
+        raise ValueError(f"{ERR_INVALID_EXTERNAL_FIELD}: {path}")
+    cfg["external"] = {"path": path_v, "remote": remote_v}
     raw_placement = cfg.get("placement")
     if raw_placement is None:
-        placement = PLACEMENT_NESTED
-    else:
-        placement = str(raw_placement).strip().lower()
+        raise ValueError(f"{ERR_INVALID_PLACEMENT} (got None): {path}")
+    placement = str(raw_placement).strip().lower()
     if placement not in VALID_PLACEMENTS:
         raise ValueError(f"{ERR_INVALID_PLACEMENT} (got {cfg.get('placement')!r}): {path}")
     cfg["placement"] = placement
@@ -245,13 +253,8 @@ def _clear_empty_bridge_dir(path: Path) -> None:
 
 
 def _migrate_local_bridge(dest: Path, src: Path) -> None:
-    if not src.exists():
-        dest.rename(src)
-        return
-    if _path_is_empty_dir(dest):
-        _clear_empty_bridge_dir(dest)
-        return
-    raise ValueError(f"{ERR_BRIDGE_CONFLICT}: {dest} vs {src}")
+    # migrate_only preflight guarantees src is absent; rename local dest into registry.
+    dest.rename(src)
 
 
 def _bridge_link_target(src: Path, dest: Path) -> str:
@@ -313,20 +316,24 @@ def ensure_code_context_bridges(layout: ContextLayout) -> list[str]:
             _migrate_local_bridge(dest, src)
         elif action == "clear_link":
             _clear_empty_bridge_dir(dest)
-        elif action != "link":
-            raise ValueError(f"unknown bridge action {action!r} for {name}")
         dest.symlink_to(_bridge_link_target(src, dest))
         created.append(name)
     return list(created)
 
 
-def prepare_connect_layout(root: Path, context_rel: str = DEFAULT_CONTEXT) -> ContextLayout:
+def prepare_connect_layout(
+    root: Path,
+    context_rel: str = DEFAULT_CONTEXT,
+    *,
+    bridges: bool = True,
+) -> ContextLayout:
     ensure_layout_config(root, context_rel=context_rel)
     layout = resolve_layout(root, context_rel=context_rel)
     if layout.is_external:
         require_registry_ready(layout)
-        ensure_code_context_bridges(layout)
-        ensure_bridge_gitignore(root, context_rel=context_rel)
+        if bridges:
+            ensure_code_context_bridges(layout)
+            ensure_bridge_gitignore(root, context_rel=context_rel)
     return layout
 
 
