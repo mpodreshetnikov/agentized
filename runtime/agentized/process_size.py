@@ -12,6 +12,8 @@ from .paths import DEFAULT_CONTEXT
 
 DOC = "docs/process-control.md"
 HARD_CAP = 1500
+# Exact lowercase codec — avoid utf-8/UTF-8 lexeme mutants surviving decode.
+_CONFIG_ENCODING = "utf-8"
 
 
 def validate_size_fields(cfg: dict[str, Any], *, path: Path | None = None) -> tuple[int, float]:
@@ -50,7 +52,7 @@ def load_process_config_file(path: Path, defaults: dict[str, Any]) -> dict[str, 
         validate_size_fields(cfg, path=path)
         return cfg
     try:
-        data = json.loads(path.read_bytes().decode("utf-8"))
+        data = json.loads(path.read_bytes().decode(_CONFIG_ENCODING))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise ValueError(f"process-control: invalid JSON in {path}: {exc}. See {DOC}.") from exc
     if not isinstance(data, dict):

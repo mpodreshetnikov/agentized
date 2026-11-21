@@ -32,6 +32,16 @@ def test_load_missing_returns_defaults_copy(tmp_path: Path):
     assert defaults["reviewable_lines"] == 1500
 
 
+def test_load_missing_invalid_defaults_includes_path(tmp_path: Path):
+    """path= must reach validate_size_fields on missing file (kills path=None / drop kwarg)."""
+    path = tmp_path / "missing-pc.json"
+    with pytest.raises(ValueError) as excinfo:
+        load_process_config_file(path, {"reviewable_lines": 0, "warn_at_pct": 75})
+    msg = str(excinfo.value)
+    assert str(path) in msg
+    assert " in " in msg
+
+
 def test_load_valid_merges_over_defaults(tmp_path: Path):
     path = tmp_path / "process-control.json"
     # Non-ASCII forces utf-8 decode (kills encoding mutants).
@@ -40,14 +50,15 @@ def test_load_valid_merges_over_defaults(tmp_path: Path):
     assert cfg["reviewable_lines"] == 100
     assert cfg["warn_at_pct"] == 75
     assert cfg["note"] == "я"
-    # encoding= keyword must be utf-8 (mutant: drop encoding / wrong codec).
-    # Hermetic under mutmut (agentized/…) and dogfood (runtime/agentized/…).
-    import inspect
-
     from agentized import process_size as ps
 
+    # Constant must stay exact lowercase utf-8 (UTF-8 mutant dies here).
+    assert ps._CONFIG_ENCODING == "utf-8"
+    assert list(ps._CONFIG_ENCODING) == ["u", "t", "f", "-", "8"]
+    import inspect
+
     src = inspect.getsource(ps.load_process_config_file)
-    assert 'path.read_bytes().decode("utf-8")' in src
+    assert "decode(_CONFIG_ENCODING)" in src
 
 
 def test_load_invalid_json_raises(tmp_path: Path):
@@ -580,10 +591,30 @@ def test_size_check_error_dict_and_process_base(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("agentized.process_size.validate_process_base", lambda *a, **k: None)
     monkeypatch.setattr("agentized.process_size.limit_from_base_ref", lambda *a, **k: None)
     monkeypatch.setattr("agentized.process_size.diff_insertions", lambda *a, **k: 1)
-    monkeypatch.setenv("PROCESS_BASE", "origin/main")
+    # Distinctive env value — XXPROCESS_BASEXX / process_base mutants fall through to origin/main.
+    monkeypatch.setenv("PROCESS_BASE", "env-base-from-process-base")
     used = size_check(tmp_path)
-    assert used["base"] == "origin/main"
+    assert used["base"] == "env-base-from-process-base"
     assert used["ok"] is True
+
+
+def test_size_check_passes_context_rel_to_loader(tmp_path: Path, monkeypatch):
+    """load_process_config must receive context_rel (kills dropped second arg)."""
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text(
+        '{"reviewable_lines": 1500, "warn_at_pct": 75}\n', encoding="utf-8"
+    )
+    (tmp_path / "custom").mkdir()
+    (tmp_path / "custom" / "process-control.json").write_text(
+        '{"reviewable_lines": 40, "warn_at_pct": 75}\n', encoding="utf-8"
+    )
+    monkeypatch.setattr("agentized.process_size.validate_process_base", lambda *a, **k: None)
+    monkeypatch.setattr("agentized.process_size.limit_from_base_ref", lambda *a, **k: None)
+    monkeypatch.setattr("agentized.process_size.diff_insertions", lambda *a, **k: 50)
+    result = size_check(tmp_path, context_rel="custom", base_ref="origin/main")
+    assert result["limit"] == 40
+    assert result["ok"] is False
+    assert result["level"] == "over"
 
 
 def test_size_check_uses_base_limit_cap(tmp_path: Path, monkeypatch):
