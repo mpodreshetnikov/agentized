@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-8c84](T-261121-8c84.md) — CI ban formatter/linter disable comments in PR diffs (родитель: T-261115-918b) · claim: bc-51730c87-3494-564a-b589-0aba615df75e
+_(пусто)_
 
 ## blocked
 
