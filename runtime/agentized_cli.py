@@ -25,7 +25,8 @@ from agentized.leases import (
 from agentized.context_paths import path_under, resolve_context_dir
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
-from agentized.status_gates import apply_ready, run_tasks_validate
+from agentized.status_gates import run_tasks_validate
+from agentized.tip_hygiene import apply_ready, run_tip_hygiene_gates
 from agentized.tasks import (
     ACTIVE_STATUSES,
     ALL_STATUSES,
@@ -374,20 +375,25 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_tasks_validate(args: argparse.Namespace) -> int:
     root = find_repo_root()
+    tasks_dir = _ctx(root, args) / "tasks"
     try:
         ref, result = run_tasks_validate(
-            _ctx(root, args) / "tasks",
+            tasks_dir,
             repo_root=root,
             base_ref=getattr(args, "base", None) or None,
-            pr_number=getattr(args, "pr", None) or None,
-            check_index=not bool(getattr(args, "skip_index", False)),
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
         return 1
-    if not result.ok:
+    tip = run_tip_hygiene_gates(
+        tasks_dir,
+        pr_number=getattr(args, "pr", None) or None,
+        check_index=not bool(getattr(args, "skip_index", False)),
+    )
+    errors = list(result.errors) + list(tip.errors)
+    if errors:
         print("tasks-validate FAIL", file=sys.stderr)
-        print(*(f"  ERROR: {e}" for e in result.errors), sep="\n", file=sys.stderr)
+        print(*(f"  ERROR: {e}" for e in errors), sep="\n", file=sys.stderr)
         return 1
     print(f"tasks-validate OK (base={ref})")
     return 0

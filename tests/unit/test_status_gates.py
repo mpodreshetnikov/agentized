@@ -601,9 +601,6 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     assert set(previous_task_texts_from_git(tasks, repo_root=tmp_path, ref="HEAD")) == {
         "T-261116-os.md"
     }
-    from agentized.task_schema import rebuild_task_index
-
-    (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref == "deadbeef" and result.ok is True
 
@@ -676,21 +673,18 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
         calls["prev"] = (td, repo_root, ref)
         return {"T-261116-rv.md": _task("open")}
 
-    def fake_validate(td, **kwargs):
-        calls["validate"] = kwargs.get("previous_by_name")
-        calls["validate_kwargs"] = kwargs
+    def fake_validate(td, *, previous_by_name=None, skip_stems=None):
+        calls["validate"] = previous_by_name
         return GateResult(False, ("illegal transition open → done",))
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", fake_resolve)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
     monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
-    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B", pr_number=76)
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")
     assert ref == "CUSTOM-REF" and result.ok is False
     assert calls["resolve"] == (tmp_path, "B")
     assert calls["prev"] == (tasks, tmp_path, "CUSTOM-REF")
     assert calls["validate"] == {"T-261116-rv.md": _task("open")}
-    assert calls["validate_kwargs"]["pr_number"] == 76
-    assert calls["validate_kwargs"]["check_index"] is True
     multi = tmp_path / "multi"
     multi.mkdir()
     (multi / "T-261116-a.md").write_text(_task("open"), encoding="utf-8")

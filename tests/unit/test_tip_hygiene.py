@@ -5,21 +5,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentized.status_gates import (
+from agentized.status_gates import GateResult
+from agentized.tip_hygiene import (
     EMPTY_CLAIM_PLACEHOLDER,
     MSG_INDEX_STALE,
     MSG_TIP_CLAIM,
     MSG_TIP_STATUS,
     MSG_UNREADABLE,
-    GateResult,
     apply_ready,
     claim_is_held,
     parse_pr_number,
     resolve_validate_pr_number,
-    run_tasks_validate,
+    run_tip_hygiene_gates,
     task_pr_matches,
     validate_index_freshness,
-    validate_tasks_dir,
     validate_tip_hygiene,
 )
 from agentized.task_schema import rebuild_task_index
@@ -263,14 +262,14 @@ def test_apply_ready_releases_claim_and_status():
     assert f"claim: {EMPTY_CLAIM_PLACEHOLDER}" in header
 
 
-def test_validate_tasks_dir_wires_tip_and_index(tmp_path: Path):
+def test_run_tip_hygiene_gates_wires_tip_and_index(tmp_path: Path):
     path = tmp_path / "T-261121-wire.md"
     path.write_text(
         _task("in-progress", claim="worker", pr="#76"),
         encoding="utf-8",
     )
     _write_index(tmp_path)
-    wired = validate_tasks_dir(tmp_path, pr_number=76, check_index=True)
+    wired = run_tip_hygiene_gates(tmp_path, pr_number=76, check_index=True)
     assert wired.ok is False
     assert any("tip hygiene" in e for e in wired.errors)
 
@@ -284,17 +283,15 @@ def test_validate_tasks_dir_wires_tip_and_index(tmp_path: Path):
         encoding="utf-8",
     )
     _write_index(tmp_path)
-    assert validate_tasks_dir(tmp_path, pr_number=76, check_index=True) == GateResult(True)
+    assert run_tip_hygiene_gates(tmp_path, pr_number=76, check_index=True) == GateResult(True)
 
     (tmp_path / "INDEX.md").write_text("stale", encoding="utf-8")
-    stale = validate_tasks_dir(tmp_path, pr_number=76, check_index=True)
+    stale = run_tip_hygiene_gates(tmp_path, pr_number=76, check_index=True)
     assert MSG_INDEX_STALE in stale.errors
-    assert validate_tasks_dir(tmp_path, pr_number=76, check_index=False).ok is True
+    assert run_tip_hygiene_gates(tmp_path, pr_number=76, check_index=False).ok is True
 
 
-def test_run_tasks_validate_reads_pr_env(tmp_path: Path, monkeypatch):
-    import agentized.status_gates as sg
-
+def test_run_tip_hygiene_gates_reads_pr_env(tmp_path: Path, monkeypatch):
     tasks = tmp_path / "context" / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "T-261121-env.md").write_text(
@@ -302,14 +299,11 @@ def test_run_tasks_validate_reads_pr_env(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     _write_index(tasks)
-    monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda *_a, **_k: "BASE")
-    monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *_a, **_k: {})
     monkeypatch.setenv("TASKS_VALIDATE_PR", "41")
-    ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
-    assert ref == "BASE"
+    result = run_tip_hygiene_gates(tasks, check_index=True)
     assert result.ok is False
     assert any("tip hygiene" in e and "#41" in e for e in result.errors)
 
     monkeypatch.delenv("TASKS_VALIDATE_PR", raising=False)
-    ref2, ok = run_tasks_validate(tasks, repo_root=tmp_path, pr_number=None, check_index=True)
-    assert ref2 == "BASE" and ok.ok is True
+    ok = run_tip_hygiene_gates(tasks, pr_number=None, check_index=True)
+    assert ok.ok is True
