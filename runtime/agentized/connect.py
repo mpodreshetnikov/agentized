@@ -916,31 +916,13 @@ MINIMAL_LEASES_INDEX_MD = """# Path leases — индекс
 """
 
 
-def ensure_context_skeleton(
-    root: Path,
-    context_rel: str = DEFAULT_CONTEXT,
-    *,
-    external: bool = False,
-) -> dict:
+def ensure_context_skeleton(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict:
     """Create minimal Context (NAV.md, tasks/, leases/) if missing.
 
     If Context already has NAV.md, leave it alone — never overwrite user NAV
     or existing index files.
-
-    External placement: do **not** create local registry dirs/files that bridges
-    replace (`tasks`, `leases`, `NAV.md`, …) — those live in the external clone.
-    Still ensure the code-side `{context}/` directory exists for pins/config.
     """
     ctx = root / context_rel
-    if external:
-        ctx.mkdir(parents=True, exist_ok=True)
-        return {
-            "created": False,
-            "path": context_rel,
-            "files": [],
-            "skipped_external": True,
-        }
-
     nav = ctx / "NAV.md"
     if nav.exists():
         return {
@@ -980,14 +962,7 @@ def connect(
     coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
-    external = False
-    try:
-        from .context_layout import resolve_layout
-
-        external = resolve_layout(root, context_rel).is_external
-    except ValueError:
-        external = False
-    skeleton = ensure_context_skeleton(root, context_rel, external=external)
+    skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
         begin=CONNECT_MARKER_BEGIN,

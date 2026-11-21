@@ -23,7 +23,7 @@
 
 | Артефакт | Поведение |
 |----------|-----------|
-| `{context}/` skeleton | Local placement: если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает. **External placement:** connect **не** создаёт локальные `tasks` / `leases` / `NAV.md` (и прочие bridge paths) — они живут во внешнем clone; после успешного connect CLI ставит relative bridges + `.gitignore` |
+| `{context}/` skeleton | Если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает. **External placement:** CLI suppresses local skeleton registry dirs, then after successful connect installs relative bridges + `.gitignore` for bridge paths (avoids `ERR_BRIDGE_CONFLICT`) |
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
 | `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |

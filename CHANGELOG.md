@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- External `agentized connect`: do not create local `context/tasks` (and other bridge paths) when `placement: external` — bridges replace those paths after a successful connect (avoids `ERR_BRIDGE_CONFLICT` on fresh repos).
+- External `agentized connect` (CLI): suppress local skeleton registry dirs before bridging so fresh external Context no longer hits `ERR_BRIDGE_CONFLICT`.
 
 ### Changed
 

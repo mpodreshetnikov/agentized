@@ -90,15 +90,34 @@ def cmd_connect(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"context layout error: {exc}", file=sys.stderr)
         return 1
-    result = connect(
-        root,
-        context_rel=args.context,
-        harnesses=harnesses,
-        coverage_pct=args.coverage,
-    )
+    # External: prevent connect skeleton from creating local tasks/leases/NAV that
+    # later conflict with bridges (ERR_BRIDGE_CONFLICT). A temporary NAV.md makes
+    # ensure_context_skeleton no-op; always remove it before bridging (or on failure).
+    placeholder_nav = False
+    code_nav = root / args.context / "NAV.md"
+
+    def _clear_placeholder_nav() -> None:
+        if placeholder_nav and code_nav.exists() and not code_nav.is_symlink():
+            code_nav.unlink()
+
+    if layout.is_external and not code_nav.exists():
+        code_nav.parent.mkdir(parents=True, exist_ok=True)
+        code_nav.write_text("# Agentized: external connect placeholder\n", encoding="utf-8")
+        placeholder_nav = True
+    try:
+        result = connect(
+            root,
+            context_rel=args.context,
+            harnesses=harnesses,
+            coverage_pct=args.coverage,
+        )
+    except Exception:
+        _clear_placeholder_nav()
+        raise
     if layout.is_external:
         from agentized.context_layout import ensure_bridge_gitignore, ensure_code_context_bridges
 
+        _clear_placeholder_nav()
         try:
             ensure_code_context_bridges(layout)
             ensure_bridge_gitignore(root, context_rel=args.context)
