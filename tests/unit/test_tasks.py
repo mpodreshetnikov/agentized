@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from agentized import tasks as tasks_mod
 from agentized.tasks import (
     ALL_STATUSES,
@@ -15,8 +14,11 @@ from agentized.tasks import (
     STATUS_ALIASES,
     allocate_task_id,
     append_progress,
+    append_status_progress,
+    last_progress_entry,
     list_tasks,
     parse_task,
+    progress_body,
     rebuild_task_index,
     render_task_file,
     set_field,
@@ -382,6 +384,74 @@ def test_append_progress_exact_with_frozen_time(monkeypatch):
     padded = append_progress("# T — x\n   \n", "p")
     assert padded.startswith("# T — x\n\n## Progress\n\n- ")
     assert padded.endswith(f"- {stamp}: p\n")
+
+
+def test_append_progress_never_prepends_existing_history(monkeypatch):
+    """AGE-73: new bullets go after existing history, not under _(append-only)_ ahead of it."""
+
+    class Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return datetime(2026, 11, 21, 10, 0, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(tasks_mod, "datetime", Fixed)
+    stamp = "2026-11-21 10:00 UTC"
+    base = (
+        "# T — x\n\n## Progress\n\n_(append-only)_\n"
+        "- 2026-11-21 09:00 UTC: claim by a\n"
+        "- 2026-11-21 09:30 UTC: work done\n"
+        "\n## Decision Log\n\nz\n"
+    )
+    out = append_progress(base, "newer tip")
+    body = progress_body(out)
+    # Newest line is last (append), not first after the marker (prepend).
+    assert body.index("claim by a") < body.index("work done") < body.index("newer tip")
+    assert out == (
+        "# T — x\n\n## Progress\n\n_(append-only)_\n"
+        "- 2026-11-21 09:00 UTC: claim by a\n"
+        "- 2026-11-21 09:30 UTC: work done\n"
+        f"- {stamp}: newer tip\n"
+        "\n## Decision Log\n\nz\n"
+    )
+    # Prepend would put the new stamp immediately after _(append-only)_.
+    assert not body.lstrip().startswith(
+        f"_(append-only)_\n- {stamp}: newer tip\n- 2026-11-21 09:00"
+    )
+
+
+def test_append_status_progress_appends_and_dedupes(monkeypatch):
+    """AGE-73: status→done Progress writer appends once; second identical call is no-op."""
+
+    class Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return datetime(2026, 11, 21, 11, 0, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(tasks_mod, "datetime", Fixed)
+    stamp = "2026-11-21 11:00 UTC"
+    base = (
+        "# T — x\n\nстатус: in-progress\n\n## Progress\n\n_(append-only)_\n"
+        "- 2026-11-21 09:00 UTC: claim by a\n"
+        "\n## Decision Log\n\n_(append-only)_\n"
+    )
+    once = append_status_progress(base, "done")
+    assert last_progress_entry(once) == "статус → done"
+    assert once.count("статус → done") == 1
+    assert f"- 2026-11-21 09:00 UTC: claim by a\n- {stamp}: статус → done\n" in once
+    assert once.index("claim by a") < once.index("статус → done")
+    twice = append_status_progress(once, "done")
+    assert twice == once
+    # English alias on last line also dedupes.
+    eng = append_progress(base, "status → self-review")
+    assert append_status_progress(eng, "self-review") == eng
+    # Different status still appends.
+    other = append_status_progress(once, "self-review")
+    assert other != once
+    assert last_progress_entry(other) == "статус → self-review"
+    assert other.count("статус → done") == 1
+    assert other.count("статус → self-review") == 1
 
 
 def test_rebuild_task_index_exact(tmp_path: Path):

@@ -363,7 +363,30 @@ def set_field(text: str, field_name: str, value: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+
+_PROGRESS_BULLET_RE = re.compile(
+    r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC): (.+)$", re.MULTILINE
+)
+
+
+def progress_body(text: str) -> str:
+    """Return the Progress section body (after ``## Progress`` until next ``##``)."""
+    if PROGRESS_MARKER not in text:
+        return ""
+    after = text.split(PROGRESS_MARKER, 1)[1]
+    return after.split("\n## ", 1)[0]
+
+
+def last_progress_entry(text: str) -> str | None:
+    """Return the entry text of the last Progress bullet, or None."""
+    matches = _PROGRESS_BULLET_RE.findall(progress_body(text))
+    if not matches:
+        return None
+    return matches[-1][1]
+
+
 def append_progress(text: str, entry: str) -> str:
+    """Append a stamped Progress bullet at the **end** of the Progress body (never prepend)."""
     from . import tasks as _tasks
 
     stamp = _tasks.datetime.now(_tasks.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -373,10 +396,23 @@ def append_progress(text: str, entry: str) -> str:
         return text.rstrip() + f"\n\n{marker}\n\n{line}\n"
     before, after = text.split(marker, 1)
     parts = after.split("\n## ", 1)
-    progress_body = parts[0]
+    body = parts[0]
     rest = ("\n## " + parts[1]) if len(parts) > 1 else ""
-    progress_body = progress_body.rstrip() + "\n" + line + "\n"
-    return before + marker + progress_body + rest
+    # Append after existing bullets — do not insert under _(append-only)_ ahead of history.
+    body = body.rstrip() + "\n" + line + "\n"
+    return before + marker + body + rest
+
+
+def append_status_progress(text: str, status: str) -> str:
+    """Append ``статус → {status}`` once; no-op if last Progress entry is already that transition.
+
+    AGE-73: single status→done (and other status) Progress writer; append, never prepend; dedupe.
+    """
+    entry = f"статус → {status}"
+    last = last_progress_entry(text)
+    if last is not None and last.strip() in {entry, f"status → {status}"}:
+        return text
+    return append_progress(text, entry)
 
 
 def dependency_cycles_for_dir(tasks_dir: Path) -> list[list[str]]:

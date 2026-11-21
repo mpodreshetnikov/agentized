@@ -25,9 +25,6 @@ def test_noop_result_keys_are_literal_path(tmp_path: Path):
     (ctx / "NAV.md").write_text("# existing\n", encoding="utf-8")
     result = ensure_context_skeleton(tmp_path, "context")
     assert result == {"created": False, "path": "context", "files": []}
-    assert set(result) == {"created", "path", "files"}
-    assert "XXpathXX" not in result
-    assert "PATH" not in result
 
 
 def test_created_result_keys_are_literal_path(tmp_path: Path):
@@ -35,7 +32,6 @@ def test_created_result_keys_are_literal_path(tmp_path: Path):
     result = ensure_context_skeleton(tmp_path, "context")
     assert result["created"] is True
     assert result["path"] == "context"
-    assert "path" in result
     assert set(result) == {"created", "path", "files"}
 
 
