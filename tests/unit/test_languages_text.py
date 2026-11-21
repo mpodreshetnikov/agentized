@@ -33,6 +33,12 @@ def test_result_and_messages_exact():
         "message": "m",
         "skipped": False,
     }
+    filled = t.result(
+        ok=False, message="x", detected={"p": ["a"]}, unsupported=["go"],
+        missing_gates={"p": ["m"]}, skipped=True,
+    )
+    assert filled["unsupported"] == ["go"] and filled["skipped"] is True
+    assert filled["detected"] == {"p": ["a"]} and filled["missing_gates"] == {"p": ["m"]}
     assert t.msg_detect_false() == (
         "agentized: REFUSED — languages.detect=false is not allowed "
         "(fail-closed language coverage; AGE-24)."
