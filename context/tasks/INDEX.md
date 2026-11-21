@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-1200](T-261121-1200.md) — AGE-86 Progress Decision Log prefix gate (родитель: T-261115-918b) · claim: bc-57ae11ca-4bc1-5216-b745-3544ff848086
+_(пусто)_
 
 ## blocked
 
