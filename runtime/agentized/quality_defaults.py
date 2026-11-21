@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import languages_text as _lang_text
+
 DEFAULT_COVERAGE_PCT = 80
 SCHEMA_VERSION = 1
 
@@ -33,9 +35,18 @@ def default_quality_config() -> dict[str, Any]:
                 "thresholds": {},
             }
         ],
+        "languages": {
+            "supported": list(_lang_text.DEFAULT_SUPPORTED),
+            "exclude_globs": list(_lang_text.DEFAULT_EXCLUDE_GLOBS),
+        },
         "mutation": {
             "enabled": True,
             "tool": "mutmut",
+            "tools": {
+                "python": "mutmut",
+                "javascript": "stryker",
+                "typescript": "stryker",
+            },
             "gate": "hard",
             "scope": "covered_changed_lines",
             "base_ref": "origin/main",

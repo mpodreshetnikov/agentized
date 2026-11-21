@@ -43,16 +43,31 @@ def _ctx(root: Path, args) -> Path:
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
+    from agentized.connect_languages import ConnectRefused, refuse_incomplete_languages
+
     root = find_repo_root()
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
-    result = connect(
-        root,
-        context_rel=args.context,
-        harnesses=harnesses,
-        coverage_pct=args.coverage,
-    )
+    try:
+        refuse_incomplete_languages(root, args.context)
+        result = connect(
+            root,
+            context_rel=args.context,
+            harnesses=harnesses,
+            coverage_pct=args.coverage,
+        )
+    except ConnectRefused as exc:
+        print(exc.message, file=sys.stderr)
+        if args.json:
+            print(
+                json.dumps(
+                    {"ok": False, "refused": True, "message": exc.message, **exc.details},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        return 1
     print("connect OK")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
@@ -234,11 +249,16 @@ def cmd_quality(args: argparse.Namespace) -> int:
     if args.quality_cmd == "check":
         from agentized.architecture_gate import run_architecture_gate
         from agentized.coverage_check import run_coverage_check
+        from agentized.languages import check_language_coverage
         from agentized.mutation_ast import run_mutation
         from agentized.quality import load_quality
         from agentized.test_smells import run_test_smells
 
         cfg = load_quality(root, ctx_rel)
+        lang = check_language_coverage(root, context=ctx_rel, cfg=cfg)
+        print(f"[languages] {lang['message']}")
+        if lang.get("ok") is not True:
+            return 1
         gate_names = list((cfg.get("gates") or {}).get("ci") or [])
         # Always run coverage (module tests + thresholds) then optional warn gates, then mutation.
         ordered = gate_names or [
