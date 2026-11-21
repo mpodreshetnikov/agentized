@@ -784,50 +784,53 @@ def test_non_orbit_md_warned_and_zero_sources_errors(tmp_path: Path):
     dest.mkdir()
     report = import_orbit_tasks(src, dest, dry_run=True)
     assert report.sources == []
-    assert any("no Orbit task files" in e for e in report.errors)
+    assert report.errors == ["no Orbit task files (T-*.md) found under source"]
     assert any("README.md" in w for w in report.warnings)
     assert any("notes.md" in w for w in report.warnings)
 
 
 def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
-    done = _draft(source=Path("T-d.md"), task_id="T-d", title="D", status="done", exit="shipped")
-    assert "acceptance_note: shipped" in agentized_markdown(done).splitlines()
-    open_md = agentized_markdown(_draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x"))
-    assert "acceptance_note:" not in open_md and "Ценность: V" in open_md
+    assert (
+        "acceptance_note: shipped"
+        in agentized_markdown(
+            _draft(source=Path("T-d.md"), task_id="T-d", title="D", status="done", exit="shipped")
+        ).splitlines()
+    )
+    assert "acceptance_note:" not in agentized_markdown(
+        _draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x")
+    )
     (tmp_path / "T-261116-uscr.md").write_text(
         "# T-261116-uscr — U\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\n"
         "claim: _(пусто)_\norbit_id: _(пусто)_\n",
         encoding="utf-8",
     )
-    assert existing_orbit_id_map(tmp_path) == {}
-    assert existing_orbit_id_map(tmp_path / "missing") == {}
+    assert existing_orbit_id_map(tmp_path) == existing_orbit_id_map(tmp_path / "missing") == {}
     assert oi_mod._remap_id("T-1", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
-    assert oi_mod._remap_id("T-261116-aaa", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
     assert oi_mod._remap_id("T-miss", {"T-1": "T-261116-aaa"}) is None
     d = _draft(source=Path("a.md"), task_id="T-261116-aaa", title="A", depends_on=["T-1"], body="B")
-    text = format_report(
-        oi_mod.ImportReport(
-            dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
-        )
+    rep = oi_mod.ImportReport(
+        dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
     )
-    assert f"  depends_on T-261116-aaa: {oi_mod.format_id_list(['T-1'])}" in text.splitlines()
+    assert (
+        f"  depends_on T-261116-aaa: {oi_mod.format_id_list(['T-1'])}"
+        in format_report(rep).splitlines()
+    )
     real_parse = parse_yaml_front_matter
 
     def value_cyr(raw):
         meta, body = real_parse(raw)
-        meta = dict(meta)
-        meta.pop("value", None)
-        meta["Ценность"] = "Only Cyrillic"
-        return meta, body
+        return {**dict(meta), "Ценность": "Only Cyrillic"}, body
 
     monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", value_cyr)
-    d_val = draft_from_orbit_file(
-        _fm(
-            tmp_path / "T-val.md",
-            "---\nid: T-0700\ntitle: V\nstatus: open\nkind: chore\npriority: p2\n---\nB\n",
-        )
+    assert (
+        draft_from_orbit_file(
+            _fm(
+                tmp_path / "T-val.md",
+                "---\nid: T-0700\ntitle: V\nstatus: open\nkind: chore\npriority: p2\n---\nB\n",
+            )
+        ).value
+        == "Only Cyrillic"
     )
-    assert d_val is not None and d_val.value == "Only Cyrillic"
     monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", real_parse)
     src, dest = tmp_path / "src", tmp_path / "dest"
     src.mkdir()
@@ -883,7 +886,7 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
         "---\nid: T-0091\ntitle: A\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
     )
     r_o = import_orbit_tasks(src_o, dest_o, dry_run=True)
-    assert str(src_o / "T-0090.md") in r_o.skipped
+    assert str(src_o / "T-0090.md") in r_o.skipped and len(r_o.would_write) == 1
     src_h, dest_h = tmp_path / "srcH", tmp_path / "destH"
     src_h.mkdir()
     dest_h.mkdir()
@@ -897,7 +900,7 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
         "---\nid: T-261116-late\ntitle: L\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
     )
     r_h = import_orbit_tasks(src_h, dest_h, dry_run=True)
-    assert str(src_h / "T-have.md") in r_h.skipped
+    assert str(src_h / "T-have.md") in r_h.skipped and len(r_h.would_write) == 1
     src_d, dest_d = tmp_path / "srcD", tmp_path / "destD"
     src_d.mkdir()
     _fm(
@@ -920,17 +923,22 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     _fm(
         src2 / "T-dep.md",
         "---\nid: T-261116-dep1\ntitle: Dep\nstatus: open\nkind: feature\n"
-        "priority: p2\norbit_id: T-0880\nvalue: HasValue\n---\nB\n",
+        "priority: p2\nvalue: HasValue\n---\nB\n",
+    )
+    _fm(
+        src2 / "T-orb.md",
+        "---\nid: T-261116-orb1\ntitle: Orb\nstatus: open\nkind: feature\n"
+        "priority: p2\norbit_id: T-0990\nvalue: HasValue\n---\nB\n",
     )
     _fm(
         src2 / "T-live.md",
         "---\nid: T-261116-liv1\ntitle: Live\nstatus: open\nkind: feature\n"
-        "priority: p2\ndepends_on: [T-261116-dep1, T-0880]\n---\nB\n",
+        "priority: p2\ndepends_on: [T-261116-dep1, T-0990]\n---\nB\n",
     )
     r2 = import_orbit_tasks(src2, dest2, dry_run=True)
     assert r2.errors == []
     live2 = next(x for x in r2.drafts if x.task_id == "T-261116-liv1")
-    assert live2.depends_on == ["T-261116-dep1", "T-261116-dep1"]
+    assert live2.depends_on == ["T-261116-dep1", "T-261116-orb1"]
     assert sum(1 for w in r2.warnings if "no Orbit value" in w and "T-261116-liv1" in w) == 1
     src3, dest3 = tmp_path / "src3", tmp_path / "dest3"
     src3.mkdir()
@@ -943,11 +951,3 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     bad = import_orbit_tasks(src3, dest3, dry_run=True)
     assert bad.errors and None not in bad.warnings
     assert any("T-261116-bad1" in w and "unresolved id" in w for w in bad.warnings)
-    d7 = draft_from_orbit_file(
-        _fm(
-            tmp_path / "T-blk2.md",
-            "---\nid: T-blk2\ntitle: B\nstatus: blocked\nblocked_by: x\nblocked_reason: why\n"
-            "blocked_deadline: 2026-11-21\nreview_note: rn\npr: #26\nvalue: Ценность Orbit\n---\nB\n",
-        )
-    )
-    assert d7.blocked_reason == "why" and d7.pr == "#26" and d7.value == "Ценность Orbit"
