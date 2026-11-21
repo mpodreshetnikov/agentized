@@ -32,19 +32,21 @@ def main() -> int:
 
     text = f"Agentized session check: workspace={workspace}"
     try:
-        from agentized.hook_common import nav_reminder, resolve_root
+        from agentized.hook_common import resolve_root
+        from agentized.context_layout import session_nav_reminder
 
         root = resolve_root(payload) if payload else workspace
         runtime = root / "runtime"
         if runtime.is_dir() and str(runtime) not in sys.path:
             sys.path.insert(0, str(runtime))
-            from agentized.hook_common import nav_reminder as nav_reminder  # noqa: F811
+            from agentized.context_layout import session_nav_reminder as session_nav_reminder  # noqa: F811
 
-        text = nav_reminder(root)
+        text = session_nav_reminder(root)
         try:
             from agentized.env_check import check as env_check
+            from agentized.context_layout import apply_external_env_check
 
-            env_result = env_check(repo_root=root)
+            env_result = apply_external_env_check(env_check(repo_root=root), root)
             text = text + "\n\n" + env_result["message"]
         except Exception as exc:  # noqa: BLE001
             text = text + f"\n\n[agent-env-check] unavailable: {exc}"

@@ -89,3 +89,5 @@ Trust project `.codex/hooks.json` after connect, or paste an equivalent user `~/
 - Session-start hook appends an env-check reminder when the session is an agent harness.
 
 Process-control (claim / PR size): see [`process-control.md`](./process-control.md).
+
+External Context (`placement: external`): `env-check` hard-requires the Context clone (local and cloud) — see [`external-context.md`](./external-context.md).
