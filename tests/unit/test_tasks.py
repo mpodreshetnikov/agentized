@@ -414,6 +414,29 @@ def test_last_progress_entry_uses_first_progress_section():
     )
 
 
+def test_last_progress_entry_counts_undated_bullet(monkeypatch):
+    """Undated last bullet is last entry — earlier dated статус → done must not skip a new done."""
+    class Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return datetime(2026, 11, 21, 12, 0, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(tasks_mod, "datetime", Fixed)
+    base = (
+        "# T — x\n\nстатус: in-progress\n\n## Progress\n\n_(append-only)_\n"
+        "- 2026-11-21 09:00 UTC: статус → done\n"
+        "- undated note after done\n"
+        "\n## Decision Log\n\n_(append-only)_\n"
+    )
+    assert last_progress_entry(base) == "undated note after done"
+    again = append_status_progress(base, "done")
+    assert again.count("статус → done") == 2
+    assert last_progress_entry(again) == "статус → done"
+    assert "- 2026-11-21 12:00 UTC: статус → done\n" in again
+    assert append_status_progress(again, "done") == again
+
+
 def test_append_status_progress_appends_and_dedupes(monkeypatch):
     """AGE-73: status Progress writer appends once; second identical call is no-op."""
 

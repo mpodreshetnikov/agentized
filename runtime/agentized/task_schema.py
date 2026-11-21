@@ -363,7 +363,11 @@ def set_field(text: str, field_name: str, value: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
-_PROGRESS_BULLET_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC): (.+)$", re.MULTILINE)
+# Any Progress bullet; optional dated stamp prefix so undated lines still count as last entry.
+_PROGRESS_BULLET_RE = re.compile(
+    r"^- (?:\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC: )?(.+)$",
+    re.MULTILINE,
+)
 
 
 def last_progress_entry(text: str) -> str | None:
@@ -377,7 +381,7 @@ def last_progress_entry(text: str) -> str | None:
     matches = _PROGRESS_BULLET_RE.findall(body)
     if not matches:
         return None
-    return matches[-1][1]
+    return matches[-1]
 
 
 def append_progress(text: str, entry: str) -> str:
@@ -397,9 +401,9 @@ def append_progress(text: str, entry: str) -> str:
 
 
 def append_status_progress(text: str, status: str) -> str:
-    """Append ``статус → {status}`` once; no-op if last Progress entry is already that transition.
+    """Append ``статус → {status}`` once; no-op only when the last Progress bullet is already that transition.
 
-    AGE-73: dedupe status→done (and other status) Progress stamps via status CLI.
+    AGE-73: only consecutive last-entry repeats are deduped — earlier identical stamps are not scanned.
     """
     entry = f"статус → {status}"
     last = last_progress_entry(text)
