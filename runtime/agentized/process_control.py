@@ -136,14 +136,14 @@ def claim_check(
     agent = is_agent_session(env)
     mode_key = "claim_mode_agent" if agent else "claim_mode_local"
     raw_mode = cfg.get(mode_key)
-    mode = str(raw_mode).lower() if raw_mode else "warn"
     msg = (
         "process-control: no in-progress task claim before code edits. "
         f"Claim first: `./bin/agentized claim <TASK_ID> --owner <you>`. See {DOC}."
     )
-    if mode == "refuse":
+    # Non-refuse paths always report mode "warn" (Lead); refuse only when configured.
+    if raw_mode is not None and str(raw_mode).lower() == "refuse":
         return {"ok": False, "mode": "refuse", "message": "REFUSED. " + msg, "paths": watched}
-    return {"ok": True, "mode": mode, "message": "WARN. " + msg, "paths": watched}
+    return {"ok": True, "mode": "warn", "message": "WARN. " + msg, "paths": watched}
 
 
 def size_check(

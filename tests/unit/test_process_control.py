@@ -21,6 +21,7 @@ from agentized.process_control import (
     main as process_main,
 )
 from agentized.process_size import DOC as SIZE_DOC
+from agentized.process_size import diff_insertions as size_diff_insertions
 
 
 def _task(root: Path, task_id: str, *, status: str, claim: str) -> None:
@@ -115,14 +116,23 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
     assert "over >100" in over["message"]
     assert "over ≥100" not in over["message"]
 
-    # Inclusive wording: at exact limit the classify_size helper still reports over.
+    # Inclusive limit: at exact limit → warn; +1 → over.
     monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 100)
     at_limit = size_check(tmp_path, base_ref="upstream/main")
-    assert at_limit["level"] == "over"
-    assert at_limit["ok"] is False
+    assert at_limit["level"] == "warn"
+    assert at_limit["ok"] is True
     assert at_limit["base"] == "upstream/main"
     assert at_limit["message"] == (
         "process-control: PR size 100 insertions vs upstream/main "
+        "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
+    )
+    monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 101)
+    over_by_one = size_check(tmp_path, base_ref="upstream/main")
+    assert over_by_one["level"] == "over"
+    assert over_by_one["ok"] is False
+    assert over_by_one["insertions"] == 101
+    assert over_by_one["message"] == (
+        "process-control: PR size 101 insertions vs upstream/main "
         "(warn ≥50 = 50.0% of 100; over >100). See docs/process-control.md."
     )
 
@@ -591,7 +601,7 @@ def test_main_size_claim_usage_streams(tmp_path: Path, monkeypatch, capsys):
     assert out.out == ""
     assert process_main(["nope"]) == 2
     # Alias stays wired to process_size.diff_insertions.
-    assert _diff_insertions is not None
+    assert _diff_insertions is size_diff_insertions
     assert callable(_diff_insertions)
 
 
@@ -650,6 +660,41 @@ def test_claim_check_default_required_and_join_and_mode_key(tmp_path: Path, monk
     )
     missing_mode = claim_check(tmp_path, ["runtime/x.py"], env={})
     assert missing_mode["mode"] == "warn"
+
+    # Non-refuse custom mode still reports mode "warn" (not the raw config token).
+    monkeypatch.setattr(
+        "agentized.process_control.load_process_config",
+        lambda root, context_rel="context": {
+            "claim_required": True,
+            "claim_mode_local": "soft",
+        },
+    )
+    soft = claim_check(tmp_path, ["runtime/x.py"], env={})
+    assert soft["ok"] is True
+    assert soft["mode"] == "warn"
+    assert soft["message"].startswith("WARN.")
+
+    # Explicit null / empty mode → warn (not refuse); missing key same.
+    monkeypatch.setattr(
+        "agentized.process_control.load_process_config",
+        lambda root, context_rel="context": {
+            "claim_required": True,
+            "claim_mode_local": None,
+        },
+    )
+    null_mode = claim_check(tmp_path, ["runtime/x.py"], env={})
+    assert null_mode["ok"] is True
+    assert null_mode["mode"] == "warn"
+    monkeypatch.setattr(
+        "agentized.process_control.load_process_config",
+        lambda root, context_rel="context": {
+            "claim_required": True,
+            "claim_mode_local": "",
+        },
+    )
+    empty_mode = claim_check(tmp_path, ["runtime/x.py"], env={})
+    assert empty_mode["ok"] is True
+    assert empty_mode["mode"] == "warn"
 
     # Multi-claim join uses ", " not another separator.
     monkeypatch.setattr(

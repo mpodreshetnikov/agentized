@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-46b5](T-261121-46b5.md) — process_control mutation kill pack (AGE-58) (родитель: T-261115-918b) · claim: bc-0ebe8400-530e-51f2-b7e8-09e034637dcd
+_(пусто)_
 
 ## blocked
 

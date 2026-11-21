@@ -745,7 +745,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pc = sub.add_parser("process", help="Claim-before-edits + reviewable PR size")
     pc_sub = pc.add_subparsers(dest="process_cmd", required=True)
-    pcs = pc_sub.add_parser("size", help="Diff insertions vs base (warn 75% / over limit)")
+    pcs = pc_sub.add_parser(
+        "size", help="Diff insertions vs base (warn ≥warn_at; hard-fail over >limit, inclusive)"
+    )
     pcs.add_argument("--base", default=None, help="git base ref (default origin/main)")
     pcs.add_argument("--context", default=None)
     pcs.add_argument("--json", action="store_true")
