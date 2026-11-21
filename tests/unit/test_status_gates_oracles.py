@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agentized.status_gates import (
     ALL_STATUSES,
     CANONICAL_STATUSES,
@@ -13,8 +15,10 @@ from agentized.status_gates import (
     MSG_UNKNOWN_STATUS,
     PROGRESS_SECTION,
     STATUS_ALIASES,
+    GateResult,
     is_known_status,
     normalize_status,
+    run_tasks_validate,
     section_body,
     section_is_prefix,
 )
@@ -89,3 +93,59 @@ def test_status_gates_vocab_exact():
         section_is_prefix(sample, "## Progress\n\na\n\n## Decision Log\n\nZ\n", DECISION_SECTION)
         is False
     )
+    # find not rfind: first Progress wins when a later Progress exists.
+    nested = "## Progress\n\nfirst\n\n## Mid\n\nx\n\n## Progress\n\nsecond\n"
+    assert section_body(nested, PROGRESS_SECTION) == "\n\nfirst\n"
+    # find not rfind on \\n## : first following H2 wins (not a later one).
+    twin = "## Progress\n\nbody\n\n## Decision Log\n\nd1\n\n## Extra\n\ne\n"
+    assert section_body(twin, PROGRESS_SECTION) == "\n\nbody\n"
+    # end == 0 must slice empty (not treat as missing): Progress immediately followed by H2.
+    empty_prog = "## Progress\n## Decision Log\n\nx\n"
+    assert section_body(empty_prog, PROGRESS_SECTION) == ""
+
+
+def test_run_tasks_validate_merges_tip_errors_exact(tmp_path: Path, monkeypatch):
+    """Kill tip-merge / pr-forward mutants on run_tasks_validate (#55 surface + AGE-86)."""
+    import agentized.status_gates as sg
+
+    tasks = tmp_path / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    tip_calls: list[object] = []
+
+    monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda root, *, explicit=None: "BASE")
+    monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {"T-x.md": "# old\n"})
+    monkeypatch.setattr(
+        sg,
+        "validate_tasks_dir",
+        lambda *a, **k: GateResult(False, ("gate-err",)),
+    )
+
+    def fake_tip(tasks_dir, *, pr=None, env=None, check_index=True):
+        tip_calls.append(pr)
+        return GateResult(False, ("tip-err",))
+
+    monkeypatch.setattr("agentized.tip_hygiene.validate_tip_hygiene", fake_tip)
+    # Also patch the late import target used inside run_tasks_validate.
+    import agentized.tip_hygiene as tip_mod
+
+    monkeypatch.setattr(tip_mod, "validate_tip_hygiene", fake_tip)
+
+    ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B", pr=42)
+    assert ref == "BASE"
+    assert tip_calls == [42]
+    assert result == GateResult(False, ("gate-err", "tip-err"))
+    assert result.ok is False
+    assert result.errors == ("gate-err", "tip-err")
+
+    # tip OK → return gate result unchanged (no merge).
+    tip_calls.clear()
+
+    def tip_ok(tasks_dir, *, pr=None, env=None, check_index=True):
+        tip_calls.append(pr)
+        return GateResult(True)
+
+    monkeypatch.setattr(tip_mod, "validate_tip_hygiene", tip_ok)
+    ref2, result2 = run_tasks_validate(tasks, repo_root=tmp_path, pr="#7")
+    assert ref2 == "BASE"
+    assert tip_calls == ["#7"]
+    assert result2 == GateResult(False, ("gate-err",))
