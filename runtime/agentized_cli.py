@@ -784,14 +784,12 @@ def build_parser() -> argparse.ArgumentParser:
     dg.add_argument("--context", default=None)
     dg.set_defaults(func=cmd_digest)
 
-    adr = sub.add_parser("adr", help="Create ADR")
+    from agentized.adr import ADR_STATUSES
+
+    adr = sub.add_parser("adr", help="Create ADR (YAML front matter)")
     adr.add_argument("--title", required=True)
-    adr.add_argument(
-        "--status",
-        default="accepted",
-        choices=["proposed", "accepted", "superseded", "deprecated"],
-    )
-    adr.add_argument("--tasks", default="", help="task ids")
+    adr.add_argument("--status", default="proposed", choices=ADR_STATUSES)
+    adr.add_argument("--tasks", default="", help="comma-separated T-YYMMDD-xxxx ids")
     adr.add_argument("--context", default=None)
     adr.set_defaults(func=cmd_adr)
 
