@@ -88,6 +88,7 @@ def test_normalize_extract_empty_refuse():
     assert extract_status("# only title\n\nЦенность: x\n") == ""
     assert extract_status("") == extract_status("статус:   \n") == ""
     assert parse_task_fields("") == parse_task_fields(None) == {}
+    assert duplicate_field_errors("") == duplicate_field_errors(None) == ()
     bare = "# T-261116-x — X\n\nЦенность: v\n"
     assert validate_task_text(bare, check_transition=False) == GateResult(
         False, (MSG_MISSING_STATUS,)

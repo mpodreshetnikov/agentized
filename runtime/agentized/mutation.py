@@ -125,10 +125,10 @@ def _diff_added_lines(root: Path, base_ref: str, rel: str) -> set[int]:
             capture_output=True,
             text=True,
         )
-        if proc.returncode == 0 or spec == base_ref:
+        if getattr(proc, "returncode", 1) == 0 or spec == base_ref:
             break
     out: set[int] = set()
-    for row in (proc.stdout or "").splitlines():
+    for row in (getattr(proc, "stdout", None) or "").splitlines():
         m = re.search(r"\+(\d+)(?:,(\d+))?", row) if row.startswith("@@") else None
         if not m:
             continue
