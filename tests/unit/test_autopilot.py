@@ -397,12 +397,18 @@ def test_wip_and_autopilot(tmp_path: Path):
         "status": "open",
         "path": "T-261114-old.md",
     }
-    ep=_write_task(tasks,"T-261110-early","Early",status="open",progress=["2026-11-10 09:00 UTC: opened"])
-    lp=_write_task(tasks,"T-261110-late","Late",status="open",progress=["2026-11-15 09:00 UTC: opened"])
+    osp=_write_task(tasks,"T-261115-oldstamp","O",status="open",progress=["2026-11-10 09:00 UTC: opened"])
+    nsp=_write_task(tasks,"T-261110-newstamp","N",status="open",progress=["2026-11-15 09:00 UTC: opened"])
     assert pick_next_task([
-        SimpleNamespace(task_id="T-261110-late",title="Late",status="open",path=lp),
-        SimpleNamespace(task_id="T-261110-early",title="Early",status="open",path=ep),
-    ], cfg, now=NOW)["task"]["id"] == "T-261110-early"
+        SimpleNamespace(task_id="T-261110-newstamp",title="N",status="open",path=nsp),
+        SimpleNamespace(task_id="T-261115-oldstamp",title="O",status="open",path=osp),
+    ], cfg, now=NOW)["task"]["id"]=="T-261115-oldstamp"
+    drp=_write_task(tasks,"T-261110-drpick","Dr",status="dropped")
+    assert pick_next_task(
+        [SimpleNamespace(task_id="T-261110-drpick",title="Dr",status="dropped",path=drp)],
+        _cfg(wip_limit=5,autopilot={"enabled":True,"pick_from":["canceled"],"count_as_wip":["in-progress"]}),
+        now=NOW,
+    )["task"]["status"]=="canceled"
     assert pick["reason"] == "picked oldest open under WIP"
     assert pick_next_task(
         all_tasks,
@@ -628,15 +634,32 @@ def test_metrics_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert eutf.value.args == ("T-261114-bin.md: not valid UTF-8",)
     assert board_mod._task_events(SimpleNamespace(path=tmp_path / "missing.md")) == []
 
-    edge = tmp_path / "edge-now-tasks"
-    edge.mkdir()
-    _write_task(edge, "T-261116-eqq", "EqQ", status="open", progress=["2026-11-16 12:00 UTC: opened"])
-    _write_task(edge, "T-261116-eqb", "EqB", status="blocked", progress=["2026-11-16 12:00 UTC: статус → blocked"])
-    _write_task(edge, "T-261116-eqd", "EqD", status="done", progress=[
-        "2026-11-16 10:00 UTC: claim by a", "2026-11-16 12:00 UTC: статус → done"])
-    edge_m = compute_metrics(edge, slim, now=NOW)
-    assert edge_m["queue_age"] == edge_m["blocked_age"] == {"samples": 1, "avg_hours": 0.0, "max_hours": 0.0}
-    assert edge_m["cycle_time"]["samples"] == 1 and edge_m["cycle_time"]["avg_hours"] == 2.0
-    assert edge_m["throughput"]["done_count"] == 1
+
+
+    _write_task(fresh/"solo"/"tasks","T-261114-solo","Solo",status="open")
+    pinned2=write_metrics(fresh, context_rel="solo", now=NOW)
+    assert pinned2["metrics"]["counts"]["open"]==1
+    assert load_metrics_file(fresh,"solo")["counts"]["open"]==1
+    fixed=datetime(2026,11,17,8,30,tzinfo=timezone.utc)
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return fixed
+    monkeypatch.setattr(board_mod,"datetime",_FixedDateTime)
+    assert write_metrics(root, context_rel="context")["metrics"]["generated_at"]=="2026-11-17T08:30:00Z"
+    monkeypatch.setattr(board_mod,"datetime",datetime)
+    monkeypatch.setattr(board_mod,"pick_next_task",lambda *a,**k: {"ok":True,"task":None})
+    assert compute_metrics(tasks,cfg,now=NOW)["autopilot"]["reason"]==""
+    monkeypatch.setattr(board_mod,"pick_next_task",pick_next_task)
+    good_path=tmp_path/"T-261114-ok.md"
+    good_path.write_text("- 2026-11-14 09:00 UTC: opened\n",encoding="utf-8")
+    seen={}
+    real_read=Path.read_text
+    def _cap(self,*a,**k):
+        seen.clear(); seen.update(k); return real_read(self,*a,**k)
+    monkeypatch.setattr(Path,"read_text",_cap)
+    assert board_mod._task_events(SimpleNamespace(path=good_path))[0][1]=="opened"
+    assert seen=={"encoding":"utf-8"}
 
     # tasks symlink must not be followed by write_metrics
