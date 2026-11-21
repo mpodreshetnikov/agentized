@@ -76,11 +76,8 @@ def detect_languages(
         return found
     for path in root.rglob("*"):
         if path.is_file():
-            try:
-                rel = path.relative_to(root).as_posix()
-            except ValueError:
-                rel = None
-            if rel and not _glob_excluded(rel, patterns):
+            rel = path.relative_to(root).as_posix()
+            if not _glob_excluded(rel, patterns):
                 lang = language_for_path(rel)
                 if lang:
                     bucket = found.setdefault(lang, [])

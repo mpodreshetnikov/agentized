@@ -19,10 +19,12 @@ def test_glob_iter_run_and_gate(tmp_path: Path, monkeypatch):
     skipped = tmp_path / "src" / "node_modules"
     skipped.mkdir()
     (skipped / "nested.test.ts").write_text("expect(1).toBeTruthy()\n")
+    (src / "dir.test.ts").mkdir()  # directory must not count as a test file
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.test.js").write_text("expect(1).toBeTruthy()\n")
-    names = [p.name for p in gate.iter_js_test_files(tmp_path, ["**/*.{test,spec}.ts"])]
-    assert names == ["a.test.ts", "b.spec.ts"]
+    got = gate.iter_js_test_files(tmp_path, ["**/*.{test,spec}.ts"])
+    assert [p.name for p in got] == ["a.test.ts", "b.spec.ts"]
+    assert all(p.is_file() for p in got)
     findings, scanned = gate.run_js_smells(tmp_path, {})
     assert len(scanned) >= 1 and findings[0]["kind"] == "weak_primary_oracle"
     fixed = datetime(2021, 2, 3)
