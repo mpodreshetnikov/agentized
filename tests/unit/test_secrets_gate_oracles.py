@@ -45,6 +45,10 @@ def test_disable_decision_oracle_strict():
     base = {"reason": "XXXX", "approved_by": "Maxim", "expires": "2026-01-10T00:00:00Z"}
     assert disable_decision_valid({"disable_decision": base}, now=now) is True
     assert disable_decision_valid(
+        {"disable_decision": {"reason": "x", "approved_by": "M", "expires": "2026-01-10T00:00:00+00:00"}},
+        now=now,
+    ) is True
+    assert disable_decision_valid(
         {"disable_decision": {"reason": "tmp", "approved_by": "Maxim", "expiry": "2026-01-10T00:00:00+00:00"}},
         now=now,
     )
@@ -99,8 +103,9 @@ def test_write_summary_and_findings(tmp_path: Path):
     assert hard["passed"] is False and hard["schemaVersion"] == 1
     assert hard["tool"] == "gitleaks" and "generatedAt" in hard
     raw = path.read_bytes().decode()
-    assert raw.startswith("{\n  ") and raw.endswith("\n")
+    assert raw.endswith("\n") and "\n  \"schemaVersion\": 1,\n" in raw
     assert '"tool": "gitleaks"' in raw
+    assert "\n   \"" not in raw  # indent=2, not indent=3
     assert _write_summary(
         path, mode="warn", binary=None, config_rel=None,
         findings=[{"file": "a", "kind": "leak", "detail": "x"}], tool_rc=1, tool_note="n",
@@ -192,7 +197,7 @@ def test_section_warn_tool_main(tmp_path: Path, monkeypatch):
 
 
 def test_persist_custom_context_fields(tmp_path: Path, monkeypatch):
-    from agentized.quality import load_quality, quality_path, save_quality
+    from agentized.quality import quality_path
 
     ctx = "myctx"
     (tmp_path / ctx).mkdir()
@@ -203,25 +208,23 @@ def test_persist_custom_context_fields(tmp_path: Path, monkeypatch):
         "modules": [],
     }) + "\n", encoding="utf-8")
     qp_args: list[str] = []
-    lq_args: list[str] = []
-    sq_args: list[str] = []
-    real_qp, real_lq, real_sq = quality_path, load_quality, save_quality
+    write_args: list[str] = []
+    real_qp = quality_path
+    real_write = sg.write_json_object
     monkeypatch.setattr(sg, "quality_path", lambda root, c=DEFAULT_CONTEXT: qp_args.append(c) or real_qp(root, c))
-    monkeypatch.setattr(
-        "agentized.secrets_gate.load_quality",
-        lambda root, c=DEFAULT_CONTEXT: lq_args.append(c) or real_lq(root, c),
-    )
-    monkeypatch.setattr(
-        "agentized.quality.save_quality",
-        lambda root, data, c=DEFAULT_CONTEXT: sq_args.append(c) or real_sq(root, data, c),
-    )
+
+    def spy_write(path, data):
+        write_args.append(str(path))
+        return real_write(path, data)
+
+    monkeypatch.setattr(sg, "write_json_object", spy_write)
     info = persist_secrets_policy(tmp_path, ctx)
     assert info == {"upgraded_modes": ["secrets", "secrets_enabled"], "created": False}
-    assert qp_args == lq_args == sq_args == [ctx]
+    assert qp_args == [ctx] and len(write_args) == 1
     disk = json.loads((tmp_path / ctx / "quality.json").read_text(encoding="utf-8"))
     assert disk["secrets"]["mode"] == "hard"
     assert disk["secrets"]["enabled"] is True
-    assert set(disk["secrets"]) >= {"mode", "enabled"}
+    assert list(disk["secrets"]) == ["enabled", "mode"] or set(disk["secrets"]) == {"enabled", "mode"}
 
 
 def test_persist_inject_when_absent(tmp_path: Path):
@@ -319,15 +322,27 @@ def test_run_gate_context_summary_and_stdout(tmp_path: Path, monkeypatch, capsys
         run_kwargs.append(kwargs)
         return _Proc()
 
+    build_meta: list[tuple[str, object]] = []
+    real_build = sg._build_cmd
+
+    def spy_build(binary, root, *, config_path, report_path):
+        build_meta.append((report_path.name, None if config_path is None else config_path.name))
+        return real_build(binary, root, config_path=config_path, report_path=report_path)
+
+    monkeypatch.setattr(sg, "_build_cmd", spy_build)
     monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: "gitleaks")
     monkeypatch.setattr("agentized.secrets_gate.subprocess.run", _run)
     assert run_secrets_gate(tmp_path, context=ctx) == 1
+    assert build_meta == [("gitleaks-report.json", ".gitleaks.toml")]
     assert run_kwargs[0]["capture_output"] is True and run_kwargs[0]["text"] is True
     assert run_kwargs[0]["cwd"] == str(tmp_path)
     note = json.loads((tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(encoding="utf-8"))
     assert note["toolNote"] == "STDOUTSTDERR"
+    assert note["toolRc"] == 2
     assert note["findings"][0]["kind"] == "tool_error"
     assert note["findings"][0]["file"] == ""
+    # config file present → summary keeps rel path (not None/empty)
+    assert note["config"] == ".gitleaks.toml"
 
 
 def test_apply_pin_context_manifest(tmp_path: Path, monkeypatch):

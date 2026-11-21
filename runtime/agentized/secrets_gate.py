@@ -21,7 +21,7 @@ from typing import Any
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality, quality_path
-from .quality_io import read_json_object
+from .quality_io import read_json_object, write_json_object
 
 DOC = "docs/QUALITY.md"
 DEFAULT_CONFIG = ".gitleaks.toml"
@@ -41,7 +41,9 @@ def _mode(section: dict[str, Any]) -> str:
 
 
 def _is_disabled_flag(enabled: Any) -> bool:
-    if enabled is False or enabled == 0:
+    if enabled is False:
+        return True
+    if enabled == 0:
         return True
     if enabled is True:
         return False
@@ -55,7 +57,7 @@ def _decision_field(decision: dict[str, Any], *keys: str) -> str:
         if not isinstance(raw, str):
             continue
         text = raw.strip()
-        if len(text) > 0:
+        if text:
             return text
     return ""
 
@@ -137,7 +139,6 @@ def persist_secrets_policy(
     context_rel: str = DEFAULT_CONTEXT,
 ) -> dict[str, Any]:
     """Reconnect policy: inject secrets, warn→hard, force-enable without decision."""
-    from .quality import save_quality
     from .quality_defaults import default_quality_config
 
     path = quality_path(root, context_rel)
@@ -146,18 +147,19 @@ def persist_secrets_policy(
         return {"upgraded_modes": upgraded, "created": False}
 
     raw = read_json_object(path)
-    data = load_quality(root, context_rel)
+    # Work on a copy of on-disk JSON. quality._normalize omits secrets, so we
+    # must write secrets/gates through write_json_object (not save_quality).
+    out = dict(raw)
     dirty = False
 
     if "secrets" not in raw:
-        injected = default_quality_config()["secrets"]
-        if not isinstance(injected, dict):
-            raise TypeError("default secrets must be a dict")
-        data["secrets"] = injected
+        out["secrets"] = dict(default_quality_config()["secrets"])
         upgraded.append("secrets")
         dirty = True
-        gates = data.get("gates")
+        gates = out.get("gates")
         if isinstance(gates, dict):
+            gates = dict(gates)
+            out["gates"] = gates
             for gate_key in ("pre_push", "ci"):
                 names = list(gates.get(gate_key) or [])
                 if "secrets" not in names:
@@ -167,17 +169,19 @@ def persist_secrets_policy(
                         names.insert(0, "secrets")
                     gates[gate_key] = names
 
-    secrets = data.get("secrets")
-    if isinstance(secrets, dict):
-        disk = raw.get("secrets")
-        if isinstance(disk, dict):
-            secrets.update(disk)
+    secrets_raw = out.get("secrets")
+    if isinstance(secrets_raw, dict):
+        secrets = dict(secrets_raw)
+        out["secrets"] = secrets
         if _mode(secrets) == "warn":
             secrets["mode"] = "hard"
             if "secrets" not in upgraded:
                 upgraded.append("secrets")
             dirty = True
-        enabled = True if "enabled" not in secrets else secrets["enabled"]
+        if "enabled" in secrets:
+            enabled = secrets["enabled"]
+        else:
+            enabled = True
         if _is_disabled_flag(enabled):
             if not disable_decision_valid(secrets):
                 secrets["enabled"] = True
@@ -186,7 +190,7 @@ def persist_secrets_policy(
                 dirty = True
 
     if dirty is True:
-        save_quality(root, data, context_rel)
+        write_json_object(path, out)
     return {"upgraded_modes": upgraded, "created": False}
 
 
@@ -401,9 +405,7 @@ def run_secrets_gate(
         cmd = _build_cmd(binary, root, config_path=config_path, report_path=report_path)
         proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True)
         tool_rc = proc.returncode
-        stdout = proc.stdout if isinstance(proc.stdout, str) else ""
-        stderr = proc.stderr if isinstance(proc.stderr, str) else ""
-        tool_note = (stdout + stderr).strip()[:4000]
+        tool_note = f"{proc.stdout}{proc.stderr}".strip()[:4000]
         if tool_rc == 1:
             findings = _findings_from_report(report_path, tool_note)
         elif tool_rc != 0:
