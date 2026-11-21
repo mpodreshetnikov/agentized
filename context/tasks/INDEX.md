@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-9186](T-261121-9186.md) — Spec approval core (AGE-28 / #28 A) (родитель: T-261115-918b) · claim: bc-b8d633ce-3661-5c35-bff5-488848736ba6
+_(пусто)_
 
 ## blocked
 
