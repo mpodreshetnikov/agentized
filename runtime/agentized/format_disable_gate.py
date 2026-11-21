@@ -14,15 +14,18 @@ from __future__ import annotations
 import io
 import os
 import re
-import subprocess
 import tokenize
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .process_size import validate_process_base
+from .process_size import _run_git, validate_process_base
 
 DOC = "docs/QUALITY.md"
+DEFAULT_BASE = "origin/main"
+_FILE_ENCODING = "utf-8"
+_DIFF_FILTER = "ACMR"
+_UNTTOKEN_MSG = "<untokenizeable source with disable lexeme>"
 
 # Ban lexemes used to game format/size. Matched on COMMENT token strings only.
 _DISABLE_RE = re.compile(
@@ -63,18 +66,8 @@ def disable_comments_in_source(src: str) -> list[tuple[int, str]]:
                 out.append((tok.start[0], tok.string))
     except (tokenize.TokenError, IndentationError):
         if line_has_disable(src):
-            out.append((0, "<untokenizeable source with disable lexeme>"))
+            out.append((0, _UNTTOKEN_MSG))
     return out
-
-
-def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 def changed_python_files(root: Path, base_ref: str) -> list[str]:
@@ -82,12 +75,12 @@ def changed_python_files(root: Path, base_ref: str) -> list[str]:
     triple = f"{base_ref}...HEAD"
     proc = _run_git(
         root,
-        ["git", "diff", "--name-only", "--diff-filter=ACMR", triple],
+        ["git", "diff", "--name-only", f"--diff-filter={_DIFF_FILTER}", triple],
     )
     if proc.returncode != 0:
         proc = _run_git(
             root,
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
+            ["git", "diff", "--name-only", f"--diff-filter={_DIFF_FILTER}", base_ref],
         )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
@@ -109,18 +102,20 @@ def read_head_text(root: Path, path: str) -> str:
     """Read working-tree / HEAD file; missing file → empty string."""
     full = root / path
     if full.is_file():
-        return full.read_text(encoding="utf-8")
+        return full.read_text(encoding=_FILE_ENCODING)
     shown = git_show_text(root, "HEAD", path)
-    return shown if shown is not None else ""
+    if shown is None:
+        return ""
+    return shown
 
 
 def new_disable_findings(root: Path, base_ref: str, path: str) -> list[tuple[str, int, str]]:
     """Net-new banned COMMENT tokens in *path* vs base (multiset difference)."""
     head_src = read_head_text(root, path)
-    base_src = git_show_text(root, base_ref, path) or ""
+    base_raw = git_show_text(root, base_ref, path)
+    base_src = "" if base_raw is None else base_raw
     head_comments = disable_comments_in_source(head_src)
     base_comments = disable_comments_in_source(base_src)
-    # Compare by comment text multiset; report head locations for leftovers.
     remaining = Counter(text for _, text in base_comments)
     findings: list[tuple[str, int, str]] = []
     for lineno, text in head_comments:
@@ -150,7 +145,7 @@ def format_disable_check(
     base_ref: str | None = None,
 ) -> dict[str, Any]:
     """Canonical format-disable gate: base ancestry + net-new COMMENT scan."""
-    base = base_ref or os.environ.get("PROCESS_BASE") or "origin/main"
+    base = base_ref or os.environ.get("PROCESS_BASE") or DEFAULT_BASE
     try:
         validate_process_base(root, base)
         paths = changed_python_files(root, base)
