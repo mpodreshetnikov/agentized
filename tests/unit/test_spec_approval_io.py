@@ -249,7 +249,12 @@ def test_spec_approval_check_disabled_and_enforced(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("agentized.spec_approval_io.approval_committed_by_non_owner", spy_non_owner)
     monkeypatch.setattr("agentized.spec_approval_io.evaluate_task_spec", spy_eval)
     assert spec_approval_check(root, policy=policy)["ok"] is True
-    assert non_owner_calls and all(c[0] is root and c[3] == "## Approval" for c in non_owner_calls)
+    assert non_owner_calls
+    for root_arg, task_path, claim, heading in non_owner_calls:
+        assert root_arg is root
+        assert task_path is not None and task_path.name.endswith(".md")
+        assert claim == "alice"
+        assert heading == "## Approval"
     assert "alice" in eval_claims
     assert load_spec_approval(root)["enabled"] is False
     assert ensure_default_in_config({"version": 1})["spec_approval"]["enabled"] is False

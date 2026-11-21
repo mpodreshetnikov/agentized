@@ -29,7 +29,7 @@ Default limit **1500** insertions vs `origin/main` (override with `PROCESS_BASE`
 
 ## Spec approval gate (AGE-28)
 
-`spec_approval` in `context/process-control.json` — **off by default**. When enabled: fail-closed CI/pre-push. Complex tasks in `in-progress` / `self-review` / `for-review` / `blocked` need real Spec (not `TODO:` / `…` / `_(…)`) plus `approved-by` on `human_participants` (full email, not the claim owner) **or** Approval-section line committed by a non-owner. `./bin/agentized process spec-approval`.
+`spec_approval` off by default; when on, fail-closed. Gated statuses need real Spec + allowlisted non-owner `approved-by` or Approval blame by non-owner. `./bin/agentized process spec-approval`.
 
 ## Spec / decision hygiene
 
