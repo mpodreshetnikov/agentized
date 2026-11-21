@@ -42,11 +42,15 @@ def main() -> int:
 
     try:
         from agentized.hook_common import extract_paths, resolve_root
-        from agentized.context_layout import session_lease_warn
     except Exception as exc:  # noqa: BLE001
         allow["agent_message"] = f"[lease-warn] unavailable: {exc}"
         print(json.dumps(allow, ensure_ascii=False))
         return 0
+
+    try:
+        from agentized.context_layout import session_lease_warn as warn_fn
+    except Exception:  # noqa: BLE001 — layout module absent until AGE-25 22a
+        from agentized.hook_common import lease_warn_for_paths as warn_fn
 
     root = resolve_root(payload) if payload else workspace
     runtime = root / "runtime"
@@ -57,7 +61,7 @@ def main() -> int:
     if "tool_input" not in payload and isinstance(payload.get("input"), dict):
         paths = list(dict.fromkeys(paths + extract_paths({"tool_input": payload["input"]})))
 
-    warn = session_lease_warn(root, paths)
+    warn = warn_fn(root, paths)
     if not warn:
         print(json.dumps(allow))
         return 0

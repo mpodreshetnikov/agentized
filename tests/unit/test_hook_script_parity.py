@@ -29,6 +29,7 @@ def test_lease_warn_eight_copies_byte_identical() -> None:
     assert len({p for p in payloads}) == 1
     text = payloads[0].decode("utf-8")
     assert "session_lease_warn" in text
+    assert "lease_warn_for_paths" in text  # fallback when context_layout absent
 
 
 def test_session_start_eight_copies_byte_identical() -> None:
@@ -39,3 +40,4 @@ def test_session_start_eight_copies_byte_identical() -> None:
     text = payloads[0].decode("utf-8")
     assert "session_nav_reminder" in text
     assert "apply_external_env_check" in text
+    assert "nav_reminder" in text  # fallback when context_layout absent
