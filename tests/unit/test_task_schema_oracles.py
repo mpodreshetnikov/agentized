@@ -54,7 +54,15 @@ def test_status_gate_getattr_reexport_and_miss():
     assert ts.MSG_UNKNOWN_STATUS is sg.MSG_UNKNOWN_STATUS
     assert ts.is_known_status is sg.is_known_status
     assert ts.normalize_status is sg.normalize_status
-    assert ts.ACTIVE_STATUSES == sg.INDEX_ACTIVE_STATUSES
+    assert ts.ACTIVE_STATUSES is sg.INDEX_ACTIVE_STATUSES
+    assert ts.ACTIVE_STATUSES == (
+        "open",
+        "queue",
+        "in-progress",
+        "self-review",
+        "for-review",
+        "blocked",
+    )
     with pytest.raises(AttributeError, match="has no attribute 'not_a_status_export'"):
         _ = ts.not_a_status_export
 
@@ -77,7 +85,7 @@ def test_status_vocabulary_and_format_ids():
     assert INDEX_ACTIVE_STATUSES is sg.INDEX_ACTIVE_STATUSES
     assert MSG_UNKNOWN_STATUS is sg.MSG_UNKNOWN_STATUS
     assert "self-review" in ALL_STATUSES and "canceled" in ALL_STATUSES
-    assert ACTIVE_STATUSES == INDEX_ACTIVE_STATUSES == TASKS_ACTIVE
+    assert ACTIVE_STATUSES is INDEX_ACTIVE_STATUSES is TASKS_ACTIVE
     assert r":[ \t]*(.*)$" in FIELD_RE.pattern
     assert r":\s*" not in FIELD_RE.pattern
     assert format_id_list(["T-1", ""]) == "[T-1]"
@@ -169,6 +177,8 @@ def test_unknown_depends_on_ids(tmp_path: Path):
 
 
 def _spy_now(monkeypatch, stamp=FIXED):
+    from agentized import tasks as tasks_mod
+
     seen: list = []
 
     class FakeDateTime:
@@ -177,14 +187,16 @@ def _spy_now(monkeypatch, stamp=FIXED):
             seen.append(tz)
             return stamp
 
-    monkeypatch.setattr(ts, "datetime", FakeDateTime)
+    monkeypatch.setattr(tasks_mod, "datetime", FakeDateTime)
     return seen
 
 
 def test_utc_now_stamp_spy(monkeypatch):
+    from datetime import timezone
+
     seen = _spy_now(monkeypatch)
     assert utc_now_stamp() == "200102"
-    assert seen == [UTC]
+    assert seen == [timezone.utc]
 
 
 def test_parse_id_list_cycles_graph(tmp_path: Path):
@@ -235,9 +247,11 @@ def test_parse_id_list_cycles_graph(tmp_path: Path):
 
 
 def test_allocate_task_id_token_width(tmp_path: Path, monkeypatch):
+    from agentized import tasks as tasks_mod
+
     seen: list = []
     seq = iter(["aaaa", "bbbb"])
-    monkeypatch.setattr(ts.secrets, "token_hex", lambda n: seen.append(n) or next(seq))
+    monkeypatch.setattr(tasks_mod.secrets, "token_hex", lambda n: seen.append(n) or next(seq))
     assert allocate_task_id(tmp_path, day="200102") == "T-200102-aaaa"
     assert seen == [2]
     stamps: list = []
@@ -246,14 +260,14 @@ def test_allocate_task_id_token_width(tmp_path: Path, monkeypatch):
         stamps.append(1)
         return "200102"
 
-    monkeypatch.setattr(ts, "utc_now_stamp", fake_stamp)
-    monkeypatch.setattr(ts.secrets, "token_hex", lambda n: "cccc")
+    monkeypatch.setattr(tasks_mod, "utc_now_stamp", fake_stamp)
+    monkeypatch.setattr(tasks_mod.secrets, "token_hex", lambda n: "cccc")
     assert allocate_task_id(tmp_path) == "T-200102-cccc"
     assert stamps == [1]
     (tmp_path / "T-200102-bbbb.md").write_text("x", encoding="utf-8")
     n = {"c": 0}
     monkeypatch.setattr(
-        ts.secrets, "token_hex", lambda n_: n.__setitem__("c", n["c"] + 1) or "bbbb"
+        tasks_mod.secrets, "token_hex", lambda n_: n.__setitem__("c", n["c"] + 1) or "bbbb"
     )
     with pytest.raises(RuntimeError, match=ID_ALLOCATE_ERROR):
         allocate_task_id(tmp_path, day="200102")
@@ -353,10 +367,12 @@ def test_render_exact_set_field_append_index(tmp_path: Path, monkeypatch):
     ]
     assert set_field("a\n", "x", "1") == "a\nx: 1\n"
     assert set_field("a", "x", "1") == "a\nx: 1"
+    from datetime import timezone
+
     seen = _spy_now(monkeypatch, FIXED)
     got = append_progress("  # T\n", "hi")
     assert got.startswith("  # T\n") and "## Progress" in got
-    assert "2020-01-02 03:04 UTC: hi" in got and seen == [UTC]
+    assert "2020-01-02 03:04 UTC: hi" in got and seen == [timezone.utc]
     with_prog = "# T\n## Progress\n\n- old\n## Decision Log\n\nx\n## Extra\n\nkeep\n"
     assert append_progress(with_prog, "new") == (
         "# T\n## Progress\n\n- old\n- 2020-01-02 03:04 UTC: new\n"
@@ -388,13 +404,12 @@ def test_render_exact_set_field_append_index(tmp_path: Path, monkeypatch):
     empty = PLACEHOLDER_EMPTY
     assert rebuild_task_index(tmp_path) == (
         f"{INDEX_TITLE}\n\n{INDEX_INTRO}\n\n"
-        "Статусы в индексе: `open` · `queue` · `in-progress` · `self-review` · `for-review` · `blocked`.\n\n"
+        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
         f"{INDEX_SEARCH}\n\n## open\n\n"
         "- [T-261116-bbb](T-261116-bbb.md) — Open\n"
         "- [T-261116-ccc](T-261116-ccc.md) — Child "
         "(родитель: T-261116-bbb) · claim: alice\n\n"
-        f"## queue\n\n{empty}\n\n## in-progress\n\n{empty}\n\n"
-        f"## self-review\n\n{empty}\n\n## for-review\n\n{empty}\n\n"
+        f"## in-progress\n\n{empty}\n\n"
         f"## blocked\n\n{empty}\n\n"
         f"{INDEX_FOOTER}\n"
     )
@@ -436,3 +451,39 @@ def test_parse_task_orbit_id_exact(tmp_path: Path):
     assert meta is not None
     assert meta.orbit_id == "T-0023"
     assert meta.task_id == "T-261116-oid1"
+
+
+def test_rebuild_index_orbit_id_exact(tmp_path: Path):
+    (tmp_path / "T-261116-oid2.md").write_text(
+        "# T-261116-oid2 — O\n\nстатус: open\nтеги: _(нет)_\n"
+        "родитель: _(пусто)_\nclaim: _(пусто)_\norbit_id: T-0023\n",
+        encoding="utf-8",
+    )
+    empty = PLACEHOLDER_EMPTY
+    assert rebuild_task_index(tmp_path) == (
+        f"{INDEX_TITLE}\n\n{INDEX_INTRO}\n\n"
+        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
+        f"{INDEX_SEARCH}\n\n## open\n\n"
+        "- [T-261116-oid2](T-261116-oid2.md) — O · orbit: T-0023\n\n"
+        f"## in-progress\n\n{empty}\n\n"
+        f"## blocked\n\n{empty}\n\n"
+        f"{INDEX_FOOTER}\n"
+    )
+
+
+def test_rebuild_skips_placeholder_orbit(tmp_path: Path):
+    (tmp_path / "T-261116-oid3.md").write_text(
+        "# T-261116-oid3 — O\n\nстатус: open\nтеги: _(нет)_\n"
+        "родитель: _(пусто)_\nclaim: _(пусто)_\norbit_id: _ph\n",
+        encoding="utf-8",
+    )
+    empty = PLACEHOLDER_EMPTY
+    assert rebuild_task_index(tmp_path) == (
+        f"{INDEX_TITLE}\n\n{INDEX_INTRO}\n\n"
+        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
+        f"{INDEX_SEARCH}\n\n## open\n\n"
+        "- [T-261116-oid3](T-261116-oid3.md) — O\n\n"
+        f"## in-progress\n\n{empty}\n\n"
+        f"## blocked\n\n{empty}\n\n"
+        f"{INDEX_FOOTER}\n"
+    )

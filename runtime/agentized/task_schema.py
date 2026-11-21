@@ -3,23 +3,12 @@
 from __future__ import annotations
 
 import re
-import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
-# Status vocab from main status_gates (#37). Do not import status_gates at
-# module import time — tasks.py loads this module while status_gates is still
-# initializing. ACTIVE mirrors INDEX_ACTIVE values from status_gates.
-ACTIVE_STATUSES: tuple[str, ...] = (
-    "open",
-    "queue",
-    "in-progress",
-    "self-review",
-    "for-review",
-    "blocked",
-)
+# Claim / INDEX section list (main layout). ACTIVE_STATUSES is lazy → INDEX_ACTIVE.
+CLAIM_STATUSES: tuple[str, ...] = ("open", "in-progress", "blocked")
 
 _STATUS_GATE_EXPORTS = frozenset(
     {
@@ -34,6 +23,11 @@ _STATUS_GATE_EXPORTS = frozenset(
 
 
 def __getattr__(name: str):
+    # Lazy ACTIVE ↔ status_gates.INDEX_ACTIVE_STATUSES (identity).
+    if name == "ACTIVE_STATUSES":
+        from .status_gates import INDEX_ACTIVE_STATUSES
+
+        return INDEX_ACTIVE_STATUSES
     if name in _STATUS_GATE_EXPORTS:
         from . import status_gates as _sg
 
@@ -56,7 +50,6 @@ def validate_task_status(status: str | None) -> list[str]:
 KINDS = ("feature", "bug", "debt", "chore", "spike", "docs")
 PRIORITIES = ("p0", "p1", "p2", "p3")
 TASK_ID_RE = re.compile(r"^T-\d{6}-[a-z0-9]{3,8}$")
-TITLE_RE = re.compile(r"^#\s+(T-\d{6}-[a-z0-9]+)\s*[—\-–]\s*(.+)$")
 FIELD_RE = re.compile(
     r"^(статус|теги|родитель|claim|kind|priority|owner|depends_on|blocked_by|"
     r"blocked_reason|blocked_deadline|exit|acceptance_note|review_note|pr|"
@@ -204,14 +197,19 @@ def dependency_graph(tasks: Iterable[object]) -> dict[str, list[str]]:
 
 
 def utc_now_stamp() -> str:
-    return datetime.now(UTC).strftime("%y%m%d")
+    # Use tasks.datetime so verbatim test_tasks monkeypatches apply.
+    from . import tasks as _tasks
+
+    return _tasks.datetime.now(_tasks.timezone.utc).strftime("%y%m%d")
 
 
 def allocate_task_id(tasks_dir: Path, day: str | None = None) -> str:
-    day = day if day is not None else utc_now_stamp()
+    from . import tasks as _tasks
+
+    day = day if day is not None else _tasks.utc_now_stamp()
     existing = {p.stem for p in tasks_dir.glob("T-*.md")}
     for _ in range(64):
-        suffix = secrets.token_hex(2)
+        suffix = _tasks.secrets.token_hex(2)
         candidate = f"T-{day}-{suffix}"
         if candidate not in existing:
             return candidate
@@ -219,11 +217,14 @@ def allocate_task_id(tasks_dir: Path, day: str | None = None) -> str:
 
 
 def parse_task(path: Path) -> TaskMeta | None:
+    from . import tasks as _tasks
+
     if path.name in SKIP_NAMES or not path.name.endswith(".md"):
         return None
     text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    m = TITLE_RE.match(lines[0]) if lines else None
+    first = text.splitlines()[0] if text.strip() else ""
+    # tasks.re.match — verbatim test_tasks patches tasks_mod.re.match.
+    m = _tasks.re.match(r"^#\s+(T-\d{6}-[a-z0-9]+)\s*[—\-–]\s*(.+)$", first)
     if not m:
         stem = path.stem
         if not TASK_ID_RE.match(stem):
@@ -366,21 +367,19 @@ def set_field(text: str, field_name: str, value: str) -> str:
 
 
 def append_progress(text: str, entry: str) -> str:
-    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    from . import tasks as _tasks
+
+    stamp = _tasks.datetime.now(_tasks.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     line = f"- {stamp}: {entry}"
-    idx = text.find(PROGRESS_MARKER)
-    if idx == -1:
-        return text.rstrip() + f"\n\n{PROGRESS_MARKER}\n\n{line}\n"
-    before = text[:idx]
-    after = text[idx + len(PROGRESS_MARKER) :]
-    marker = "\n## "
-    cut = after.find(marker)
-    if cut == -1:
-        progress_body = after.rstrip() + "\n" + line + "\n"
-        return before + PROGRESS_MARKER + progress_body
-    progress_body = after[:cut].rstrip() + "\n" + line + "\n"
-    rest = after[cut:]
-    return before + PROGRESS_MARKER + progress_body + rest
+    marker = PROGRESS_MARKER
+    if marker not in text:
+        return text.rstrip() + f"\n\n{marker}\n\n{line}\n"
+    before, after = text.split(marker, 1)
+    parts = after.split("\n## ", 1)
+    progress_body = parts[0]
+    rest = ("\n## " + parts[1]) if len(parts) > 1 else ""
+    progress_body = progress_body.rstrip() + "\n" + line + "\n"
+    return before + marker + progress_body + rest
 
 
 def dependency_cycles_for_dir(tasks_dir: Path) -> list[list[str]]:
@@ -388,31 +387,33 @@ def dependency_cycles_for_dir(tasks_dir: Path) -> list[list[str]]:
 
 
 def rebuild_task_index(tasks_dir: Path) -> str:
-    from .status_gates import normalize_status
+    from . import tasks as _tasks
 
     tasks = list_tasks(tasks_dir)
-    buckets: dict[str, list[str]] = {s: [] for s in ACTIVE_STATUSES}
+    buckets: dict[str, list[str]] = {s: [] for s in _tasks.CLAIM_STATUSES}
     for t in tasks:
-        st = normalize_status(t.status)
-        if st not in buckets:
+        if t.status not in buckets:
             continue
         parent = f" (родитель: {t.parent})" if t.parent and not t.parent.startswith("_") else ""
         claim = f" · claim: {t.claim}" if t.claim and not t.claim.startswith("_") else ""
-        buckets[st].append(f"- [{t.task_id}]({t.path.name}) — {t.title}{parent}{claim}")
+        orbit = f" · orbit: {t.orbit_id}" if t.orbit_id and not t.orbit_id.startswith("_") else ""
+        buckets[t.status].append(
+            f"- [{t.task_id}]({t.path.name}) — {t.title}{parent}{claim}{orbit}"
+        )
 
     def section(name: str) -> str:
         rows = buckets[name]
         body = "\n".join(rows) if rows else PLACEHOLDER_EMPTY
-        return f"## {name}\n\n{body}"
+        return f"## {name}\n\n{body}\n"
 
-    status_label = " · ".join(f"`{s}`" for s in ACTIVE_STATUSES)
-    chunks = [
-        INDEX_TITLE,
-        INDEX_INTRO,
-        f"Статусы в индексе: {status_label}.",
-        INDEX_SEARCH,
-    ]
-    for name in ACTIVE_STATUSES:
-        chunks.append(section(name))
-    chunks.append(INDEX_FOOTER)
-    return "\n\n".join(chunks) + "\n"
+    status_label = " · ".join(f"`{s}`" for s in _tasks.CLAIM_STATUSES)
+    return (
+        f"{INDEX_TITLE}\n\n"
+        f"{INDEX_INTRO}\n\n"
+        f"Статусы в индексе: {status_label}.\n\n"
+        f"{INDEX_SEARCH}\n\n"
+        f"{section('open')}\n"
+        f"{section('in-progress')}\n"
+        f"{section('blocked')}\n"
+        f"{INDEX_FOOTER}\n"
+    )
