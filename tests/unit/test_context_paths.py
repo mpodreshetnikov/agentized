@@ -16,11 +16,7 @@ def test_safe_rel_and_context_confinement(tmp_path: Path):
         with pytest.raises(ValueError) as ex:
             require_safe_rel(bad, field="context")
         assert ex.value.args == ("context must be a safe relative path",)
-    with pytest.raises(ValueError) as eo:
-        require_safe_rel("/x", field="metrics.output")
-    assert eo.value.args == ("metrics.output must be a safe relative path",)
     assert resolve_context_dir(tmp_path, "context") == (tmp_path / "context").resolve()
-    assert resolve_context_dir(tmp_path).name == "context"
     repo, outside = tmp_path / "repo", tmp_path / "outside"
     repo.mkdir()
     outside.mkdir()

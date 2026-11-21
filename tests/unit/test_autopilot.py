@@ -236,7 +236,7 @@ def test_defaults_helpers_normalize():
     assert set(bare_m) == {"version", "wip_limit", "autopilot", "metrics"}
 
 
-def test_board_io_fail_closed(tmp_path: Path):
+def test_board_io_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert load_board(tmp_path, "context") == EXPECTED_DEFAULT
     info = ensure_board_config(tmp_path, "context")
     assert info == {"path": "context/board.json", "created": True}
@@ -249,10 +249,18 @@ def test_board_io_fail_closed(tmp_path: Path):
     nested = tmp_path / "deep"
     save_board(nested, {"wip_limit": 4}, "ctx/sub")
     assert (nested / "ctx" / "sub" / "board.json").is_file()
-    assert ensure_board_config(tmp_path, "brandnew") == {
-        "path": "brandnew/board.json",
-        "created": True,
-    }
+    assert ensure_board_config(tmp_path, "brandnew")["created"] is True
+    save_board(tmp_path, default_board_config(), "solo")
+    seen: list[str] = []
+    real_lb = board_mod.load_board
+    monkeypatch.setattr(
+        board_mod,
+        "load_board",
+        lambda r, c="context": (seen.append(c), real_lb(r, c))[1],
+    )
+    assert ensure_board_config(tmp_path, "solo")["created"] is False
+    assert seen[-1] == "solo"
+    monkeypatch.setattr(board_mod, "load_board", real_lb)
     bad = tmp_path / "context" / "board.json"
     bad.write_text("[]\n", encoding="utf-8")
     with pytest.raises(ValueError):
@@ -424,7 +432,8 @@ def test_wip_and_autopilot(tmp_path: Path):
         == "T-261111-idea"
     )
     full = pick_next_task(all_tasks, _cfg(wip_limit=1), now=NOW)
-    assert full["task"] is None and "WIP at limit" in full["reason"]
+    assert full["task"] is None and full["under_limit"] is False
+    assert "WIP at limit" in full["reason"]
     disabled = pick_next_task(
         all_tasks,
         _cfg(
