@@ -21,7 +21,6 @@ from agentized.connect import (
     ensure_githooks_path,
 )
 
-
 # ---------------------------------------------------------------------------
 # _pin_hook_scripts
 # ---------------------------------------------------------------------------
@@ -79,6 +78,15 @@ def test_pin_mkdir_parents_true_for_nested_dest(tmp_path: Path, monkeypatch: pyt
     assert dest.is_dir()
 
 
+def test_pin_mkdir_exist_ok_when_dest_exists(tmp_path: Path):
+    """Kill ``exist_ok=True`` → False when dest already exists."""
+    _seed_context_hooks(tmp_path)
+    dest = tmp_path / "hooks-dest"
+    dest.mkdir()
+    copied = _pin_hook_scripts(tmp_path, "context", dest)
+    assert (dest / "session_start.py").is_file()
+    assert copied == [str(dest / "session_start.py")]
+
 
 def test_pin_chmod_sets_all_execute_bits(tmp_path: Path):
     """Kill ``| 0o111`` → ``| 74`` (and similar) on copied hook scripts."""
@@ -124,7 +132,9 @@ def test_safe_missing_src_returns_literal(tmp_path: Path):
     assert _safe_install_template(tmp_path / "nope", tmp_path / "dst") == "missing-src"
 
 
-def test_safe_create_writes_utf8_and_returns_created(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_safe_create_writes_utf8_and_returns_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill encoding=None/omit/UTF-8 on create write + return ``created``."""
     src = tmp_path / "tpl.txt"
     src.write_text(f"# {QUALITY_MARKER}\nbody\n", encoding="utf-8")
@@ -161,7 +171,9 @@ def test_safe_create_pre_push_chmod_execute_bits(tmp_path: Path):
     assert stat.S_IMODE(mode) & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def test_safe_create_non_pre_push_skips_chmod_branch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_safe_create_non_pre_push_skips_chmod_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill inverted ``src.name == "pre-push"`` on create (would chmod ci.yml)."""
     src = tmp_path / "ci.yml"
     src.write_text(f"# {QUALITY_MARKER}\nname: CI\n", encoding="utf-8")
@@ -178,7 +190,9 @@ def test_safe_create_non_pre_push_skips_chmod_branch(tmp_path: Path, monkeypatch
     assert chmod_calls == []
 
 
-def test_safe_update_marked_different_returns_updated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_safe_update_marked_different_returns_updated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill encoding spies on update path + return ``updated``."""
     src = tmp_path / "pre-push"
     src.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\nNEW\n", encoding="utf-8")
@@ -307,7 +321,9 @@ def test_githooks_subprocess_argv_and_kwargs_exact(tmp_path: Path, monkeypatch: 
         assert kw.get("text") is True
 
 
-def test_githooks_get_failure_ignores_stdout_garbage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_githooks_get_failure_ignores_stdout_garbage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill ``returncode == 0 or True`` — failed get must not trust stdout."""
     _git_init(tmp_path)
     real = subprocess.run
@@ -331,7 +347,9 @@ def test_githooks_get_failure_ignores_stdout_garbage(tmp_path: Path, monkeypatch
     assert got.stdout.strip() == ".githooks"
 
 
-def test_githooks_empty_stdout_on_success_still_sets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_githooks_empty_stdout_on_success_still_sets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill ``(stdout or \"XXXX\")`` — empty success stdout must set, not preserve."""
     _git_init(tmp_path)
     real = subprocess.run
@@ -347,18 +365,21 @@ def test_githooks_empty_stdout_on_success_still_sets(tmp_path: Path, monkeypatch
     assert ensure_githooks_path(tmp_path) == "set"
 
 
-def test_githooks_set_failure_returns_failed_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_githooks_set_failure_returns_failed_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Kill ``returncode == 0 or True`` on set — failure must return ``failed:``."""
     _git_init(tmp_path)
     real = subprocess.run
 
     def wrap(cmd, *args, **kwargs):
-        if list(cmd)[:4] == ["git", "config", "--local", "core.hooksPath"] or (
-            len(cmd) >= 4 and cmd[0] == "git" and cmd[1] == "config" and "core.hooksPath" in cmd
+        # set arm: ["git", "config", "--local", "core.hooksPath", wanted]
+        if (
+            len(cmd) >= 5
+            and list(cmd)[:3] == ["git", "config", "--local"]
+            and cmd[3] == "core.hooksPath"
         ):
-            # distinguish get vs set: set has value arg
-            if len(cmd) >= 5 and cmd[3] == "core.hooksPath":
-                return MagicMock(returncode=1, stdout="", stderr="boom\n")
+            return MagicMock(returncode=1, stdout="", stderr="boom\n")
         return real(cmd, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", wrap)
@@ -393,7 +414,7 @@ def test_githooks_absolute_match_requires_resolve(tmp_path: Path):
 
 
 def test_githooks_trailing_slash_rstrip_not_lstrip(tmp_path: Path):
-    """Kill ``rstrip("/")`` → ``lstrip`` / ``rstrip(None)`` / ``XX/XX``."""
+    """Kill ``rstrip("/")`` → ``lstrip`` / ``rstrip(None)``."""
     _git_init(tmp_path)
     subprocess.run(
         ["git", "config", "--local", "core.hooksPath", ".githooks/"],
@@ -402,6 +423,22 @@ def test_githooks_trailing_slash_rstrip_not_lstrip(tmp_path: Path):
         capture_output=True,
     )
     assert ensure_githooks_path(tmp_path) == "unchanged"
+
+
+def test_githooks_rstrip_slash_not_xx_charset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Kill ``rstrip("/")`` → ``rstrip("XX/XX")`` (would strip trailing X)."""
+    _git_init(tmp_path)
+    real = subprocess.run
+
+    def wrap(cmd, *args, **kwargs):
+        if list(cmd) == ["git", "config", "--local", "--get", "core.hooksPath"]:
+            return MagicMock(returncode=0, stdout=".githooksX\n", stderr="")
+        return real(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", wrap)
+    # Orig keeps trailing X → not wanted → preserved-user.
+    # Mutant rstrip("XX/XX") strips X → matches wanted → unchanged.
+    assert ensure_githooks_path(tmp_path) == "preserved-user"
 
 
 def test_githooks_backslash_normalized_in_current(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -415,6 +452,36 @@ def test_githooks_backslash_normalized_in_current(tmp_path: Path, monkeypatch: p
         return real(cmd, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", wrap)
+    assert ensure_githooks_path(tmp_path) == "unchanged"
+
+
+def test_githooks_absolute_resolve_backslash_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Kill resolve().replace(\"\\\\\", \"/\") → XX\\\\XX / XX/XX (noop on Linux otherwise)."""
+    _git_init(tmp_path)
+    win_abs = r"C:\workspace\.githooks"
+    posix_abs = "C:/workspace/.githooks"
+    real_run = subprocess.run
+
+    def wrap_run(cmd, *args, **kwargs):
+        if list(cmd) == ["git", "config", "--local", "--get", "core.hooksPath"]:
+            return MagicMock(returncode=0, stdout=posix_abs + "\n", stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    class _SlashyResolved:
+        def __str__(self) -> str:
+            return win_abs
+
+    real_resolve = Path.resolve
+
+    def wrap_resolve(self, *args, **kwargs):
+        if self.name == ".githooks" or str(self).endswith(".githooks"):
+            return _SlashyResolved()
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", wrap_run)
+    monkeypatch.setattr(Path, "resolve", wrap_resolve)
     assert ensure_githooks_path(tmp_path) == "unchanged"
 
 
