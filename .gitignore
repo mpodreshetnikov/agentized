@@ -38,3 +38,6 @@ reports/architecture/
 !.codex/agents/
 !.codex/agents/reviewer.toml
 .agents/skills/
+
+# Local hook ownership map (AGE-23); never commit
+context/.agentized/hooks_owned.json
