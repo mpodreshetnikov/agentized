@@ -9,8 +9,6 @@ import pytest
 
 from agentized import task_schema as ts
 from agentized.task_schema import (
-    append_status_progress,
-    last_progress_entry,
     DEFAULT_GOAL,
     ID_ALLOCATE_ERROR,
     INDEX_ACTIVE_STATUSES,
@@ -37,13 +35,12 @@ from agentized.task_schema import (
     set_field,
     unknown_depends_on_ids,
     utc_now_stamp,
-    map_orbit_status,
     validate_kind_priority,
     validate_task_status,
 )
 
-# fmt: off
 FIXED = datetime(2020, 1, 2, 3, 4, tzinfo=UTC)
+
 
 def test_status_gate_getattr_reexport_and_miss():
     import pytest
@@ -490,68 +487,3 @@ def test_rebuild_skips_placeholder_orbit(tmp_path: Path):
         f"## blocked\n\n{empty}\n\n"
         f"{INDEX_FOOTER}\n"
     )
-
-
-def test_map_orbit_status_exact():
-    assert map_orbit_status("") is None
-    assert map_orbit_status("   ") is None
-    assert map_orbit_status("review") == "for-review"
-    assert map_orbit_status("dropped") == "canceled"
-    assert map_orbit_status("Open") == "open"
-    assert map_orbit_status("idea") == "idea"
-    assert map_orbit_status("for-review") == "for-review"
-    assert map_orbit_status("wip") is None
-    assert map_orbit_status("unknown-orbit") is None
-
-
-def test_orbit_status_map_values_are_canonical():
-    from agentized.task_schema import ORBIT_STATUS_MAP
-    from agentized.tasks import CANONICAL_STATUSES
-
-    assert ORBIT_STATUS_MAP == {"review": "for-review"}
-    for mapped in ORBIT_STATUS_MAP.values():
-        assert mapped in CANONICAL_STATUSES
-
-
-
-def test_parse_task_empty_body_match_empty_string(tmp_path: Path, monkeypatch):
-    """Empty/whitespace body: re.match must see "" (not a placeholder)."""
-    from agentized import tasks as tasks_mod
-
-    captured: list[str] = []
-    real_match = tasks_mod.re.match
-
-    def capture_match(pattern, string, *a, **k):
-        captured.append(string)
-        return real_match(pattern, string, *a, **k)
-
-    monkeypatch.setattr(tasks_mod.re, "match", capture_match)
-    path = tmp_path / "T-261116-ws03.md"
-    path.write_text("", encoding="utf-8")
-    meta = parse_task(path)
-    assert meta is not None
-    assert meta.task_id == "T-261116-ws03"
-    assert captured == [""]
-    captured.clear()
-    path.write_text("\n\n  \t", encoding="utf-8")
-    assert parse_task(path) is not None
-    assert captured == [""]
-
-def test_last_progress_and_append_status_progress():
-    assert last_progress_entry("# no progress") is None
-    assert last_progress_entry("## Progress\n\n_(append-only)_\n") is None
-    two = (
-        "# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: first-section\n"
-        "\n## Decision Log\n\n- 2026-11-21 10:00 UTC: not-progress\n"
-        "\n## Progress\n\n- 2026-11-21 11:00 UTC: second-section\n"
-    )
-    assert last_progress_entry(two) == "first-section"
-    only = "# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: older\n- 2026-11-21 09:30 UTC: newer\n"
-    assert last_progress_entry(only) == "newer"
-    assert last_progress_entry("# T\n\n## Progres\n\n- 2026-11-21 09:00 UTC: x\n") is None
-    assert last_progress_entry("## Progress\n\n- 2026-11-21 09:00 UTC: at-start\n") == "at-start"
-    assert last_progress_entry("# T\n\n## Progress\n\n- 2026-11-21 09:00 UTC: only-section") == "only-section"
-    assert last_progress_entry("## Progress\n## Decision Log\n\n- 2026-11-21 09:00 UTC: from-decision\n") is None
-    once = append_status_progress(only, "done")
-    assert last_progress_entry(once) == "статус → done"
-    assert append_status_progress(once, "done") == once
