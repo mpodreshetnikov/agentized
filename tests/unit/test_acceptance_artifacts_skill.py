@@ -7,17 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "packages" / "shared" / "skills" / "acceptance-artifacts" / "SKILL.md"
 COMM = ROOT / "packages" / "shared" / "skills" / "communication-autonomy" / "SKILL.md"
-
-
-def _connect_py() -> Path:
-    """mutmut sandbox exposes `agentized/` (symlink target); dogfood uses `runtime/agentized/`."""
-    for cand in (ROOT / "agentized" / "connect.py", ROOT / "runtime" / "agentized" / "connect.py"):
-        if cand.is_file():
-            return cand
-    return ROOT / "runtime" / "agentized" / "connect.py"
-
-
-CONNECT = _connect_py()
+CONNECT = ROOT / "runtime" / "agentized" / "connect.py"
 
 # Required human-facing block titles (order matters for the default short report).
 FIVE_BLOCKS = (
@@ -54,7 +44,7 @@ def test_acceptance_skill_has_five_human_blocks_and_bans():
 def test_caveman_exempts_human_reports_in_related_pins():
     skill = SKILL.read_text(encoding="utf-8")
     comm = COMM.read_text(encoding="utf-8")
-    connect = _connect_py().read_text(encoding="utf-8")
+    connect = CONNECT.read_text(encoding="utf-8")
     assert "human-facing acceptance report" in skill
     assert "human-facing acceptance reports" in comm
     assert "human-facing acceptance reports" in connect

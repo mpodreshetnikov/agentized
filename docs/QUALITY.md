@@ -21,11 +21,10 @@ Configurable multi-module coverage, incremental mutation hard gate, test-smell +
 | `test_smells` | Hard-by-default AST lint for weak oracles / mock-call-only (JS: eslint template); `mode: warn` only if explicitly kept |
 | `architecture` | Hard-by-default module boundaries (`import-linter` or builtin edges; JS: dependency-cruiser) |
 | `property_based` | Hypothesis / fast-check pilot modules |
-| `e2e` | `enabled: auto` — hard when Playwright/Cypress/etc. detected; suite must exist and **run** (autodetect `npx playwright test` or set `test_command`); changed UI sources need matching test updates; `enabled=false` only via `disable_decision` (reason + `approved_by` + `expires` ≤14d) |
-| `db_tests` | `enabled: auto` — hard when migrations/SQL/ORM/pgTAP detected; suite must exist and **run** (autodetect `supabase test db` / `pg_prove` or set `test_command`); same `disable_decision` rules |
+| `e2e` | Key scenarios + failure artifacts + 3× new specs (templates only when no UI) |
 | `shared_fixtures` | Same duplicated logic → shared fixture both sides must match |
 | `batch_release` | Reviewed PRs may share one CI; keep up-to-date branch protection |
-| `gates.pre_push` / `gates.ci` | Ordered gate names (includes `e2e`, `db_tests`) |
+| `gates.pre_push` / `gates.ci` | Ordered gate names |
 
 ## Commands
 
@@ -33,7 +32,7 @@ Self-contained under `runtime/agentized/` (foreign connected repos do not need `
 
 | Command | Role |
 |---------|------|
-| `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + e2e + db_tests + mutation |
+| `./bin/agentized quality check` | Module tests + coverage + test_smells + architecture + mutation |
 | `python3 -m agentized.coverage_report` | Combine → `coverage/combined-*` |
 | `./tests/test_mechanical.sh` | Layout / connect / leases (**optional** — only when the file exists) |
 | `./scripts/quality/ruff_format_changed.sh` (CI, dogfood) | Hard fail-closed `ruff format --check` on changed `*.py` vs base (AGE-48; `line-length = 100`; pinned `ruff==0.17.6`) |
@@ -42,15 +41,11 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 ## Connect
 
-Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, pgTAP DB tests, import-linter, dependency-cruiser, batch-release, eslint smells).
+Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, import-linter, dependency-cruiser, batch-release, eslint smells).
 
-On reconnect, `ensure_quality_config` flips smells/architecture `warn`→`hard`. Layer e2e/db upgrades (warn→hard, false→auto, inject gates) via `layer_gates.install_ensure_quality_hook` on `quality` import. Skill/reviewer pins: managed-hash; user edits → `skipped_user`.
+On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`** when still set to warn (AGE-19 policy). Other fields stay as-is. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 
-New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, e2e/db_tests=`auto`+`hard` when present, `mutationScoreCovered=100`, coverage=80.
-
-### E2E / DB layer notes (AGE-31)
-
-Reconnect injects `e2e`/`db_tests` into `gates.pre_push`/`ci` (warn→hard, enabled false→auto). **`tests_changed` limitation:** any `test_globs` path in the diff counts (not per-source mapping). Git base-ref errors fail closed; placeholders/empty files are not a suite.
+New projects get hard defaults with no manual steps: smells=`hard`, architecture=`hard`, `mutationScoreCovered=100`, coverage=80.
 
 ## Strong reviewer (AGE-11)
 

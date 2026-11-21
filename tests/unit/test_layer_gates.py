@@ -1,4 +1,6 @@
 """AGE-31 layer gates — real quality.json trees (no mocked load_quality)."""
+
+# fmt: off
 from __future__ import annotations
 import json
 import subprocess
@@ -538,3 +540,4 @@ def test_helpers_deps_context_skips(tmp_path: Path, monkeypatch):
     )
     assert lg.run_e2e_gate(tmp_path) == 0 and _summary(tmp_path, "e2e")["reason"] == "layer_absent"
     assert lg.run_db_tests_gate(tmp_path) == 0 and _summary(tmp_path, "db_tests")["reason"] == "layer_absent"
+# fmt: on

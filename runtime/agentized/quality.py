@@ -157,6 +157,7 @@ def set_reviewer_options(
 
 def _install_layer_gates_connect_hook() -> None:
     from .layer_gates import install_ensure_quality_hook
+
     install_ensure_quality_hook()
 
 

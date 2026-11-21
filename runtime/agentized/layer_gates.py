@@ -1,4 +1,6 @@
 """Hard gates for e2e and DB tests when those layers are auto-detected."""
+
+# fmt: off
 from __future__ import annotations
 import fnmatch
 import json
@@ -639,3 +641,4 @@ def run_db_tests_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEX
         root, gate_name="db_tests", section=section,
         detection=detect_db_layer(root, skip_prefixes=skip_rel_prefixes(root, section)),
     )
+# fmt: on

@@ -818,11 +818,11 @@ def ensure_quality_config(
     if created:
         save_quality(root, load_quality(root, context_rel), context_rel)
     else:
-        # AGE-19/AGE-31: warn→hard for smells/architecture/e2e/db_tests on reconnect.
+        # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
         data = load_quality(root, context_rel)
         dirty = False
-        for section_name in ("test_smells", "architecture", "e2e", "db_tests"):
+        for section_name in ("test_smells", "architecture"):
             section = data.get(section_name)
             if not isinstance(section, dict):
                 continue
