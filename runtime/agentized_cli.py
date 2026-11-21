@@ -65,8 +65,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
     print(f"{label} OK" if ok else f"{label} FAILED (hooks refuse)")
     print(f"  context: {args.context}/")
     print(f"  version: {__version__}")
-    if dry_run:
-        print("  dry-run: planned hooks/marketplace only (no writes)")
     sk = result.get("skeleton") or {}
     if sk.get("created"):
         print(f"  context skeleton: created ({', '.join(sk.get('files') or [])})")
@@ -809,11 +807,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="задать порог coverage lines+branches в context/quality.json (по умолчанию 80)",
     )
     c.add_argument("--json", action="store_true")
-    c.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="plan harness hooks/marketplace merges without writing anything",
-    )
+    c.add_argument("--dry-run", action="store_true", help="plan hooks merges; write nothing")
     c.set_defaults(func=cmd_connect)
 
     ec = sub.add_parser("env-check", help="Fail-closed agent/cloud hook wiring check")
