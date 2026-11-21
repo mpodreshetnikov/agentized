@@ -11,9 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
-from agentized.hook_common import extract_paths
 from agentized import status_guard as sg
+from agentized.hook_common import extract_paths
 
 _UNB = "cannot build candidate text for task file (empty/whitespace write or unknown tool shape)"
 _EDIT = "cannot apply Edit onto task file (old_string mismatch or missing file)"
@@ -393,7 +392,7 @@ def test_evaluate_aliases_and_empty_and_apply_patch(tmp_path: Path):
     )
     assert out["permission"] == "deny" and "illegal transition" in out["agent_message"]
 
-    _mk_task(tmp_path, "T-261116-empty.md")
+    _mk_task(tmp_path, "T-261116-empty.md", OPEN + "\n## Progress\n\n- a\n")
     for tool in (
         {"file_path": "context/tasks/T-261116-empty.md", "content": ""},
         {"file_path": "context/tasks/T-261116-empty.md", "content": "   \n"},
@@ -402,6 +401,20 @@ def test_evaluate_aliases_and_empty_and_apply_patch(tmp_path: Path):
         assert _eval(tmp_path, tool) == _deny(
             "PreToolUse", f"[status-guard] REFUSED: T-261116-empty.md: {_UNB}"
         )
+    # Empty Write key must win over Edit keys (kills _has_write_key survivors).
+    assert _eval(
+        tmp_path,
+        {
+            "file_path": "context/tasks/T-261116-empty.md",
+            "content": "   ",
+            "old_string": "- a\n",
+            "new_string": "- a\n- b\n",
+        },
+    ) == _deny("PreToolUse", f"[status-guard] REFUSED: T-261116-empty.md: {_UNB}")
+    for bad_key in ("CONTENT", "CONTENTS", "BODY", "TEXT"):
+        assert sg._has_write_key({bad_key: "x"}) is False
+    for good_key in ("content", "contents", "body", "text"):
+        assert sg._has_write_key({good_key: ""}) is True
 
     _mk_task(tmp_path, "T-261116-ap.md")
     cmd = "apply_patch <<'EOF'\n*** Update File: context/tasks/T-261116-ap.md\n@@\n-x\n+y\nEOF"
@@ -417,6 +430,7 @@ def test_hook_scripts_and_connect(
     iso = _isolated_hook(iso_root / "sg", SHARED_GUARD)
     proc = subprocess.run(
         [sys.executable, str(iso)],
+        check=False,
         input='{"tool_input":{"file_path":"x.py"}}',
         text=True,
         capture_output=True,
@@ -430,6 +444,7 @@ def test_hook_scripts_and_connect(
     iso_pg = _isolated_hook(iso_root / "pg", SHARED_PG)
     proc = subprocess.run(
         [sys.executable, str(iso_pg)],
+        check=False,
         input=json.dumps({"tool_input": {"file_path": "runtime/x.py", "content": "x"}}),
         text=True,
         capture_output=True,
@@ -444,6 +459,7 @@ def test_hook_scripts_and_connect(
     (tmp_path / "runtime").symlink_to(REPO / "runtime")
     proc = subprocess.run(
         [sys.executable, str(SHARED_GUARD)],
+        check=False,
         input="{bad",
         text=True,
         capture_output=True,
@@ -468,15 +484,16 @@ def test_hook_scripts_and_connect(
     assert (tmp_path / ".cursor/hooks/status_guard.py").is_file()
     pg = (tmp_path / ".cursor/hooks/process_guard.py").read_text(encoding="utf-8")
     assert "decide_from_stdin" in pg and "import failure" in pg
-
     src = SHARED_PG.read_bytes()
-    for rel in (
-        ".cursor/hooks/process_guard.py",
-        ".claude/hooks/process_guard.py",
-        ".codex/hooks/process_guard.py",
-        "context/hooks/scripts/process_guard.py",
-    ):
-        assert (REPO / rel).read_bytes() == src
+    assert all(
+        (REPO / r).read_bytes() == src
+        for r in (
+            ".cursor/hooks/process_guard.py",
+            ".claude/hooks/process_guard.py",
+            ".codex/hooks/process_guard.py",
+            "context/hooks/scripts/process_guard.py",
+        )
+    )
 
 
 def test_load_status_gates_import_error(monkeypatch: pytest.MonkeyPatch):
@@ -509,30 +526,67 @@ def test_load_status_gates_success(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_candidate_utf8_and_path_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    import locale
-
-    monkeypatch.setattr(locale, "getpreferredencoding", lambda do_setlocale=True: "ascii")
     body = "# T\n\nстатус: open\n\nЦенность: тест-юникод\n"
     path = _mk_task(tmp_path, "T-261116-utf.md", body)
+    rel = "context/tasks/T-261116-utf.md"
     cand, old = sg.candidate_and_old(
         path,
         root=str(tmp_path),
-        rel="context/tasks/T-261116-utf.md",
+        rel=rel,
         tool_input={"old_string": "тест-юникод", "new_string": "тест-ok"},
         event="PreToolUse",
     )
     assert old == body and cand is not None and "тест-ok" in cand
-    cand2, old2 = sg.candidate_and_old(
-        path, root=tmp_path, rel="x", tool_input={"content": "new"}, event="PreToolUse"
+    encodings: list = []
+    real_read = Path.read_text
+
+    def spy_read(self, *a, **k):
+        encodings.append(k.get("encoding", "MISSING"))
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", spy_read)
+    sg.candidate_and_old(
+        path, root=tmp_path, rel=rel, tool_input={"content": "x"}, event="PreToolUse"
     )
-    assert cand2 == "new" and old2 == body
-    cand3, _ = sg.candidate_and_old(
-        path, root=tmp_path, rel="x", tool_input={"content": "  "}, event="PreToolUse"
-    )
-    assert cand3 is None
-    missing = tmp_path / "context/tasks/T-missing.md"
+    assert encodings == ["utf-8"]
+    monkeypatch.setattr(Path, "read_text", real_read)
     assert sg.candidate_and_old(
-        missing, root=tmp_path, rel="x", tool_input={}, event="PreToolUse"
+        path, root=tmp_path, rel=rel, tool_input={"content": "new"}, event="PreToolUse"
+    ) == ("new", body)
+    assert (
+        sg.candidate_and_old(
+            path, root=tmp_path, rel=rel, tool_input={"content": "  "}, event="PreToolUse"
+        )[0]
+        is None
+    )
+    miss = tmp_path / "context/tasks/T-missing.md"
+    assert sg.candidate_and_old(
+        miss, root=tmp_path, rel="context/tasks/T-missing.md", tool_input={}, event="PreToolUse"
+    ) == (None, None)
+    assert sg.candidate_and_old(
+        path, root=tmp_path, rel="wrong.md", tool_input={"content": "x"}, event="PreToolUse"
+    ) == (None, None)
+    assert sg.candidate_and_old(
+        path, root=tmp_path, rel=rel, tool_input={"content": "x"}, event=""
+    ) == (None, None)
+    kw = {"root": tmp_path, "tool_input": {"content": "x"}, "event": "PreToolUse"}
+    assert sg.candidate_and_old(Path(rel), rel=rel, **kw) == (None, None)
+    assert sg.candidate_and_old(path, rel="", **kw) == (None, None)
+    assert sg.candidate_and_old(path, rel=None, **kw) == (None, None)  # type: ignore[arg-type]
+    assert sg.candidate_and_old(
+        path, root=tmp_path, rel=rel, tool_input={"content": "x"}, event=None
+    ) == (  # type: ignore[arg-type]
+        None,
+        None,
+    )
+    # len(rel)==1 must not trip empty-rel guard (kills len==0→1).
+    one = tmp_path / "Z"
+    one.write_text("z", encoding="utf-8")
+    assert sg.candidate_and_old(
+        one, root=tmp_path, rel="Z", tool_input={"content": "z"}, event="PreToolUse"
+    ) == ("z", "z")
+    assert sg.candidate_and_old(
+        path, root=None, rel=rel, tool_input={"content": "x"}, event="PreToolUse"
     ) == (None, None)
 
 
@@ -641,21 +695,26 @@ def test_multi_task_and_new_file_and_catchall(tmp_path: Path, monkeypatch: pytes
         {"file_path": "context/tasks/T-261116-a.md", "content": bad},
         extract=multi,
     )
-    assert "T-261116-a.md: illegal" in out["agent_message"]
-    assert "T-261116-b.md: illegal" in out["agent_message"]
+    assert out == _deny(
+        "PreToolUse",
+        "[status-guard] REFUSED: T-261116-a.md: illegal transition open → done; "
+        "T-261116-b.md: illegal transition open → done",
+    )
     out2 = _eval(
         tmp_path,
         {"file_path": "context/tasks/T-261116-a.md", "old_string": "NOPE", "new_string": bad},
         extract=multi,
     )
-    assert "cannot apply Edit" in out2["agent_message"] and "; " in out2["agent_message"]
+    assert out2 == _deny(
+        "PreToolUse",
+        f"[status-guard] REFUSED: T-261116-a.md: {_EDIT}; T-261116-b.md: {_EDIT}",
+    )
 
     (tmp_path / "context/tasks").mkdir(parents=True, exist_ok=True)
     extracts: list = []
 
     def extract_status(text):
         extracts.append(text)
-        return None
 
     def validate_task_text(text, *, old_status=None, check_transition=True):
         assert check_transition is False and old_status is None
@@ -683,7 +742,7 @@ def test_multi_task_and_new_file_and_catchall(tmp_path: Path, monkeypatch: pytes
         context_rel="context",
         extract_paths=extract_paths,
     )
-    assert out["permission"] == "deny" and "evaluation error: locked" in out["agent_message"]
+    assert out == _deny("PreToolUse", "[status-guard] REFUSED: evaluation error: locked")
 
     def boom2(*_a, **_k):
         raise TypeError("edits is not a mapping")
@@ -695,4 +754,61 @@ def test_multi_task_and_new_file_and_catchall(tmp_path: Path, monkeypatch: pytes
         context_rel="context",
         extract_paths=extract_paths,
     )
-    assert out["permission"] == "deny" and "evaluation error" in out["agent_message"]
+    assert out["permission"] == "deny"
+    assert out["hookEventName"] == "PreToolUse"
+    assert "evaluation error" in out["agent_message"]
+
+
+def test_decide_forwards_gates_kwargs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    body = "# T\n\nстатус: blocked\n\nЦенность: test\n"
+    _mk_task(tmp_path, "T-261116-kw.md")
+
+    def boom_loader():
+        raise RuntimeError("loader must not run when gates provided")
+
+    assert (
+        sg.decide_from_stdin(
+            json.dumps(
+                {
+                    "tool_input": {
+                        "file_path": "context/tasks/T-261116-kw.md",
+                        "content": body,
+                    }
+                }
+            ),
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates=_fake_gates(),
+            gates_loader=boom_loader,
+        )
+        == ALLOW_PRE
+    )
+    loaded = {"n": 0}
+
+    def loader():
+        loaded["n"] += 1
+        return _fake_gates()
+
+    monkeypatch.setattr(
+        sg, "load_status_gates", lambda: (_ for _ in ()).throw(RuntimeError("no default"))
+    )
+    assert (
+        sg.decide_from_stdin(
+            json.dumps(
+                {
+                    "tool_input": {
+                        "file_path": "context/tasks/T-261116-kw.md",
+                        "content": body,
+                    }
+                }
+            ),
+            root=tmp_path,
+            context_rel="context",
+            extract_paths=extract_paths,
+            gates=None,
+            gates_loader=loader,
+        )
+        == ALLOW_PRE
+        and loaded["n"] == 1
+    )

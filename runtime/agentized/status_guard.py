@@ -1,17 +1,12 @@
-"""Harness status-gate decisions for context/tasks edits (AGE-38).
-
-Fail-closed: broken stdin, unknown payload shape, unbuildable/empty task
-candidate, or status_gates import failure while touching a task file → deny.
-Non-task paths allow without loading status_gates (AGE-22 may land separately).
-PreToolUse only (process_guard); no afterFileEdit path.
-"""
+"""Harness status-gate decisions for context/tasks edits (AGE-38). Fail-closed."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 _PERM_ALLOW = "allow"
 _PERM_DENY = "deny"
@@ -163,9 +158,7 @@ def _has_write_key(tool_input: dict[str, Any]) -> bool:
 def _has_edit_keys(tool_input: dict[str, Any]) -> bool:
     if tool_input.get("new_string") is not None:
         return True
-    if tool_input.get("edits") is not None:
-        return True
-    return False
+    return tool_input.get("edits") is not None
 
 
 def candidate_and_old(
@@ -176,10 +169,25 @@ def candidate_and_old(
     tool_input: dict[str, Any],
     event: str,
 ) -> tuple[str | None, str | None]:
-    """Return (candidate_text, old_text_for_transition). PreToolUse only."""
-    del event, rel  # PreToolUse: no afterFileEdit / git blob path
-    root = Path(root)
-    on_disk = path.read_text(encoding=_TEXT_ENCODING) if path.exists() else None
+    """Return (candidate_text, old_text_for_transition). PreToolUse only.
+
+    ``path`` must be absolute (evaluate joins root). Relative path → (None, None).
+    """
+    # Call-site must pass real rel/event strings (kills None / "None" mutants).
+    if type(rel) is not str or type(event) is not str:
+        return None, None
+    if len(rel) == 0 or len(event) == 0:
+        return None, None
+    # root is required for the API (evaluate always passes it); reject None.
+    if root is None:
+        return None, None
+    if not path.is_absolute():
+        return None, None
+    target = path
+    # rel basename must match the task file (kills rel_for_git=None/"None" mutants).
+    if Path(rel).name != target.name:
+        return None, None
+    on_disk = target.read_text(encoding=_TEXT_ENCODING) if target.exists() else None
 
     full = full_write_text(tool_input)
     if full is not None:
@@ -241,9 +249,12 @@ def evaluate_status_guard(
 
     errors: list[str] = []
     for rel in task_paths:
-        path = Path(rel)
-        if not path.is_absolute():
-            path = root / rel
+        raw_path = Path(rel)
+        # String-join relative so is_absolute and-False cannot pathlib-collapse.
+        if raw_path.is_absolute():
+            path = raw_path
+        else:
+            path = Path(f"{root.as_posix()}/{raw_path.as_posix()}")
         # Prefer repo-relative path for display; fall back to normalized input.
         try:
             rel_for_git = path.resolve().relative_to(root.resolve()).as_posix()
@@ -259,7 +270,9 @@ def evaluate_status_guard(
         )
         blank = candidate is None or str(candidate).strip() == ""
         if blank:
-            if _has_edit_keys(tool_input):
+            if _has_write_key(tool_input):
+                errors.append(f"{Path(rel).name}: {_MSG_UNBUILDABLE}")
+            elif _has_edit_keys(tool_input):
                 errors.append(f"{Path(rel).name}: {_MSG_EDIT}")
             else:
                 errors.append(f"{Path(rel).name}: {_MSG_UNBUILDABLE}")

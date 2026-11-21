@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Claim-before-edits + AGE-38 status_guard (fail-closed) before claim check.
-
-Import failure of status_guard / runtime → deny ALL edits (fail-closed).
-"""
+"""Claim-before-edits + AGE-38 status_guard; import failure → deny-all."""
 
 from __future__ import annotations
 
@@ -21,6 +18,22 @@ except ImportError:  # copied next to hooks without package layout
 
         def ensure_runtime_on_path(here=None):  # type: ignore[misc]
             return Path.cwd()
+
+
+def _deny(event: str, msg: str) -> dict:
+    return {
+        "permission": "deny",
+        "continue": False,
+        "agent_message": msg,
+        "additional_context": msg,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "permissionDecision": "deny",
+            "permissionDecisionReason": msg,
+        },
+        "hookEventName": event,
+        "systemMessage": msg,
+    }
 
 
 def main() -> int:
@@ -47,23 +60,9 @@ def main() -> int:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
         from agentized.status_guard import decide_from_stdin
     except Exception as exc:  # noqa: BLE001 — deny all edits on import failure
-        msg = f"[status-guard] REFUSED: import failure: {exc}"
         print(
             json.dumps(
-                {
-                    "permission": "deny",
-                    "continue": False,
-                    "agent_message": msg,
-                    "additional_context": msg,
-                    "hookSpecificOutput": {
-                        "hookEventName": event,
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": msg,
-                    },
-                    "hookEventName": event,
-                    "systemMessage": msg,
-                },
-                ensure_ascii=False,
+                _deny(event, f"[status-guard] REFUSED: import failure: {exc}"), ensure_ascii=False
             )
         )
         return 0
@@ -77,20 +76,9 @@ def main() -> int:
     try:
         status_out = decide_from_stdin(raw, root=root, context_rel=ctx, extract_paths=extract_paths)
     except Exception as exc:  # noqa: BLE001 — fail closed
-        msg = f"[status-guard] REFUSED: evaluation error: {exc}"
         print(
             json.dumps(
-                {
-                    "permission": "deny",
-                    "continue": False,
-                    "agent_message": msg,
-                    "hookSpecificOutput": {
-                        "hookEventName": event,
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": msg,
-                    },
-                },
-                ensure_ascii=False,
+                _deny(event, f"[status-guard] REFUSED: evaluation error: {exc}"), ensure_ascii=False
             )
         )
         return 0
@@ -123,20 +111,7 @@ def main() -> int:
         print(json.dumps(allow, ensure_ascii=False))
         return 0
 
-    deny = {
-        "permission": "deny",
-        "continue": False,
-        "agent_message": msg,
-        "additional_context": msg,
-        "hookSpecificOutput": {
-            "hookEventName": event,
-            "permissionDecision": "deny",
-            "permissionDecisionReason": msg,
-        },
-        "hookEventName": event,
-        "systemMessage": msg,
-    }
-    print(json.dumps(deny, ensure_ascii=False))
+    print(json.dumps(_deny(event, msg), ensure_ascii=False))
     return 0
 
 
