@@ -16,7 +16,7 @@ from .process_size import (
     load_process_config_file,
     size_check as _size_check_canonical,
 )
-from .tasks import ACTIVE_STATUSES, list_tasks
+from .tasks import CLAIM_STATUSES, list_tasks
 
 PROCESS_FILENAME = "process-control.json"
 
@@ -96,7 +96,7 @@ def active_claims(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
         return []
     out = []
     for task in list_tasks(tasks_dir):
-        if task.status not in ACTIVE_STATUSES:
+        if task.status not in CLAIM_STATUSES:
             continue
         claim = (task.claim or "").strip()
         if not claim or claim.startswith("_"):

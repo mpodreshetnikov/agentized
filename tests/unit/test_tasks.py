@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -46,8 +46,8 @@ def test_utc_now_stamp_format_and_tz(monkeypatch):
     class Fixed(datetime):
         @classmethod
         def now(cls, tz=None):
-            assert tz is timezone.utc
-            return datetime(2026, 11, 16, 12, 0, 0, tzinfo=timezone.utc)
+            assert tz is UTC
+            return datetime(2026, 11, 16, 12, 0, 0, tzinfo=UTC)
 
     monkeypatch.setattr(tasks_mod, "datetime", Fixed)
     assert utc_now_stamp() == "261116"
@@ -351,8 +351,8 @@ def test_append_progress_exact_with_frozen_time(monkeypatch):
     class Fixed(datetime):
         @classmethod
         def now(cls, tz=None):
-            assert tz is timezone.utc
-            return datetime(2026, 11, 16, 9, 41, 0, tzinfo=timezone.utc)
+            assert tz is UTC
+            return datetime(2026, 11, 16, 9, 41, 0, tzinfo=UTC)
 
     monkeypatch.setattr(tasks_mod, "datetime", Fixed)
     stamp = "2026-11-16 09:41 UTC"
@@ -441,3 +441,99 @@ def test_rebuild_task_index_exact(tmp_path: Path):
         "- [T-261116-o2](T-261116-o2.md) — Open two"
     )
     assert "XX\nXX" not in two_open
+
+
+def test_active_statuses_lazy_identity_with_status_gates():
+    from agentized import status_gates as sg
+    from agentized import task_schema as ts
+    from agentized import tasks as tasks_mod
+
+    assert tasks_mod.ACTIVE_STATUSES is sg.INDEX_ACTIVE_STATUSES
+    assert ts.ACTIVE_STATUSES is sg.INDEX_ACTIVE_STATUSES
+    assert tasks_mod.CLAIM_STATUSES == ("open", "in-progress", "blocked")
+    assert "queue" not in tasks_mod.CLAIM_STATUSES
+    assert "self-review" not in tasks_mod.CLAIM_STATUSES
+
+
+def test_rebuild_task_index_includes_orbit_id(tmp_path: Path):
+    _write(
+        tmp_path / "T-261116-orb.md",
+        "# T-261116-orb — Orbit\n\nстатус: open\nтеги:\nродитель:\nclaim: eve\norbit_id: T-0023\n",
+    )
+    assert rebuild_task_index(tmp_path) == (
+        "# Задачи — живой индекс\n\n"
+        "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
+        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
+        "Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.\n\n"
+        "## open\n\n"
+        "- [T-261116-orb](T-261116-orb.md) — Orbit · claim: eve · orbit: T-0023\n\n"
+        "## in-progress\n\n_(пусто)_\n\n"
+        "## blocked\n\n_(пусто)_\n\n"
+        "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом с этим индексом; "
+        "при смене статуса файл **не перемещается**.\n"
+    )
+
+
+def test_rebuild_skips_underscore_orbit_id(tmp_path: Path):
+    _write(
+        tmp_path / "T-261116-orbx.md",
+        "# T-261116-orbx — O\n\nстатус: open\nтеги:\nродитель:\nclaim:\norbit_id: _hidden\n",
+    )
+    index = rebuild_task_index(tmp_path)
+    assert index == (
+        "# Задачи — живой индекс\n\n"
+        "Генерируемый список **активной** работы. Не полный архив истории.\n\n"
+        "Статусы в индексе: `open` · `in-progress` · `blocked`.\n\n"
+        "Поиск: этот индекс + grep по id / title / tags. Не обходи весь каталог `tasks/`.\n\n"
+        "## open\n\n"
+        "- [T-261116-orbx](T-261116-orbx.md) — O\n\n"
+        "## in-progress\n\n_(пусто)_\n\n"
+        "## blocked\n\n_(пусто)_\n\n"
+        "Новые задачи — по [`TEMPLATE.md`](TEMPLATE.md). Файлы задач лежат рядом с этим индексом; "
+        "при смене статуса файл **не перемещается**.\n"
+    )
+    assert "orbit:" not in index
+    assert "_hidden" not in index
+
+
+@pytest.mark.parametrize("status", ["self-review", "queue", "for-review"])
+def test_claim_refuse_non_claim_status_not_active(tmp_path: Path, status: str):
+    """Non-CLAIM_STATUSES claims must not satisfy refuse claim_check."""
+    from agentized.process_control import active_claims, claim_check
+
+    tasks = tmp_path / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    (tmp_path / "context" / "process-control.json").write_text(
+        '{"claim_required": true, "claim_mode_agent": "refuse", "claim_mode_local": "warn"}\n',
+        encoding="utf-8",
+    )
+    _write(
+        tasks / "T-261116-srcl.md",
+        f"# T-261116-srcl — SR\n\nстатус: {status}\nтеги:\nродитель:\nclaim: alice\n",
+    )
+    assert active_claims(tmp_path) == []
+    refused = claim_check(tmp_path, ["runtime/x.py"], env={"CURSOR_AGENT": "1"})
+    assert refused["ok"] is False
+    assert refused["mode"] == "refuse"
+
+
+def test_tasks_reexports_match_schema():
+    from agentized import tasks
+    from agentized.task_schema import render_task_file as schema_render
+    from agentized.task_schema import set_field as schema_set
+
+    assert tasks.render_task_file is schema_render
+    assert tasks.set_field is schema_set
+    text = "# T-1 — x\n\nродитель:\nclaim: alice\n"
+    assert set_field(text, "родитель", "P") == "# T-1 — x\n\nродитель: P\nclaim: alice\n"
+
+
+def test_tasks_getattr_unknown_message():
+    import pytest
+
+    from agentized import tasks as tasks_mod
+
+    with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'") as ei:
+        _ = tasks_mod.not_a_real_export
+    assert "not_a_real_export" in str(ei.value)
+    assert "agentized.tasks" in str(ei.value) or "tasks" in str(ei.value)
