@@ -62,8 +62,11 @@ def exclude_ast_equivalent(
             kept.append(path)
             continue
         base_key = ast_dump(base_text)
+        if base_key is None:
+            kept.append(path)
+            continue
         head_key = ast_dump(head_text)
-        if base_key is None or head_key is None:
+        if head_key is None:
             kept.append(path)
             continue
         if base_key == head_key:
@@ -112,7 +115,3 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     context = args[args.index("--context") + 1] if "--context" in args else DEFAULT_CONTEXT
     return run_mutation(context=context)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

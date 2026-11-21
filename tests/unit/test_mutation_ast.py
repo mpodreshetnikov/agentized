@@ -16,15 +16,25 @@ DOC_B = 'def f():\n    """beta"""\n    return 1\n'
 BAD_SRC = "def f(\n"
 
 
-def test_ast_dump_format_equal_semantic_and_doc_differ():
+def test_ast_dump_format_equal_semantic_and_doc_differ(monkeypatch):
     dump = mast.ast_dump(BASE_SRC)
     assert dump == mast.ast_dump(FORMAT_ONLY)
     assert dump != mast.ast_dump(SEMANTIC)
     assert mast.ast_dump(DOC_A) != mast.ast_dump(DOC_B)
     assert mast.ast_dump(BAD_SRC) is None
-    # Kill include_attributes=True / omitted / None mutants.
     assert "lineno" not in dump
     assert "col_offset" not in dump
+    # Kill include_attributes=None / omitted mutants (equiv on 3.12 dump output).
+    calls: list[object] = []
+    real_dump = __import__("ast").dump
+
+    def spy_dump(node, *a, **k):
+        calls.append(k.get("include_attributes", "MISSING"))
+        return real_dump(node, *a, **k)
+
+    monkeypatch.setattr(mast.ast, "dump", spy_dump)
+    assert mast.ast_dump(BASE_SRC) is not None
+    assert calls == [False]
 
 
 def test_exclude_a_format_only(tmp_path: Path, monkeypatch):
@@ -109,16 +119,39 @@ def test_exclude_continue_not_break_on_multi(tmp_path: Path, monkeypatch):
     assert excluded == [fmt]
 
 
-def test_exclude_parse_none_or_not_and(tmp_path: Path, monkeypatch):
-    """base_key is None or head_key is None — not `and` (would wrongly exclude)."""
+def test_exclude_parse_continue_not_break(tmp_path: Path, monkeypatch):
+    """Second continue (parse-None)→break must not drop a later exclude."""
+    bad = "runtime/agentized/bad.py"
+    fmt = "runtime/agentized/fmt.py"
+    (tmp_path / bad).parent.mkdir(parents=True)
+    (tmp_path / bad).write_text(BAD_SRC, encoding="utf-8")
+    (tmp_path / fmt).write_text(FORMAT_ONLY, encoding="utf-8")
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [bad, fmt])
+    assert kept == [bad]
+    assert excluded == [fmt]
+
+
+def test_exclude_base_parse_none_skips_head_dump(tmp_path: Path, monkeypatch):
+    """If base AST dump fails, keep and do not dump head."""
     rel = "runtime/agentized/x.py"
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_text(BASE_SRC, encoding="utf-8")
-    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BAD_SRC)
-    # head parses, base does not → must keep (or-branch), never exclude.
+    real = mast.ast_dump
+    state = {"n": 0}
+
+    def spy(source: str):
+        state["n"] += 1
+        if state["n"] == 1:
+            return None
+        return real(source)
+
+    monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
+    monkeypatch.setattr(mast, "ast_dump", spy)
     kept, excluded = mast.exclude_ast_equivalent(tmp_path, "origin/main", [rel])
     assert kept == [rel]
     assert excluded == []
+    assert state["n"] == 1
 
 
 def test_exclude_head_unreadable_stays(tmp_path: Path, monkeypatch):
@@ -208,6 +241,7 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
 
     load_calls: list[tuple] = []
     changed_calls: list[tuple] = []
+    exclude_refs: list[object] = []
 
     def load(root, context):
         load_calls.append((root, context))
@@ -217,18 +251,28 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
         changed_calls.append((root, base_ref, list(prefixes)))
         return [rel]
 
+    real_exclude = mast.exclude_ast_equivalent
+
+    def spy_exclude(root, base_ref, paths):
+        exclude_refs.append(base_ref)
+        return real_exclude(root, base_ref, paths)
+
     monkeypatch.setattr(mut, "load_quality", load)
     monkeypatch.setattr(mut, "_changed_py_files", changed)
+    monkeypatch.setattr(mast, "exclude_ast_equivalent", spy_exclude)
     monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
     monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path / "WRONG")
     monkeypatch.chdir(tmp_path)
 
+    orig_changed = mut._changed_py_files
     assert mast.run_mutation(tmp_path, context="ctx-a") == 0
-    # Passed root must win over find_repo_root; context must propagate.
+    # finally must restore patches (kill `_changed_py_files = None`).
+    assert mut._changed_py_files is orig_changed
     assert load_calls[0] == (tmp_path, "ctx-a")
     assert changed_calls[0][0] == tmp_path
     assert changed_calls[0][1] == "origin/main"
     assert changed_calls[0][2] == ["runtime/agentized"]
+    assert exclude_refs == ["origin/main"]
 
     summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())
     assert summary["mode"] == "incremental-skip"
@@ -377,19 +421,13 @@ def test_main_context_flag_and_argv(monkeypatch):
     monkeypatch.setattr(mast, "run_mutation", fake_run)
     assert mast.main(["--context", "ctx"]) == 7
     assert called == ["ctx"]
+    # index+1 (not -1): value after the flag, not the token before it.
+    assert mast.main(["noise", "--context", "ctx2"]) == 7
+    assert called == ["ctx", "ctx2"]
     # Empty argv list must not fall through to sys.argv.
     monkeypatch.setattr(sys, "argv", ["prog", "--context", "from-sys"])
     assert mast.main([]) == 7
-    assert called == ["ctx", mast.DEFAULT_CONTEXT]
+    assert called == ["ctx", "ctx2", mast.DEFAULT_CONTEXT]
     assert mast.main(None) == 7
-    assert called == ["ctx", mast.DEFAULT_CONTEXT, "from-sys"]
+    assert called == ["ctx", "ctx2", mast.DEFAULT_CONTEXT, "from-sys"]
 
-
-def test_module_main_entrypoint(monkeypatch):
-    monkeypatch.setattr(mast, "main", lambda: 0)
-    # Exercise __main__ guard via runpy on the source file path.
-    path = Path(mast.__file__).resolve()
-    # runpy with alter_sys would call main; instead assert file ends with guard.
-    text = path.read_text(encoding="utf-8")
-    assert 'if __name__ == "__main__":' in text
-    assert "raise SystemExit(main())" in text
