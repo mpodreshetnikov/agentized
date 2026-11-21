@@ -45,7 +45,7 @@ from agentized.autopilot import (
     _require_window_days,
     _validate_metrics_rel,
 )
-from agentized.paths import path_under, require_safe_rel, under_context
+from agentized.context_paths import path_under, require_safe_rel, under_context
 from agentized.tasks import list_tasks, render_task_file
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)

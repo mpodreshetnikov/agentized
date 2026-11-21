@@ -22,13 +22,8 @@ from agentized.leases import (
     render_lease_file,
     warn_message,
 )
-from agentized.paths import (
-    DEFAULT_CONTEXT,
-    find_repo_root,
-    load_state,
-    path_under,
-    resolve_context_dir,
-)
+from agentized.context_paths import path_under, resolve_context_dir
+from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import run_tasks_validate
 from agentized.tasks import (

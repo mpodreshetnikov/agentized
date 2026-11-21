@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .paths import DEFAULT_CONTEXT, require_safe_rel, under_context
+from .context_paths import require_safe_rel, under_context
+from .paths import DEFAULT_CONTEXT
 from .quality_io import read_json_object, write_json_object
 from .tasks import list_tasks
 
