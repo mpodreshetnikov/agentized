@@ -86,14 +86,14 @@ codex plugin marketplace add .
 **Создание требует подтверждения человека** (не передавайте `--yes` вручную в утреннем прогоне):
 
 ```bash
-./bin/agentized new --title "Утренний dogfood §9.4"
+./bin/agentized new --title "Утренний dogfood §9.4" --value "Утренний dogfood: живой прогон claim/lease/index"
 # ответьте y
 ```
 
 Запомните id (`T-YYMMDD-xxxx`). При необходимости подзадача:
 
 ```bash
-./bin/agentized new --title "Подзадача: правка runtime" --parent T-YYMMDD-xxxx
+./bin/agentized new --title "Подзадача: правка runtime" --parent T-YYMMDD-xxxx --value "Подзадача утреннего прогона: правка runtime"
 ```
 
 Claim + lease на пересекаемый путь (пример — сам runtime):

@@ -1,4 +1,4 @@
-"""AGE-76 REJECT r3 e2e: template gates after connect; new→claim→ready→validate."""
+"""AGE-76 REJECT r3/r4: connect+new/ready flows for tip hygiene (not full CI scripts)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from agentized.connect import connect
-from agentized.task_schema import PLACEHOLDER_EMPTY, PLACEHOLDER_PARENT, rebuild_task_index
+from agentized.task_schema import PLACEHOLDER_PARENT, rebuild_task_index
 from agentized.tip_hygiene import MSG_TIP_INDEX, validate_index_freshness
 
 _TEST_ROOT = Path(__file__).resolve().parents[2]
@@ -43,13 +43,13 @@ def _cli(
     )
 
 
-def test_e2e_template_gates_green_after_fresh_connect(
+def test_after_connect_template_files_omit_tip_hygiene(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """(b) empty git → connect → commit → exact template gates (no tip hygiene) green.
+    """(b) empty git → connect → commit: template files omit tip hygiene; check OK.
 
-    tasks-validate still fails on hand-seed INDEX (AGE-68 owns rebuild seed);
-    templates must not invoke it.
+    Not a real pre-push/CI script run — only asserts template text + lightweight
+    ``process size`` / ``check``. Hand INDEX still fails tip hygiene (AGE-68 seed).
     """
     repo = tmp_path / "fresh"
     repo.mkdir()
@@ -102,15 +102,14 @@ def test_e2e_template_gates_green_after_fresh_connect(
     assert idx.ok is False
     assert MSG_TIP_INDEX in idx.errors
 
-    # Exact template gate commands that are not quality/mutation heavy:
-    # process size (template pre-push + CI both run this; CI sets PROCESS_BASE).
+    # Lightweight gates templates also run (not full pre-push/CI).
     size = _cli(repo, "process", "size", env={"PROCESS_BASE": tip})
     assert size.returncode == 0, size.stderr
     check = _cli(repo, "check")
     assert check.returncode == 0, check.stderr
 
 
-def test_e2e_new_claim_ready_tasks_validate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_new_claim_ready_tasks_validate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """connect → new(--value) → claim → ready --pr → tasks-validate OK under GITHUB_REF."""
     repo = tmp_path / "flow"
     repo.mkdir()
@@ -131,8 +130,8 @@ def test_e2e_new_claim_ready_tasks_validate(tmp_path: Path, monkeypatch: pytest.
     _git(repo, "commit", "-m", "connect + fresh index")
 
     missing = _cli(repo, "new", "--title", "No value", "--yes")
-    assert missing.returncode != 0
-    assert "--value" in (missing.stderr + missing.stdout)
+    assert missing.returncode == 2
+    assert "the following arguments are required: --value" in (missing.stderr + missing.stdout)
 
     created = _cli(
         repo,
@@ -148,9 +147,9 @@ def test_e2e_new_claim_ready_tasks_validate(tmp_path: Path, monkeypatch: pytest.
         ln.split(":", 1)[1].strip() for ln in created.stdout.splitlines() if ln.startswith("id:")
     )
     body = (tasks / f"{tid}.md").read_text(encoding="utf-8")
-    assert f"родитель: {PLACEHOLDER_EMPTY}" in body
-    assert PLACEHOLDER_PARENT not in body
-    assert "Ценность: Prove new→claim→ready tip hygiene" in body
+    assert "родитель: _(пусто)_" in body.splitlines()
+    assert f"родитель: {PLACEHOLDER_PARENT}" not in body.splitlines()
+    assert "Ценность: Prove new→claim→ready tip hygiene" in body.splitlines()
 
     claim = _cli(repo, "claim", tid, "--owner", "e2e-worker")
     assert claim.returncode == 0, claim.stderr
@@ -188,7 +187,8 @@ def test_new_requires_value_and_defaults_empty_parent(
     _git(tmp_path, "init")
 
     bad = _cli(tmp_path, "new", "--title", "x", "--yes")
-    assert bad.returncode != 0
+    assert bad.returncode == 2
+    assert "the following arguments are required: --value" in (bad.stderr + bad.stdout)
 
     ok = _cli(
         tmp_path,
@@ -202,5 +202,5 @@ def test_new_requires_value_and_defaults_empty_parent(
     assert ok.returncode == 0, ok.stderr
     tid = next(ln.split(":", 1)[1].strip() for ln in ok.stdout.splitlines() if ln.startswith("id:"))
     text = (tmp_path / "context" / "tasks" / f"{tid}.md").read_text(encoding="utf-8")
-    assert f"родитель: {PLACEHOLDER_EMPTY}" in text
-    assert "Ценность: Business value line" in text
+    assert "родитель: _(пусто)_" in text.splitlines()
+    assert "Ценность: Business value line" in text.splitlines()
