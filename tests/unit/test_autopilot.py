@@ -45,7 +45,7 @@ from agentized.autopilot import (
     _require_window_days,
     _validate_metrics_rel,
 )
-from agentized.context_paths import require_safe_rel
+from agentized.context_paths import require_safe_rel, under_context
 from agentized.tasks import list_tasks, render_task_file
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
@@ -243,13 +243,19 @@ def test_board_io_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert ensure_board_config(tmp_path, "context")["created"] is False
     assert board_config_path(tmp_path, "context") == (tmp_path / "context" / "board.json").resolve()
     (tmp_path / "context" / "board.json").write_text("{bad", encoding="utf-8")
+    save_board(tmp_path, default_board_config(), "okctx")
+    assert ensure_board_config(tmp_path, "okctx")["created"] is False
     with pytest.raises((OSError, ValueError, TypeError)):
         ensure_board_config(tmp_path, "context")
     save_board(tmp_path, default_board_config(), "context")
     nested = tmp_path / "deep"
     save_board(nested, {"wip_limit": 4}, "ctx/sub")
     assert (nested / "ctx" / "sub" / "board.json").is_file()
-    assert ensure_board_config(tmp_path, "brandnew")["created"] is True
+    assert ensure_board_config(tmp_path, "brandnew") == {
+        "path": "brandnew/board.json",
+        "created": True,
+    }
+    assert load_board(tmp_path, "brandnew")["wip_limit"] == DEFAULT_WIP_LIMIT
     save_board(tmp_path, default_board_config(), "solo")
     seen: list[str] = []
     real_lb = board_mod.load_board
@@ -262,10 +268,15 @@ def test_board_io_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert seen[-1] == "solo"
     monkeypatch.setattr(board_mod, "load_board", real_lb)
     bad = tmp_path / "context" / "board.json"
+    bad.write_text("{not-json", encoding="utf-8")
+    with pytest.raises((OSError, ValueError, TypeError)):
+        load_board(tmp_path, "context")
     bad.write_text("[]\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_board(tmp_path, "context")
     save_board(tmp_path, default_board_config(), "context")
+    set_wip_limit(tmp_path, 1, context_rel="context")
+    assert load_board(tmp_path, "context")["wip_limit"] == 1
     set_wip_limit(tmp_path, 5, context_rel="context")
     assert load_board(tmp_path, "context")["wip_limit"] == 5
     with pytest.raises(ValueError) as ex:
@@ -296,12 +307,34 @@ def test_board_io_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         metrics_path(tmp_path, {"metrics": {"output": "custom/out.json"}}, "context")
         == (tmp_path / "context" / "custom" / "out.json").resolve()
     )
-    for bad_ctx in ("", "../escape"):
+    for bad_ctx in ("", "/abs", "context/../../outside", "../escape"):
         with pytest.raises(ValueError) as ec:
             board_config_path(tmp_path, bad_ctx)
         assert ec.value.args == ("context must be a safe relative path",)
         with pytest.raises(ValueError):
+            save_board(tmp_path, default_board_config(), bad_ctx)
+        with pytest.raises(ValueError):
             write_metrics(tmp_path, context_rel=bad_ctx, now=NOW)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside_root = tmp_path / "outside-root"
+    outside_root.mkdir()
+    (repo / "context").symlink_to(outside_root)
+    with pytest.raises(ValueError) as eroot:
+        board_config_path(repo, "context")
+    assert eroot.value.args == ("context path escapes repository root",)
+    leak_root = tmp_path / "leak"
+    leak_root.mkdir()
+    (leak_root / "context").mkdir()
+    outside = leak_root / "outside"
+    outside.mkdir()
+    (leak_root / "context" / "board").symlink_to(outside)
+    with pytest.raises(ValueError) as esym:
+        under_context(leak_root, "context", "board", "metrics.json")
+    assert esym.value.args == ("path escapes context directory",)
+    with pytest.raises(ValueError):
+        write_metrics(leak_root, context_rel="context", now=NOW)
+    assert list(outside.iterdir()) == []
 
 
 def test_progress_parsers():
