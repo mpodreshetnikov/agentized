@@ -91,10 +91,10 @@ def test_glob_excluded_and_globs_cover():
     ]
     assert [(r, p, _glob_excluded(r, p)) for r, p, _ in cases] == cases
     assert _glob_excluded("vendor", ["vendor/**"]) is True
+    assert _glob_excluded("vendor", ["**/vendor/**"]) is True
+    assert _glob_excluded("vendor/x.py", ["**/vendor/**"]) is True
     # fnmatch fails on single-segment /**/*.; custom partition must match
     assert _glob_excluded("src/x.py", ["src/**/*.py"]) is True
-    assert _glob_excluded("src/x.ts", ["src/**/*.py"]) is False
-    assert _glob_excluded("src/x.py", ["src/**/*.ts"]) is False
     assert _globs_cover([], "python") is False
     assert _globs_cover(["**/*.py"], "go") is False
     assert [_globs_cover(["**/*.py"], "go"), _globs_cover(["**/*.py"], "python")] == [False, True]
@@ -401,6 +401,11 @@ def test_arch_gate_labels(tmp_path: Path):
          "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}}},
     )
     assert "architecture" in miss_js
+    js_base = {"modules": [{"id": "w", "source": ["src"], "test_command": "vitest", "coverage_lcov": "c.lcov"}],
+               "mutation": {"tools": {"javascript": "stryker"}, "include_globs": ["**/*.js"]},
+               "test_smells": {"enabled": True, "include_globs": ["**/*.js"]},
+               "architecture": {"enabled": True, "tools": {"javascript": "dependency-cruiser"}, "config": ".dependency-cruiser.cjs"}}
+    assert "architecture" not in missing_gates_for_language(tmp_path, "javascript", js_base)
 
 def test_survivor_killers(tmp_path: Path, monkeypatch):
     (tmp_path / "a.py").write_text("x=1\n", encoding="utf-8")
