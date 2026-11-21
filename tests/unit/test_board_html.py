@@ -328,16 +328,18 @@ def test_render_collect_write(tmp_path: Path):
         load_human_participants(bad_obj)
     assert e_obj.value.path == str(bad_obj / "merge_policy.json")
     assert e_obj.value.reason == "merge_policy must be a JSON object"
-    for bad in (None, 1, {}):
+    for bad in (None, 1, {}, ""):
         bad_ent = tmp_path / f"be-{id(bad)}"
         bad_ent.mkdir()
         import json as _json
 
-        (bad_ent / "merge_policy.json").write_text(
+        policy = bad_ent / "merge_policy.json"
+        policy.write_text(
             _json.dumps({"human_participants": [bad]}), encoding="utf-8"
         )
         with pytest.raises(BoardError) as e_ent:
             load_human_participants(bad_ent)
+        assert e_ent.value.path == str(policy)
         assert e_ent.value.reason == "human_participants entries must be non-empty strings"
 
     _write_task(tasks, "T-261116-aaa", "Alpha <xss>", goal="увидеть")
