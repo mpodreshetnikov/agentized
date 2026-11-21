@@ -79,22 +79,50 @@ def test_refuse_uses_context_and_gates(tmp_path: Path):
     assert "packages/**" not in ex and "templates/**" not in ex
 
 
-def test_refuse_forwards_kwargs_and_missing_ok(tmp_path: Path, monkeypatch):
+def test_refuse_ok_only_explicit_true(tmp_path: Path, monkeypatch):
+    """Kill is-not-True ↔ is-not-False / missing-key / case-key survivors."""
     seen: dict = {}
 
-    def fake_check(root, *, context, cfg, require_gates):
+    def fake_missing(root, *, context, cfg, require_gates):
         seen.update(context=context, cfg=cfg, require_gates=require_gates)
-        return {"message": "ok"}  # no ok → fail-closed refuse
+        return {"message": "no ok key"}
 
-    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_check)
-    with pytest.raises(ConnectRefused):
+    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_missing)
+    with pytest.raises(ConnectRefused) as ei:
         refuse_incomplete_languages(tmp_path, "myctx")
+    assert ei.value.message == "no ok key"
     assert seen["context"] == "myctx"
     assert seen["cfg"] is not None
     assert seen["require_gates"] is False
 
-    def fake_ok(root, *, context, cfg, require_gates):
+    def fake_false(root, *, context, cfg, require_gates):
+        return {"ok": False, "message": "explicit false"}
+
+    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_false)
+    with pytest.raises(ConnectRefused) as ei2:
+        refuse_incomplete_languages(tmp_path, "myctx")
+    assert ei2.value.message == "explicit false"
+    assert ei2.value.details.get("ok") is False
+
+    def fake_true(root, *, context, cfg, require_gates):
         return {"ok": True, "message": "language coverage OK: (none)"}
 
-    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_ok)
-    refuse_incomplete_languages(tmp_path, "myctx")
+    monkeypatch.setattr("agentized.languages.check_language_coverage", fake_true)
+    refuse_incomplete_languages(tmp_path, "myctx")  # must not raise
+
+
+def test_require_gates_true_when_quality_exists(tmp_path: Path, monkeypatch):
+    calls: list[bool] = []
+
+    def fake(root, *, context, cfg, require_gates):
+        calls.append(require_gates)
+        return {"ok": True, "message": "ok"}
+
+    monkeypatch.setattr("agentized.languages.check_language_coverage", fake)
+    refuse_incomplete_languages(tmp_path, "ctx")
+    assert calls == [False]
+
+    (tmp_path / "ctx").mkdir()
+    save_quality(tmp_path, _cfg(), context_rel="ctx")
+    refuse_incomplete_languages(tmp_path, "ctx")
+    assert calls[-1] is True
