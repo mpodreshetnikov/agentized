@@ -106,6 +106,7 @@ def test_return_keys_and_skills_managed_lists(tmp_path: Path):
     """Kill return-key XX/CASE mutants + skills_result.get key/default mutants."""
     _seed_context_skills(tmp_path)
     result = install_claude(tmp_path, "context")
+    expected_copied = [str(tmp_path / ".claude" / "skills" / "demo" / "SKILL.md")]
     assert set(result) == {
         "skills_copied",
         "skills_managed",
@@ -113,18 +114,15 @@ def test_return_keys_and_skills_managed_lists(tmp_path: Path):
         "settings",
         "plugin_hint",
     }
-    assert result["skills_copied"]  # created/updated paths nonempty
-    assert isinstance(result["skills_managed"], dict)
+    assert result["skills_copied"] == expected_copied
+    assert result["skills_managed"] == {
+        "created": expected_copied,
+        "updated": [],
+        "unchanged": [],
+        "skipped_user": [],
+        "bootstrapped": [],
+    }
     assert result["skipped_user"] == []
-    assert result["plugin_hint"] == HINT
-    sm = result["skills_managed"]
-    rebuilt = (
-        list(sm.get("created", []))
-        + list(sm.get("updated", []))
-        + list(sm.get("unchanged", []))
-        + list(sm.get("bootstrapped", []))
-    )
-    assert result["skills_copied"] == rebuilt
 
 
 class _RecordGet(dict):
@@ -160,15 +158,13 @@ def test_skills_result_get_keys_and_empty_list_defaults(
     assert result["skills_copied"] == ["c", "u", "n", "b"]
     assert result["skipped_user"] == ["s"]
     assert result["skills_managed"] is fake
-    keys = [k for k, _d in fake.gets]
-    assert keys.count("created") >= 1
-    assert keys.count("updated") >= 1
-    assert keys.count("unchanged") >= 1
-    assert keys.count("bootstrapped") >= 1
-    assert keys.count("skipped_user") >= 1
-    for k, d in fake.gets:
-        if k in {"created", "updated", "unchanged", "bootstrapped", "skipped_user"}:
-            assert d == []
+    assert fake.gets == [
+        ("created", []),
+        ("updated", []),
+        ("unchanged", []),
+        ("bootstrapped", []),
+        ("skipped_user", []),
+    ]
 
 
 def test_force_default_false_passed_to_managed_copy(
@@ -194,12 +190,20 @@ def test_managed_copy_argv_exact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     """Kill _managed_copy_tree arg None/omit mutants for root/context_rel/force/manifest."""
     _seed_context_skills(tmp_path)
     calls: list[tuple] = []
+    loaded: list[Any] = []
     real = connect_mod._managed_copy_tree
+    real_load = connect_mod.load_managed
+
+    def wrap_load(root, context_rel):
+        man = real_load(root, context_rel)
+        loaded.append(man)
+        return man
 
     def wrap(root, context_rel, src, dst, *, force=False, manifest=None):
         calls.append((root, context_rel, src, dst, force, manifest))
         return real(root, context_rel, src, dst, force=force, manifest=manifest)
 
+    monkeypatch.setattr(connect_mod, "load_managed", wrap_load)
     monkeypatch.setattr(connect_mod, "_managed_copy_tree", wrap)
     install_claude(tmp_path, "context", force=False)
     assert len(calls) == 1
@@ -209,7 +213,7 @@ def test_managed_copy_argv_exact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert src == tmp_path / "context" / "skills"
     assert dst == tmp_path / ".claude" / "skills"
     assert force is False
-    assert man is not None
+    assert loaded == [man]
 
 
 def test_load_managed_when_manifest_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -267,7 +271,7 @@ def test_save_managed_when_manifest_none(tmp_path: Path, monkeypatch: pytest.Mon
     root, rel, man = seen[0]
     assert root == tmp_path
     assert rel == "context"
-    assert isinstance(man, dict)
+    assert man == load_managed(tmp_path, "context")
     seen.clear()
     man2 = load_managed(tmp_path, "context")
     install_claude(tmp_path, "context", manifest=man2)
@@ -310,15 +314,16 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     _seed_context_skills(tmp_path)
     seen: list[dict] = []
     real = Path.mkdir
+    hooks_dir = tmp_path / ".claude" / "hooks"
 
     def wrap(self: Path, *args, **kwargs):
-        if self == tmp_path / ".claude" / "hooks" or self.name == "hooks":
+        if self == hooks_dir:
             seen.append(dict(kwargs))
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "mkdir", wrap)
     install_claude(tmp_path, "context")
-    assert any(s.get("parents") is True and s.get("exist_ok") is True for s in seen)
+    assert {"parents": True, "exist_ok": True} in seen
 
 
 def test_settings_get_hooks_key_and_preserve_other_fields(tmp_path: Path):
