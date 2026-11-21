@@ -386,6 +386,31 @@ def cmd_tasks_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_board(args: argparse.Namespace) -> int:
+    from agentized.board_html import BoardError, write_board
+
+    root = find_repo_root()
+    out = Path(args.output) if args.output else (root / "board.html")
+    if not out.is_absolute():
+        out = root / out
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if args.stamp else None
+    try:
+        path = write_board(
+            _ctx(root, args) / "tasks",
+            out,
+            generated_at=stamp,
+            title=args.title or "Доска задач Agentized",
+            lang=getattr(args, "lang", None) or "ru",
+            now=datetime.now(timezone.utc),
+        )
+    except BoardError as exc:
+        print(f"board FAIL: {exc}", file=sys.stderr)
+        return 1
+    rel = path.relative_to(root) if path.is_relative_to(root) else path
+    print(f"board: {rel}")
+    return 0
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     root = find_repo_root()
     ctx = _ctx(root, args)
@@ -776,6 +801,14 @@ def build_parser() -> argparse.ArgumentParser:
     tv.add_argument("--context", default=None)
     tv.add_argument("--base", default=None)
     tv.set_defaults(func=cmd_tasks_validate)
+
+    bd = sub.add_parser("board", help="Render static board.html from context/tasks")
+    bd.add_argument("--output", "-o", default="board.html")
+    bd.add_argument("--stamp", action="store_true")
+    bd.add_argument("--title", default="Доска задач Agentized")
+    bd.add_argument("--lang", default="ru", choices=["ru", "en"])
+    bd.add_argument("--context", default=None)
+    bd.set_defaults(func=cmd_board)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")
     ix.add_argument("--context", default=None)
