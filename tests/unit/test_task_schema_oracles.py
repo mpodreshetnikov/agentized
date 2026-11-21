@@ -35,6 +35,7 @@ from agentized.task_schema import (
     set_field,
     unknown_depends_on_ids,
     utc_now_stamp,
+    map_orbit_status,
     validate_kind_priority,
     validate_task_status,
 )
@@ -487,3 +488,13 @@ def test_rebuild_skips_placeholder_orbit(tmp_path: Path):
         f"## blocked\n\n{empty}\n\n"
         f"{INDEX_FOOTER}\n"
     )
+
+
+def test_map_orbit_status_exact():
+    assert map_orbit_status("") == "idea"
+    assert map_orbit_status("   ") == "idea"
+    assert map_orbit_status("review") == "for-review"
+    assert map_orbit_status("dropped") == "canceled"
+    assert map_orbit_status("Open") == "open"
+    assert map_orbit_status("wip") is None
+    assert map_orbit_status("unknown-orbit") is None
