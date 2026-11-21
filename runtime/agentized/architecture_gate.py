@@ -143,7 +143,12 @@ def run_architecture_gate(
             tool = "builtin"
 
     if tool == "builtin" or (tool == "import-linter" and "not installed" in tool_note):
-        source_roots = list(section.get("source_roots") or ["runtime/agentized"])
+        raw_roots = section.get("source_roots")
+        if isinstance(raw_roots, list):
+            # Explicit [] = no roots (empty consumer); missing key → dogfood default.
+            source_roots = list(raw_roots)
+        else:
+            source_roots = ["runtime/agentized"]
         forbidden = list(section.get("forbidden_edges") or [])
         findings.extend(_check_forbidden_edges(root, source_roots, forbidden))
 

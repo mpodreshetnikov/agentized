@@ -92,7 +92,8 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     cov_in = data.get("coverage") or {}
     out["coverage"]["lines"] = float(cov_in.get("lines", DEFAULT_COVERAGE_PCT))
     out["coverage"]["branches"] = float(cov_in.get("branches", DEFAULT_COVERAGE_PCT))
-    if isinstance(data.get("modules"), list) and data["modules"]:
+    # Explicit [] is valid (empty consumer after connect); missing key keeps defaults.
+    if isinstance(data.get("modules"), list):
         out["modules"] = data["modules"]
     mut_in = data.get("mutation") or {}
     out["mutation"].update({k: mut_in[k] for k in mut_in})

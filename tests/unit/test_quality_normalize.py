@@ -79,11 +79,15 @@ def test_normalize_merges_sections_and_preserves_modules(tmp_path: Path):
     assert data["gates"]["ci"] == ["coverage", "mutation"]
     assert data["reviewer"]["budget_max"] == 9
     assert data["reviewer"]["helper_model"] == "x"
-    # empty modules list must not wipe defaults
+    # Explicit empty modules list is valid (AGE-85 consumer); missing key keeps defaults.
     save_quality(tmp_path, {"modules": [], "coverage": {"branches": 66}})
     data2 = load_quality(tmp_path)
-    assert data2["modules"]  # defaults restored
+    assert data2["modules"] == []
     assert data2["coverage"]["branches"] == 66.0
+    save_quality(tmp_path, {"coverage": {"branches": 70}})
+    data3 = load_quality(tmp_path)
+    assert data3["modules"]  # key absent → defaults
+    assert data3["coverage"]["branches"] == 70.0
 
 
 def test_set_coverage_lines_only_and_bounds(tmp_path: Path):

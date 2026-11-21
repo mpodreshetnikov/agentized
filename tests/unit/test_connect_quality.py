@@ -45,16 +45,31 @@ def _skeleton(root: Path) -> None:
     )
 
 
-def test_connect_quality_ships_full_cover_mutation_globs(tmp_path: Path):
-    """Connect create uses full-cover mutation include_globs from defaults."""
+def test_connect_quality_empty_consumer_gets_empty_modules(tmp_path: Path):
+    """AGE-85: skeleton without src/tests must not inherit dogfood runtime module."""
+    _skeleton(tmp_path)
+    qinfo = ensure_quality_config(tmp_path, "context")
+    assert qinfo["created"] is True
+    cfg = load_quality(tmp_path)
+    assert cfg["modules"] == []
+    assert cfg["mutation"]["include_globs"] == []
+    assert cfg["architecture"]["source_roots"] == []
+
+
+def test_connect_quality_dogfood_layout_keeps_defaults(tmp_path: Path):
     from agentized.quality_defaults import default_quality_config
 
     _skeleton(tmp_path)
+    (tmp_path / "runtime" / "agentized").mkdir(parents=True)
+    (tmp_path / "runtime" / "agentized" / "m.py").write_text("x=1\n", encoding="utf-8")
+    (tmp_path / "tests" / "unit").mkdir(parents=True)
+    (tmp_path / "tests" / "unit" / "test_m.py").write_text("def test_m():\n    assert 1\n")
     qinfo = ensure_quality_config(tmp_path, "context")
     assert qinfo["created"] is True
     cfg = load_quality(tmp_path)
     assert cfg["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
     assert default_quality_config()["mutation"]["include_globs"] == ["runtime/agentized/*.py"]
+    assert cfg["modules"][0]["id"] == "runtime"
 
 
 def test_ensure_quality_and_coverage(tmp_path: Path):
