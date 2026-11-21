@@ -6,7 +6,20 @@ from typing import Any
 
 from .hooks_boundary import is_agentized_command
 
-__all__ = ("is_agentized_command",)
+__all__ = (
+    "CURSOR_VERSION_KEY",
+    "HooksShapeError",
+    "collect_owned_commands",
+    "cursor_entry_is_ours",
+    "is_agentized_command",
+    "merge_claude_settings",
+    "merge_codex_hooks",
+    "merge_cursor_hooks",
+    "merge_marketplace_plugins",
+    "merge_nested_hooks",
+    "nested_hook_is_ours",
+    "plan_json_change",
+)
 
 CURSOR_VERSION_KEY = "version"
 
@@ -184,7 +197,7 @@ def plan_json_change(path: str, before: dict, after: dict) -> dict[str, Any]:
     }
 
 
-def _collect_owned_commands(hooks_doc: dict, *, harness: str) -> list[str]:
+def collect_owned_commands(hooks_doc: dict, *, harness: str) -> list[str]:
     hooks = hooks_doc.get("hooks") if isinstance(hooks_doc.get("hooks"), dict) else {}
     owned: list[str] = []
     if harness == "cursor":

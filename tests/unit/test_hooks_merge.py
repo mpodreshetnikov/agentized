@@ -1,20 +1,18 @@
-"""AGE-23: hooks_merge + hooks_boundary mutation-hard tests (no stamp/strip)."""
+"""AGE-51: hooks_merge + hooks_boundary exact-ownership tests."""
 
 from __future__ import annotations
 
 import pytest
 
 from agentized.hooks_boundary import (
-    _ALLOWED_PREFIX_SEGS,
-    _DOLLAR,
-    _SLASH,
-    _path_prefix_allowed,
+    AGENTIZED_SCRIPTS,
+    KNOWN_COMMAND_FORMS,
     is_agentized_command,
 )
 from agentized.hooks_merge import (
     CURSOR_VERSION_KEY,
     HooksShapeError,
-    _collect_owned_commands,
+    collect_owned_commands,
     cursor_entry_is_ours,
     merge_claude_settings,
     merge_codex_hooks,
@@ -25,32 +23,81 @@ from agentized.hooks_merge import (
     plan_json_change,
 )
 
+CLAUDE_SS = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"'
+CLAUDE_PG = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"'
+CLAUDE_LW = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/lease_warn.py"'
+CODEX_SS = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py"'
+CODEX_EA = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ensure_agent_hooks.py"'
 
-def test_is_agentized_boundaries_and_owned():
+
+def test_is_agentized_exact_match_only():
     cases = [
         (".cursor/hooks/session_start.py", "cursor", True),
         (r".cursor\hooks\process_guard.py", "cursor", True),
-        (".claude/hooks/lease_warn.py", "claude", True),
-        (".codex/hooks/ensure_agent_hooks.py", "codex", True),
+        (CLAUDE_LW, "claude", True),
+        (CLAUDE_PG, "claude", True),
+        (CODEX_EA, "codex", True),
+        (".claude/hooks/lease_warn.py", "claude", False),
+        (".codex/hooks/ensure_agent_hooks.py", "codex", False),
         ("vendor/.cursor/hooks/session_start.py", "cursor", False),
         ("x.cursor/hooks/lease_warn.py", "cursor", False),
-        ("my.cursor/hooks/session_start.py", "cursor", False),
-        (".cursor/hooks/session_start.py;echo", "cursor", True),
+        (".cursor/hooks/session_start.py;echo", "cursor", False),
         ("", "cursor", False),
         (None, "cursor", False),
-        (
-            'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"',
-            "claude",
-            True,
-        ),
-        ('cmd ".cursor/hooks/session_start.py"', "cursor", True),
-        (" .cursor/hooks/session_start.py", "cursor", True),
+        ('cmd ".cursor/hooks/session_start.py"', "cursor", False),
+        (" .cursor/hooks/session_start.py", "cursor", False),
+        ("echo .cursor/hooks/session_start.py", "cursor", False),
+        ("bash -c 'python3 .cursor/hooks/process_guard.py && ./mine.sh'", "cursor", False),
+        ("python3 .cursor/hooks/process_guard.py; ./user_cleanup.sh", "cursor", False),
+        ("nope", "unknown-harness", False),
     ]
     assert [(c, h, is_agentized_command(c, h)) for c, h, _ in cases] == [
         (c, h, e) for c, h, e in cases
     ]
-    assert _path_prefix_allowed(".cursor/hooks/x.py", 0) is True
-    assert _path_prefix_allowed('x".cursor/hooks/x.py', 2) is True
+    assert AGENTIZED_SCRIPTS == frozenset(
+        {
+            "session_start.py",
+            "process_guard.py",
+            "lease_warn.py",
+            "ensure_agent_hooks.py",
+        }
+    )
+    assert KNOWN_COMMAND_FORMS["cursor"] == frozenset(
+        {f".cursor/hooks/{n}" for n in AGENTIZED_SCRIPTS}
+    )
+    assert KNOWN_COMMAND_FORMS["claude"] == frozenset(
+        {f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{n}"' for n in AGENTIZED_SCRIPTS}
+    )
+    assert KNOWN_COMMAND_FORMS["codex"] == frozenset(
+        {f'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/{n}"' for n in AGENTIZED_SCRIPTS}
+    )
+    assert isinstance(KNOWN_COMMAND_FORMS["cursor"], frozenset)
+    assert isinstance(KNOWN_COMMAND_FORMS["claude"], frozenset)
+    assert isinstance(KNOWN_COMMAND_FORMS["codex"], frozenset)
+    assert set(KNOWN_COMMAND_FORMS) == {"cursor", "claude", "codex"}
+    assert is_agentized_command(".cursor/hooks/ensure_agent_hooks.py", "cursor") is True
+    assert is_agentized_command(".cursor/hooks/lease_warn.py", "cursor") is True
+    assert (
+        is_agentized_command(
+            'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/ensure_agent_hooks.py"',
+            "claude",
+        )
+        is True
+    )
+    assert (
+        is_agentized_command(
+            'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/process_guard.py"',
+            "codex",
+        )
+        is True
+    )
+    assert (
+        is_agentized_command(
+            'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/lease_warn.py"',
+            "codex",
+        )
+        is True
+    )
     assert cursor_entry_is_ours({"command": ".cursor/hooks/session_start.py"}) is True
     assert cursor_entry_is_ours({"command": "foreign"}) is False
     assert cursor_entry_is_ours("x") is False
@@ -58,13 +105,7 @@ def test_is_agentized_boundaries_and_owned():
     unmarked = {"command": ".cursor/hooks/old_renamed.py"}
     assert cursor_entry_is_ours(unmarked) is False
     assert cursor_entry_is_ours(unmarked, previously_owned=frozenset({unmarked["command"]})) is True
-    assert (
-        nested_hook_is_ours(
-            {"command": ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"')},
-            "claude",
-        )
-        is True
-    )
+    assert nested_hook_is_ours({"command": CLAUDE_PG}, "claude") is True
     assert nested_hook_is_ours({"command": "echo"}, "claude") is False
     assert nested_hook_is_ours("x", "claude") is False
     assert (
@@ -77,32 +118,59 @@ def test_is_agentized_boundaries_and_owned():
     )
 
 
-def test_path_prefix_edge_cases():
-    iac = is_agentized_command
-    assert iac('x ".cursor/hooks/session_start.py"', "cursor")
-    assert iac("vendor/.cursor/hooks/session_start.py", "cursor") is False
-    for cmd in (
-        ".cursor/hooks/session_start.py",
-        "./.cursor/hooks/session_start.py",
-        "../.cursor/hooks/session_start.py",
-        "/.cursor/hooks/session_start.py",
-        "/./.cursor/hooks/session_start.py",
-        "$HOME/.cursor/hooks/session_start.py",
-        "prefix/$HOME/.cursor/hooks/session_start.py",
-        "foo/./.cursor/hooks/session_start.py",
-        'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py"',
-        "nox.cursor/hooks/session_start.py ok .cursor/hooks/process_guard.py",
-    ):
-        harness = "codex" if ".codex/" in cmd else "cursor"
-        assert iac(cmd, harness), cmd
-    assert iac("x/.cursor/hooks/session_start.py", "cursor") is False
-    assert iac("foo/x/.cursor/hooks/session_start.py", "cursor") is False
-    assert iac("pre/$a/b/.cursor/hooks/session_start.py", "cursor") is False
-    assert iac("nope", "unknown-harness") is False
-    assert _path_prefix_allowed(".cursor/hooks/", 0) is True
-    assert _path_prefix_allowed("x/.cursor/hooks/session_start.py", 2) is False
-    assert _ALLOWED_PREFIX_SEGS == frozenset({"", ".", ".."})
-    assert _SLASH == "/" and _DOLLAR == "$"
+def test_compound_chained_echo_survive_merge():
+    compound = "bash -c 'python3 .cursor/hooks/process_guard.py && ./mine.sh'"
+    chained = "python3 .cursor/hooks/process_guard.py; ./user_cleanup.sh"
+    echo = "echo .cursor/hooks/session_start.py"
+    existing = {
+        "version": 1,
+        "hooks": {
+            "sessionStart": [
+                {"command": compound},
+                {"command": chained},
+                {"command": echo},
+                {"command": ".cursor/hooks/session_start.py"},
+            ]
+        },
+    }
+    desired = {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]}
+    out = merge_cursor_hooks(existing, desired)
+    assert out["hooks"]["sessionStart"] == [
+        {"command": compound},
+        {"command": chained},
+        {"command": echo},
+        {"command": ".cursor/hooks/session_start.py"},
+    ]
+    claude_in = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "command": (
+                                "bash -c 'python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/"
+                                "process_guard.py\" && ./mine.sh'"
+                            )
+                        },
+                        {"command": f"{CLAUDE_PG}; ./user_cleanup.sh"},
+                        {"command": f"echo {CLAUDE_SS}"},
+                        {"command": CLAUDE_SS},
+                    ]
+                }
+            ]
+        }
+    }
+    claude_out = merge_claude_settings(
+        claude_in, {"SessionStart": [{"hooks": [{"command": CLAUDE_SS}]}]}
+    )
+    blocks = claude_out["hooks"]["SessionStart"]
+    assert len(blocks) == 2
+    kept = [h["command"] for h in blocks[0]["hooks"]]
+    assert kept[0].startswith("bash -c")
+    assert kept[1].endswith("./user_cleanup.sh")
+    assert kept[2].startswith("echo ")
+    assert CLAUDE_SS not in kept
+    assert blocks[1]["hooks"][0]["command"] == CLAUDE_SS
 
 
 def test_wrong_shape_and_merges():
@@ -159,7 +227,6 @@ def test_wrong_shape_and_merges():
         "hooks": {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]},
         CURSOR_VERSION_KEY: 1,
     }
-    # previously_owned must drop unmarked cursor commands (kills None/kwarg mutants)
     stale_cmd = ".cursor/hooks/old_renamed.py"
     owned_out = merge_cursor_hooks(
         {"hooks": {"sessionStart": [{"command": stale_cmd}, {"command": "keep-foreign"}]}},
@@ -170,7 +237,6 @@ def test_wrong_shape_and_merges():
         {"command": "keep-foreign"},
         {"command": ".cursor/hooks/session_start.py"},
     ]
-    # blocks without nested hooks key stay foreign
     assert merge_nested_hooks(
         {"E": [{"matcher": "only"}]},
         {},
@@ -195,7 +261,7 @@ def test_wrong_shape_and_merges():
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"'),
+                        "command": CLAUDE_SS,
                     }
                 ],
             }
@@ -211,9 +277,7 @@ def test_wrong_shape_and_merges():
                         {"type": "command", "command": "echo foreign-claude"},
                         {
                             "type": "command",
-                            "command": (
-                                'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"'
-                            ),
+                            "command": CLAUDE_SS,
                         },
                     ],
                 }
@@ -227,7 +291,7 @@ def test_wrong_shape_and_merges():
     ]
     assert merge_claude_settings(None, {}) == {"hooks": {}}
 
-    ours_cmd = ".codex/hooks/session_start.py"
+    ours_cmd = CODEX_SS
     x_in = {
         "description": "keep-me",
         "hooks": {
@@ -272,7 +336,7 @@ def test_wrong_shape_and_merges():
                 "not-a-dict",
                 empty,
                 {"hooks": [{"command": "echo after-empty"}]},
-                {"hooks": [{"command": ".claude/hooks/session_start.py"}]},
+                {"hooks": [{"command": CLAUDE_SS}]},
                 {"hooks": [{"command": "echo after-ours"}]},
             ],
             "PreToolUse": [{"hooks": [{"command": "echo foreign-b"}]}],
@@ -282,7 +346,7 @@ def test_wrong_shape_and_merges():
                 {
                     "hooks": [
                         {
-                            "command": ".claude/hooks/session_start.py",
+                            "command": CLAUDE_SS,
                             "type": "command",
                         }
                     ]
@@ -352,7 +416,7 @@ def test_plan_json_and_collect_owned():
     assert merge["before_hooks_events"] == ["A"]
     assert merge["after_hooks_events"] == ["A", "B"]
 
-    assert _collect_owned_commands(
+    assert collect_owned_commands(
         {
             "hooks": {
                 "sessionStart": [
@@ -365,13 +429,13 @@ def test_plan_json_and_collect_owned():
         },
         harness="cursor",
     ) == [".cursor/hooks/session_start.py"]
-    assert _collect_owned_commands(
+    assert collect_owned_commands(
         {
             "hooks": {
                 "SessionStart": [
                     {
                         "hooks": [
-                            {"command": ".claude/hooks/session_start.py"},
+                            {"command": CLAUDE_SS},
                             {"command": "echo foreign"},
                         ]
                     },
@@ -382,10 +446,10 @@ def test_plan_json_and_collect_owned():
             }
         },
         harness="claude",
-    ) == [".claude/hooks/session_start.py"]
-    assert _collect_owned_commands({}, harness="cursor") == []
-    assert _collect_owned_commands({"hooks": None}, harness="codex") == []
-    assert _collect_owned_commands(
+    ) == [CLAUDE_SS]
+    assert collect_owned_commands({}, harness="cursor") == []
+    assert collect_owned_commands({"hooks": None}, harness="codex") == []
+    assert collect_owned_commands(
         {
             "hooks": {
                 "a": "skip",
@@ -404,34 +468,34 @@ def test_plan_json_and_collect_owned():
         {"description": "keep"},
         {
             "description": "new",
-            "hooks": {"E": [{"hooks": [{"command": ".codex/hooks/session_start.py"}]}]},
+            "hooks": {"E": [{"hooks": [{"command": CODEX_SS}]}]},
         },
     )
     assert got["description"] == "keep"
-    assert got["hooks"]["E"][0]["hooks"][0]["command"] == ".codex/hooks/session_start.py"
+    assert got["hooks"]["E"][0]["hooks"][0]["command"] == CODEX_SS
     assert "agentized" not in got["hooks"]["E"][0]["hooks"][0]
 
-    assert _collect_owned_commands(
+    assert collect_owned_commands(
         {
             "hooks": {
                 "a": "skip",
-                "b": [{"hooks": [{"command": ".claude/hooks/session_start.py"}]}],
-                "c": [{"hooks": [{"command": ".claude/hooks/lease_warn.py"}]}],
+                "b": [{"hooks": [{"command": CLAUDE_SS}]}],
+                "c": [{"hooks": [{"command": CLAUDE_LW}]}],
             }
         },
         harness="claude",
-    ) == [".claude/hooks/session_start.py", ".claude/hooks/lease_warn.py"]
+    ) == [CLAUDE_SS, CLAUDE_LW]
 
     with pytest.raises(HooksShapeError, match=r"^claude\.E:"):
         merge_nested_hooks({"E": {"x": 1}}, {}, harness="claude")
-    assert _collect_owned_commands(
+    assert collect_owned_commands(
         {
             "hooks": {
                 "E": [
                     "skip",
-                    {"hooks": [{"command": ".claude/hooks/lease_warn.py"}]},
+                    {"hooks": [{"command": CLAUDE_LW}]},
                 ]
             }
         },
         harness="claude",
-    ) == [".claude/hooks/lease_warn.py"]
+    ) == [CLAUDE_LW]
