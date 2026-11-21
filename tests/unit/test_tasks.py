@@ -245,6 +245,105 @@ def test_set_field_replace_insert_newline_and_blank_skip():
     assert set_field("# Title\nbody", "claim", "e") == "# Title\nclaim: e\nbody"
 
 
+def test_set_field_empty_claim_does_not_swallow_next_field():
+    # Empty claim: then a following header — \\s* would eat the next line.
+    text = (
+        "# T-261116-sf — set_field\n\n"
+        "статус: open\n"
+        "теги: x\n"
+        "родитель:\n"
+        "claim:\n"
+        "## Цель\n\nbody\n"
+    )
+    claimed = set_field(text, "claim", "worker-a")
+    assert claimed == (
+        "# T-261116-sf — set_field\n\n"
+        "статус: open\n"
+        "теги: x\n"
+        "родитель:\n"
+        "claim: worker-a\n"
+        "## Цель\n\nbody\n"
+    )
+    # Claim before статус (CLI-shaped: claim then status rewrite).
+    flipped = "# T-261116-sf — set_field\n\nclaim:\nстатус: open\n"
+    after_claim = set_field(flipped, "claim", "worker-b")
+    assert after_claim == "# T-261116-sf — set_field\n\nclaim: worker-b\nстатус: open\n"
+    after_status = set_field(after_claim, "статус", "in-progress")
+    assert after_status == (
+        "# T-261116-sf — set_field\n\nclaim: worker-b\nстатус: in-progress\n"
+    )
+
+
+def test_set_field_cli_claim_sequence_preserves_neighbors(tmp_path: Path):
+    """Mirror cmd_claim order: set_field(claim) then set_field(статус) on empty claim."""
+    path = _write(
+        tmp_path / "T-261116-cli.md",
+        "# T-261116-cli — cli claim\n\n"
+        "статус: open\n"
+        "теги: AGE-43\n"
+        "родитель:\n"
+        "claim:\n\n"
+        "## Цель\n\ngoal\n\n"
+        "## Progress\n\n_(append-only)_\n",
+    )
+    body = path.read_text(encoding="utf-8")
+    body = set_field(body, "claim", "cli-owner")
+    body = set_field(body, "статус", "in-progress")
+    body = append_progress(body, "claim by cli-owner")
+    path.write_text(body, encoding="utf-8")
+    meta = parse_task(path)
+    assert meta is not None
+    assert (meta.claim, meta.status, meta.parent, meta.tags) == (
+        "cli-owner",
+        "in-progress",
+        "",
+        "AGE-43",
+    )
+    assert "## Цель" in body
+    assert "claim: cli-owner" in body
+    assert "статус: in-progress" in body
+    assert "родитель:\n" in body
+
+
+def test_parse_task_crlf_and_trailing_whitespace(tmp_path: Path):
+    crlf = (
+        "# T-261116-cr — crlf\r\n\r\n"
+        "статус: in-progress\r\n"
+        "теги: a,b  \r\n"
+        "родитель:  \r\n"
+        "claim: worker-cr\r\n"
+    )
+    meta = parse_task(_write(tmp_path / "T-261116-cr.md", crlf))
+    assert meta is not None
+    assert (meta.parent, meta.claim, meta.tags, meta.status) == (
+        "",
+        "worker-cr",
+        "a,b",
+        "in-progress",
+    )
+    # Trailing spaces on same line must strip; empty parent still keeps claim.
+    spaced = (
+        "# T-261116-sp2 — spaces\n\n"
+        "статус: blocked   \n"
+        "теги:   \n"
+        "родитель:   \n"
+        "claim:  bob  \n"
+    )
+    meta2 = parse_task(_write(tmp_path / "T-261116-sp2.md", spaced))
+    assert meta2 is not None
+    assert (meta2.parent, meta2.claim, meta2.tags, meta2.status) == (
+        "",
+        "bob",
+        "",
+        "blocked",
+    )
+    # set_field on CRLF empty claim must not swallow the next header.
+    crlf_empty = "# T\r\n\r\nclaim:\r\nстатус: open\r\n"
+    fixed = set_field(crlf_empty, "claim", "cr-owner")
+    assert "статус: open" in fixed
+    assert "claim: cr-owner" in fixed
+
+
 def test_append_progress_exact_with_frozen_time(monkeypatch):
     class Fixed(datetime):
         @classmethod
