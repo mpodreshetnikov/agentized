@@ -51,6 +51,7 @@ jobs:
             exit 1
           fi
           "${CLI[@]}" process size
+          "${CLI[@]}" process format-disables
           "${CLI[@]}" quality check
 
       - name: Generate task board

@@ -52,6 +52,15 @@ PR number resolution:
 
 `ready` only from `in-progress` → `self-review` + claim `_(пусто)_`. Already `self-review` → no-op (no writes). Other statuses refused.
 
+## Format / lint disable comments (T-261121-8c84)
+
+Hard CI + pre-push gate (dogfood and `templates/quality/`): PRs must not **add** formatter/linter/coverage/mutation disables. Scopes: Python COMMENT tokens (`*.py`/`*.pyi`/`*.pyw` — fmt/noqa/pragma/type:ignore/pylint/mypy/pyright), JS/TS comments (`eslint-disable`, `prettier-ignore`, `@ts-ignore|nocheck|expect-error`, Stryker disable), and config keys (ruff `per-file-ignores`/`exclude`/`extend-exclude`, coverage `omit`, mutmut excludes, Stryker ignore/disableComments). HEAD blob only; renames followed for base; non-UTF-8 blobs fail naming the file. **No allowlist** unless Maxim approves a sole-purpose change. Same base rules as size (`PROCESS_BASE` / `--base`; refuse `HEAD`).
+
+```bash
+./bin/agentized process format-disables
+PROCESS_BASE=<pr-base-sha> ./bin/agentized process format-disables --json
+```
+
 ## Spec approval gate (AGE-28) — core
 
 Optional `spec_approval` policy (defaults off). Pure evaluation lives in
