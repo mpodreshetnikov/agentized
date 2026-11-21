@@ -265,7 +265,21 @@ def cmd_reporting(args: argparse.Namespace) -> int:
     return 2
 
 
+def _emit_process(result: dict, *, as_json: bool, to_stderr: bool) -> int:
+    stream = sys.stderr if to_stderr else sys.stdout
+    if result.get("message"):
+        stream.write(result["message"] + "\n")
+    if as_json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 1
+
+
 def cmd_process(args: argparse.Namespace) -> int:
+    from agentized.merge_policy_io import (
+        agent_merge_check,
+        apply_commit_msg,
+        authorship_range_check,
+    )
     from agentized.process_control import claim_check
     from agentized.process_size import size_check
 
@@ -280,14 +294,35 @@ def cmd_process(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
     if args.process_cmd == "claim":
         paths = list(args.paths or [])
-        result = claim_check(root, paths or ["runtime/agentized/x.py"], context_rel=ctx_rel)
-        stream = sys.stdout if result["ok"] else sys.stderr
-        if result.get("message"):
-            stream.write(result["message"] + "\n")
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if result["ok"] else 1
-    print("usage: agentized process size|claim", file=sys.stderr)
+        r = claim_check(root, paths or ["runtime/agentized/x.py"], context_rel=ctx_rel)
+        return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
+    if args.process_cmd == "commit-msg":
+        r = apply_commit_msg(Path(args.path), root=root, context_rel=ctx_rel)
+        return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
+    if args.process_cmd == "agent-merge":
+        import subprocess
+
+        remote = args.remote or ("0" * 40)
+        local = args.local
+        if not local:
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True
+            )
+            local = proc.stdout.strip() if proc.returncode == 0 else ""
+        r = agent_merge_check(root, remote_sha=remote, local_sha=local, context_rel=ctx_rel)
+        return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
+    if args.process_cmd == "authorship":
+        r = authorship_range_check(
+            root,
+            base_ref=args.base or "origin/main",
+            head_ref=args.head or "HEAD",
+            context_rel=ctx_rel,
+        )
+        return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
+    print(
+        "usage: agentized process size|claim|commit-msg|agent-merge|authorship",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -977,6 +1012,20 @@ def build_parser() -> argparse.ArgumentParser:
     pcc.add_argument("paths", nargs="*", help="paths that would be edited")
     pcc.add_argument("--context", default=None)
     pcc.add_argument("--json", action="store_true")
+    pcm = pc_sub.add_parser("commit-msg", help="commit-msg gate")
+    pcm.add_argument("path")
+    pcm.add_argument("--context", default=None)
+    pcm.add_argument("--json", action="store_true")
+    pca = pc_sub.add_parser("agent-merge", help="agent merge gate")
+    pca.add_argument("--remote", default=None)
+    pca.add_argument("--local", default=None)
+    pca.add_argument("--context", default=None)
+    pca.add_argument("--json", action="store_true")
+    pcauth = pc_sub.add_parser("authorship", help="CI authorship")
+    pcauth.add_argument("--base", default=None)
+    pcauth.add_argument("--head", default="HEAD")
+    pcauth.add_argument("--context", default=None)
+    pcauth.add_argument("--json", action="store_true")
     pc.set_defaults(func=cmd_process)
 
     q = sub.add_parser("quality", help="Пороги coverage / mutation / quality.json")

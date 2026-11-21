@@ -32,7 +32,8 @@
 | `{context}/hooks/scripts/` | `session_start.py`, `process_guard.py`, `lease_warn.py`, `_bootstrap.py` |
 | `{context}/quality.json` | Coverage 80% · modules · mutation hard (`mutationScoreCovered=100`) · test_smells+architecture **hard** by default; reconnect flips leftover `warn`→`hard`; `connect --coverage <pct>` |
 | `{context}/process-control.json` | **Required** (code-repo config). Claim before edits · reviewable PR size (default 1500 / warn 75%). Missing file → `agentized check` **hard error** (fail-closed), not a warning |
-| `.githooks/pre-push` | Шаблон → `agentized quality check` (+ hard `process size`); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |
+| `.githooks/pre-push` | Шаблон → `agentized quality check` (+ hard `process size` + `process agent-merge`); CLI: `./bin/agentized` → `runtime/` → `command -v agentized`; mechanical / `requirements-dev.txt` — только если есть в целевом репо |
+| `.githooks/commit-msg` | Шаблон → `agentized process commit-msg` (AGE-27: strip agent trailers / human_participants author allowlist when enabled) |
 | `.github/workflows/ci.yml` | То же для CI workflow |
 | `core.hooksPath` | Локально → `.githooks`, если ещё не задан; чужой путь и Cursor `agent-hooks` не перезаписываются |
 | `{context}/env-check.json` | `cloud_git_hooks` warn\|refuse; connect создаёт default без clobber |

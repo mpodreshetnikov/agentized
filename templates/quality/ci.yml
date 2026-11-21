@@ -39,6 +39,8 @@ jobs:
         env:
           PROCESS_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
+          # PR workflows check out a merge commit; authorship must use the PR head tip.
+          AUTHORSHIP_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [[ -x ./bin/agentized ]]; then
             CLI=(./bin/agentized)
@@ -51,6 +53,7 @@ jobs:
             exit 1
           fi
           "${CLI[@]}" process size
+          "${CLI[@]}" process authorship --base "${MUTATION_BASE}" --head "${AUTHORSHIP_HEAD}"
           "${CLI[@]}" quality check
 
       - name: Generate task board

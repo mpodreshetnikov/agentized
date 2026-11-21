@@ -22,5 +22,5 @@
     "**/__pycache__/**",
     ".artifacts/**"
   ],
-  "merge_policy": {"human_participants": ["mpodreshetnikov@gmail.com"]}
+  "merge_policy": {"agent_merge": "allowed", "human_participants": ["mpodreshetnikov@gmail.com"], "human_authorship": {"enabled": true, "strip_agent_trailers": true}}
 }
