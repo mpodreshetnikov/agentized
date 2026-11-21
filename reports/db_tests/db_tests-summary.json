@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "gate": "db_tests",
+  "enabled": "auto",
+  "mode": "hard",
+  "present": false,
+  "evidence": [],
+  "skipped": true,
+  "reason": "layer_absent",
+  "findings": [],
+  "passed": true,
+  "generatedAt": "2026-11-21T04:29:41.979036+00:00"
+}

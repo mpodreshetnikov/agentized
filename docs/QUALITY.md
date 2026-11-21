@@ -42,7 +42,7 @@ Missing coverage artifacts fail the gate (never treated as 100%). Multi-module `
 
 ## Connect
 
-Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, pgTAP DB tests, orbit-like-mini fixture, import-linter, dependency-cruiser, batch-release, eslint smells).
+Pins `quality-gates` skill; installs `.githooks/pre-push` and `.github/workflows/ci.yml` when missing or marked `AGENTIZED:QUALITY` (no clobber of unmarked user files). Sets local `core.hooksPath=.githooks` when unset; preserves an existing user path and Cursor Cloud `agent-hooks`. Language templates under `templates/quality/` (Stryker covered-score wrapper, Playwright e2e, pgTAP DB tests, import-linter, dependency-cruiser, batch-release, eslint smells).
 
 On reconnect, `ensure_quality_config` flips `test_smells.mode` / `architecture.mode` from **`warn` → `hard`**. AGE-31 layer upgrades (`e2e`/`db_tests` warn→hard, `enabled: false→auto`, inject into `gates.*` before `mutation`) run via `layer_gates.install_ensure_quality_hook` (installed when `quality` loads) so `connect.py` stays free of that diff. Skill / reviewer pins still follow managed-hash: untouched auto-update; user edits → `skipped_user`.
 

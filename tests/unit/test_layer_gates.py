@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,15 +13,11 @@ from agentized.quality import default_quality_config, save_quality
 from agentized.quality_defaults import default_quality_config as defaults_fn
 
 REPO = Path(__file__).resolve().parents[2]
-FIXTURE_MINI = REPO / "templates" / "quality" / "fixtures" / "orbit-like-mini"
 
 
 def _ensure_mini_app(root: Path) -> Path:
-    """Orbit-like mini tree; inline when templates/ missing (mutmut sandbox)."""
+    """Minimal playwright + db/tests tree for layer-gate oracles."""
     app = root / "app"
-    if FIXTURE_MINI.is_dir():
-        shutil.copytree(FIXTURE_MINI, app)
-        return app
     (app / "src").mkdir(parents=True)
     (app / "src" / "app.ts").write_text("export {}\n", encoding="utf-8")
     (app / "e2e").mkdir()
