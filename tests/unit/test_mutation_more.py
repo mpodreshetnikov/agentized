@@ -43,6 +43,41 @@ def test_ensure_link_and_collect(tmp_path: Path):
     assert stats["timeout"] == 1
 
 
+def test_touched_functions_and_filtered_stats(tmp_path: Path, monkeypatch):
+    src = tmp_path / "runtime" / "agentized" / "sample.py"
+    src.parent.mkdir(parents=True)
+    src.write_text(
+        "import os\n\nX = 1\n\ndef keep():\n    return 1\n\ndef other():\n    return 2\n",
+        encoding="utf-8",
+    )
+    assert mut._touched_functions(src, {5, 6}) == {"keep"}
+    assert mut._touched_functions(src, {1}) == set()
+    assert mut._touched_functions(src, {3}) is None
+    assert mut._mutant_function_name("agentized.sample.x_keep__mutmut_3") == "keep"
+    assert mut._mutant_function_name("nope") is None
+    class R:
+        returncode = 0
+        stdout = "@@ -1 +10,2 @@\n"
+        stderr = ""
+    monkeypatch.setattr(mut.subprocess, "run", lambda *a, **k: R())
+    assert mut._diff_added_lines(tmp_path, "origin/main", "x.py") == {10, 11}
+    monkeypatch.setattr(mut, "_diff_added_lines", lambda *a, **k: {5, 6})
+    meta = tmp_path / "mutants" / "agentized" / "sample.py.meta"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(
+        json.dumps({"exit_code_by_key": {
+            "agentized.sample.x_keep__mutmut_1": 1,
+            "agentized.sample.x_other__mutmut_1": 0,
+            "agentized.sample.x_keep__mutmut_2": 0,
+        }}),
+        encoding="utf-8",
+    )
+    stats = mut._collect_stats(
+        tmp_path, base_ref="origin/main", changed_files=["runtime/agentized/sample.py"]
+    )
+    assert (stats["killed"], stats["survived"], stats["totalMutants"]) == (1, 1, 2)
+
+
 def test_changed_py_files_filters(tmp_path: Path, monkeypatch):
     def fake_run(cmd, **kwargs):
         class R:

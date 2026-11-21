@@ -268,26 +268,20 @@ def test_unknown_and_gate_message():
 
 
 def test_header_only_and_new_path(tmp_path: Path):
-    # статус after ## is ignored → missing
     end_status = (
         "# T-261116-x — X\n\nЦенность: v\n\n## Цель\n\ng\n\n"
         "## Progress\n\nстатус: open\n"
     )
     assert "статус: open" not in header_block(end_status)
-    assert header_block("## Цель\n\nx\n") == ""  # starts with ##
-    # find (not rfind): first ## wins when several sections exist
+    assert header_block("## Цель\n\nx\n") == ""
     multi = "# T\n\nстатус: open\n\n## Цель\n\ng\n\n## Progress\n\nnote\n"
     assert header_block(multi) == "# T\n\nстатус: open\n"
     assert extract_status(end_status) == ""
     assert validate_task_text(end_status) == GateResult(False, (MSG_MISSING_STATUS,))
-    # review_note in Progress is not evidence
-    body_note = _task("self-review").rstrip() + (
-        "\n## Progress\n\nreview_note: buried\n"
-    )
+    body_note = _task("self-review").rstrip() + "\n## Progress\n\nreview_note: buried\n"
     assert validate_status_requirements(body_note) == GateResult(
         False, (MSG_REVIEW_EVIDENCE.format(st="self-review"),)
     )
-    # duplicate in header still errors; trailer статус is ignored (not dup)
     dup = _task("open").replace(
         "claim: _(пусто)_\n", "claim: _(пусто)_\nстатус: open\n", 1
     )
@@ -295,17 +289,13 @@ def test_header_only_and_new_path(tmp_path: Path):
     assert duplicate_field_errors(dup) == dups
     assert validate_status_requirements(dup) == GateResult(False, dups)
     assert validate_task_text(dup, check_transition=False) == GateResult(False, dups)
-    trailer = _task("open") + "статус: open\n"
-    assert duplicate_field_errors(trailer) == ()
+    assert duplicate_field_errors(_task("open") + "статус: open\n") == ()
     twin_val = _task("open").replace(
         "Ценность: люди видят доску без harness\n",
         "Ценность: люди видят доску без harness\nЦенность: other\n",
         1,
     )
-    assert MSG_DUPLICATE_FIELD.format(key="Ценность") in duplicate_field_errors(
-        twin_val
-    )
-
+    assert MSG_DUPLICATE_FIELD.format(key="Ценность") in duplicate_field_errors(twin_val)
     assert NEW_PATH_ALLOWED_STATUSES == frozenset(
         {"idea", "open", "queue", "in-progress"}
     )
@@ -331,14 +321,11 @@ def test_header_only_and_new_path(tmp_path: Path):
     assert any(MSG_NEW_PATH.format(st="blocked") in e for e in bad_new.errors)
     assert not any("T-261116-newsr-ok.md" in e for e in bad_new.errors)
     assert not any("T-261116-ok.md" in e for e in bad_new.errors)
-    # self-review with only pr (no note) refused for new path
     (fresh / "T-261116-newsr-bad.md").write_text(
         _task("self-review", extra="pr: #25"), encoding="utf-8"
     )
     bad2 = validate_tasks_dir(fresh, previous_by_name={})
     assert any("T-261116-newsr-bad.md" in e and "self-review" in e for e in bad2.errors)
-
-    # sorted previous: keep in-tree so continue≠break still finds later delete
     gone = validate_tasks_dir(
         fresh,
         previous_by_name={
@@ -347,7 +334,6 @@ def test_header_only_and_new_path(tmp_path: Path):
         },
     )
     assert any(e == f"T-261116-zz-gone.md: {MSG_TASK_DELETED}" for e in gone.errors)
-
     bad_bytes = tmp_path / "T-261116-bin.md"
     bad_bytes.write_bytes(b"\xff\xfe status")
     try:
@@ -532,25 +518,21 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("TASKS_VALIDATE_BASE", "tv-base")
     assert resolve_validate_base_ref(tmp_path) == "tv-base"
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
-
     monkeypatch.setattr(
         subprocess,
         "run",
         lambda *a, **k: SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr=""),
     )
     assert resolve_validate_base_ref(tmp_path) == "deadbeef"
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""),
-    )
-    assert resolve_validate_base_ref(tmp_path) == "origin/main"
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="err"),
-    )
-    assert resolve_validate_base_ref(tmp_path) == "origin/main"
+    for stdout, code in (("", 0), ("", 1)):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *a, stdout=stdout, code=code, **k: SimpleNamespace(
+                returncode=code, stdout=stdout, stderr="err"
+            ),
+        )
+        assert resolve_validate_base_ref(tmp_path) == "origin/main"
 
 
 def test_claim_and_file_edges(tmp_path: Path):
@@ -730,13 +712,11 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     (other / "T-261116-out.md").write_text(_task("open"), encoding="utf-8")
     with pytest.raises(RuntimeError) as e5:
         previous_task_texts_from_git(other, repo_root=tmp_path, ref="HEAD")
-    try:
+    with pytest.raises(ValueError) as ve:
         other.resolve().relative_to(tmp_path.resolve())
-        raise AssertionError("expected ValueError")
-    except ValueError as ve:
-        assert str(e5.value) == MSG_GIT_ERROR.format(
-            rel=other.name, ref="HEAD", detail=str(ve)
-        )
+    assert str(e5.value) == MSG_GIT_ERROR.format(
+        rel=other.name, ref="HEAD", detail=str(ve.value)
+    )
 
 
 def test_two_commit_open_to_done_vs_base(tmp_path: Path):
@@ -747,30 +727,19 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path):
     tasks = root / "context" / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "T-261116-ci.md").write_text(_task("open"), encoding="utf-8")
-    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    base = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True
-    ).strip()
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    for args in (["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "base"]):
+        subprocess.run(args, cwd=root, check=True, capture_output=True, env={**os.environ, **env})
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     (tasks / "T-261116-ci.md").write_text(
         _task("done", extra="acceptance_note: forged"), encoding="utf-8"
     )
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "bad"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
+    for args in (["git", "add", "-A"], ["git", "commit", "-m", "bad"]):
+        subprocess.run(args, cwd=root, check=True, capture_output=True, env={**os.environ, **env})
     os.environ["MUTATION_BASE"] = base
     try:
-        prev = previous_task_texts_from_git(tasks)  # repo_root=None → default root
+        prev = previous_task_texts_from_git(tasks)
         assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
         result = validate_tasks_dir(tasks, previous_by_name=prev)
     finally:

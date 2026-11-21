@@ -1,15 +1,17 @@
 """Incremental mutation hard gate on covered changed lines (mutmut).
 
-Required gate (Orbit Lead + Maxim intent): fail the build when the covered
-mutation score on changed sources is below context/quality.json threshold.
-Self-contained under runtime/agentized for connected foreign repos.
+Fail when covered mutation score on changed sources is below quality.json.
+Score only defs intersecting ``git diff`` vs base; module-level non-import →
+whole file; import-only → empty. Self-contained under runtime/agentized.
 """
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -113,10 +115,86 @@ def _write_setup(root: Path, only_mutate: list[str]) -> None:
     (root / "setup.cfg").write_text("\n".join(lines), encoding="utf-8")
 
 
-def _collect_stats(root: Path) -> dict:
+def _diff_added_lines(root: Path, base_ref: str, rel: str) -> set[int]:
+    """New-side lines from ``git diff -U0`` (triple-dot, else two-dot)."""
+    proc = None
+    for spec in (f"{base_ref}...HEAD", base_ref):
+        proc = subprocess.run(
+            ["git", "diff", "-U0", spec, "--", rel],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0 or spec == base_ref:
+            break
+    out: set[int] = set()
+    for row in (proc.stdout or "").splitlines():
+        m = re.search(r"\+(\d+)(?:,(\d+))?", row) if row.startswith("@@") else None
+        if not m:
+            continue
+        start, n = int(m.group(1)), int(m.group(2) or "1")
+        if n > 0:
+            out.update(range(start, start + n))
+    return out
+
+
+def _touched_functions(source: Path, changed_lines: set[int]) -> set[str] | None:
+    """Defs intersecting ``changed_lines``; ``None`` = whole file."""
+    if not changed_lines or not source.is_file():
+        return set()
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return None
+    ranges: list[tuple[str, int, int]] = []
+    skip = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
+        elif isinstance(node, ast.ClassDef):
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    ranges.append(
+                        (child.name, child.lineno, child.end_lineno or child.lineno)
+                    )
+    touched: set[str] = set()
+    for lineno in changed_lines:
+        name = next((n for n, a, b in ranges if a <= lineno <= b), None)
+        if name:
+            touched.add(name)
+            continue
+        for node in tree.body:
+            end = getattr(node, "end_lineno", None) or node.lineno
+            if node.lineno <= lineno <= end:
+                if isinstance(node, skip):
+                    break
+                return None
+    return touched
+
+
+def _mutant_function_name(key: str) -> str | None:
+    m = re.search(r"\.x_([A-Za-z_][\w]*)__mutmut_(?:\d+|orig)\b", key)
+    return m.group(1) if m else None
+
+
+def _collect_stats(
+    root: Path,
+    *,
+    base_ref: str | None = None,
+    changed_files: list[str] | None = None,
+) -> dict:
     killed = survived = no_tests = timeout = other = 0
     files: list[str] = []
     mutants_dir = root / "mutants"
+    allow: dict[str, set[str] | None] = {}
+    if base_ref and changed_files:
+        for rel in changed_files:
+            key = rel.replace("\\", "/")
+            allow[key] = _touched_functions(
+                root / rel, _diff_added_lines(root, base_ref, rel)
+            )
+            if key.startswith("runtime/agentized/"):
+                allow["agentized/" + key[len("runtime/agentized/") :]] = allow[key]
     for meta in mutants_dir.rglob("*.meta") if mutants_dir.exists() else []:
         try:
             data = json.loads(meta.read_text(encoding="utf-8"))
@@ -125,8 +203,17 @@ def _collect_stats(root: Path) -> dict:
         exit_map = data.get("exit_code_by_key") or {}
         if not exit_map:
             continue
-        files.append(str(meta.relative_to(mutants_dir)))
-        for code in exit_map.values():
+        rel_meta = str(meta.relative_to(mutants_dir)).replace("\\", "/")
+        src_key = rel_meta[: -len(".meta")] if rel_meta.endswith(".meta") else rel_meta
+        if allow and src_key not in allow:
+            continue
+        allowed = allow.get(src_key)
+        files.append(rel_meta)
+        for key, code in exit_map.items():
+            if allowed is not None:
+                fn = _mutant_function_name(key)
+                if fn is None or fn not in allowed:
+                    continue
             if code in (1, 3):
                 killed += 1
             elif code == 0:
@@ -241,7 +328,7 @@ def run_mutation(
         if created_link and link.is_symlink():
             link.unlink(missing_ok=True)
 
-    stats = _collect_stats(root)
+    stats = _collect_stats(root, base_ref=base, changed_files=changed)
     reasons: list[str] = []
     # Always fail closed on runner failure (Codex P1) — never trust cached/partial stats.
     if mutmut_rc != 0:

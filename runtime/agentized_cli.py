@@ -367,25 +367,24 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-
 def cmd_tasks_validate(args: argparse.Namespace) -> int:
     root = find_repo_root()
-    ctx = _ctx(root, args)
-    base = getattr(args, "base", None) or None
     try:
         ref, result = run_tasks_validate(
-            ctx / "tasks", repo_root=root, base_ref=base
+            _ctx(root, args) / "tasks",
+            repo_root=root,
+            base_ref=getattr(args, "base", None) or None,
         )
     except RuntimeError as exc:
         print(f"tasks-validate FAIL: {exc}", file=sys.stderr)
         return 1
-    if result.ok:
-        print(f"tasks-validate OK (base={ref})")
-        return 0
-    print("tasks-validate FAIL", file=sys.stderr)
-    for err in result.errors:
-        print(f"  ERROR: {err}", file=sys.stderr)
-    return 1
+    if not result.ok:
+        print("tasks-validate FAIL", file=sys.stderr)
+        for err in result.errors:
+            print(f"  ERROR: {err}", file=sys.stderr)
+        return 1
+    print(f"tasks-validate OK (base={ref})")
+    return 0
 
 
 def cmd_index(args: argparse.Namespace) -> int:
@@ -774,16 +773,9 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--context", default=None)
     st.set_defaults(func=cmd_status)
 
-    tv = sub.add_parser(
-        "tasks-validate",
-        help="Hard status gates: переходы/поля/Ценность по всем context/tasks",
-    )
+    tv = sub.add_parser("tasks-validate", help="Hard status gates on context/tasks")
     tv.add_argument("--context", default=None)
-    tv.add_argument(
-        "--base",
-        default=None,
-        help="git ref for prior blobs (default: MUTATION_BASE / merge-base origin/main)",
-    )
+    tv.add_argument("--base", default=None, help="prior git ref (default: MUTATION_BASE)")
     tv.set_defaults(func=cmd_tasks_validate)
 
     ix = sub.add_parser("index", help="Пересобрать живые индексы tasks/leases")

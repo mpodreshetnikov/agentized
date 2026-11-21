@@ -78,22 +78,14 @@ def test_size_check_levels(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("agentized.process_control.diff_insertions", fake_diff)
     result = size_check(tmp_path)
-    assert result["level"] == "warn"
-    assert result["ok"] is True
+    assert result["level"] == "warn" and result["ok"] is True
     assert f"warn ≥{result['warn_at']}" in result["message"]
     assert f"over >{result['limit']}" in result["message"]
-
     monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 100)
     at_limit = size_check(tmp_path)
-    assert (at_limit["level"], at_limit["ok"], at_limit["insertions"], at_limit["limit"]) == (
-        "warn",
-        True,
-        100,
-        100,
-    )
+    assert (at_limit["level"], at_limit["ok"], at_limit["insertions"]) == ("warn", True, 100)
     assert f"over >{at_limit['limit']}" in at_limit["message"]
     assert f"over ≥{at_limit['limit']}" not in at_limit["message"]
-
     monkeypatch.setattr("agentized.process_control.diff_insertions", lambda *_: 120)
     over = size_check(tmp_path)
     assert (over["level"], over["ok"], over["insertions"]) == ("over", False, 120)

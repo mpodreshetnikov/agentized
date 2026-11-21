@@ -18,23 +18,12 @@ from .tasks import (
 
 TEXT_ENCODING = "utf-8"
 INDEX_ACTIVE_STATUSES: tuple[str, ...] = (
-    "open",
-    "queue",
-    "in-progress",
-    "self-review",
-    "for-review",
-    "blocked",
+    "open", "queue", "in-progress", "self-review", "for-review", "blocked",
 )
 COLUMN_FOR_STATUS: dict[str, str] = {
-    "idea": "open",
-    "open": "open",
-    "queue": "queue",
-    "self-review": "queue",
-    "in-progress": "in-progress",
-    "for-review": "for-review",
-    "blocked": "blocked",
-    "done": "done",
-    "canceled": "canceled",
+    "idea": "open", "open": "open", "queue": "queue", "self-review": "queue",
+    "in-progress": "in-progress", "for-review": "for-review", "blocked": "blocked",
+    "done": "done", "canceled": "canceled",
 }
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "idea": frozenset({"open", "queue", "canceled"}),
@@ -43,12 +32,8 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "in-progress": frozenset(
         {"self-review", "for-review", "blocked", "done", "open", "queue", "canceled"}
     ),
-    "self-review": frozenset(
-        {"for-review", "in-progress", "done", "blocked", "canceled"}
-    ),
-    "for-review": frozenset(
-        {"done", "in-progress", "self-review", "blocked", "canceled"}
-    ),
+    "self-review": frozenset({"for-review", "in-progress", "done", "blocked", "canceled"}),
+    "for-review": frozenset({"done", "in-progress", "self-review", "blocked", "canceled"}),
     "blocked": frozenset({"in-progress", "open", "queue", "canceled"}),
     "done": frozenset({"open", "queue", "in-progress"}),
     "canceled": frozenset({"open", "queue"}),
@@ -73,9 +58,7 @@ MSG_BLOCKED_DEADLINE_FMT = "blocked_deadline must be YYYY-MM-DD, got {deadline!r
 MSG_BLOCKED_DEADLINE_INVALID = "blocked_deadline is not a valid date: {deadline!r}"
 MSG_REVIEW_EVIDENCE = "{st} requires review_note or pr (real PR ref)"
 MSG_DONE_EVIDENCE = "done requires acceptance_note"
-MSG_BAD_PR = (
-    "pr must be a real PR ref (#N, PR #N, or github.com/.../pull/N), got {pr!r}"
-)
+MSG_BAD_PR = "pr must be a real PR ref (#N, PR #N, or github.com/.../pull/N), got {pr!r}"
 MSG_MISSING_VALUE = 'missing value line "Ценность: …"'
 MSG_MISSING_FILE = "missing task file {path}"
 MSG_ILLEGAL = "illegal transition {old} → {new}; allowed: {allowed}"
@@ -199,10 +182,6 @@ def _has_review_evidence(fields: dict[str, str]) -> bool:
     return bool(pr) and is_real_pr_ref(pr)
 
 
-def _has_acceptance_evidence(fields: dict[str, str]) -> bool:
-    return bool(_nonempty_field(fields, "acceptance_note"))
-
-
 def _new_path_status_ok(text: str, st: str) -> bool:
     """New files: idea|open|queue|in-progress, or self-review with pr+review_note."""
     if st in NEW_PATH_ALLOWED_STATUSES:
@@ -210,8 +189,7 @@ def _new_path_status_ok(text: str, st: str) -> bool:
     if st != "self-review":
         return False
     fields = parse_task_fields(text)
-    pr = _nonempty_field(fields, "pr")
-    note = _nonempty_field(fields, "review_note")
+    pr, note = _nonempty_field(fields, "pr"), _nonempty_field(fields, "review_note")
     return bool(note) and bool(pr) and is_real_pr_ref(pr)
 
 
@@ -250,9 +228,8 @@ def validate_status_requirements(text: str, *, status: str | None = None) -> Gat
     if st in {"self-review", "for-review"}:
         if not _has_review_evidence(fields):
             errors.append(MSG_REVIEW_EVIDENCE.format(st=st))
-    if st == "done":
-        if not _has_acceptance_evidence(fields):
-            errors.append(MSG_DONE_EVIDENCE)
+    if st == "done" and not _nonempty_field(fields, "acceptance_note"):
+        errors.append(MSG_DONE_EVIDENCE)
     return GateResult(ok=not errors, errors=tuple(errors))
 
 
