@@ -31,8 +31,6 @@ ignore_lexemes =
 also_copy =
   tests/
   context/
-  packages/
-  templates/
   pyproject.toml
   setup.cfg
 """

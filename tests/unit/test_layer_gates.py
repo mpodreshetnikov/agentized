@@ -17,6 +17,29 @@ REPO = Path(__file__).resolve().parents[2]
 FIXTURE_MINI = REPO / "templates" / "quality" / "fixtures" / "orbit-like-mini"
 
 
+def _ensure_mini_app(root: Path) -> Path:
+    """Orbit-like mini tree; inline when templates/ missing (mutmut sandbox)."""
+    app = root / "app"
+    if FIXTURE_MINI.is_dir():
+        shutil.copytree(FIXTURE_MINI, app)
+        return app
+    (app / "src").mkdir(parents=True)
+    (app / "src" / "app.ts").write_text("export {}\n", encoding="utf-8")
+    (app / "e2e").mkdir()
+    (app / "e2e" / "smoke.spec.ts").write_text("test('s', async () => {})\n", encoding="utf-8")
+    (app / "playwright.config.ts").write_text("export default {}\n", encoding="utf-8")
+    (app / "package.json").write_text(
+        json.dumps({"devDependencies": {"@playwright/test": "1.0.0"}}), encoding="utf-8"
+    )
+    mig = app / "db" / "migrations"
+    mig.mkdir(parents=True)
+    (mig / "001_init.sql").write_text("CREATE TABLE t(id int);\n", encoding="utf-8")
+    tests = app / "db" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_init.sql").write_text("SELECT plan(1);\n", encoding="utf-8")
+    return app
+
+
 def _git_init(root: Path) -> None:
     subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
     subprocess.run(
@@ -293,9 +316,23 @@ def test_test_command_required_orm(tmp_path: Path, monkeypatch):
     assert any(f["kind"] == "test_command_required" for f in _summary(tmp_path, "db_tests")["findings"])
 
 
+def test_apply_layer_upgrades_persists(tmp_path: Path):
+    cfg = defaults_fn()
+    cfg["e2e"] = {"enabled": False, "mode": "warn"}
+    cfg["gates"] = {"ci": ["coverage", "mutation"], "pre_push": ["mutation"]}
+    save_quality(tmp_path, cfg)
+    up = lg.apply_layer_upgrades_to_repo(tmp_path)
+    assert "e2e.enabled" in up and "e2e.mode" in up
+    assert "gates.ci" in up
+    loaded = json.loads((tmp_path / "context" / "quality.json").read_text(encoding="utf-8"))
+    assert loaded["e2e"]["enabled"] == "auto"
+    assert loaded["e2e"]["mode"] == "hard"
+    assert loaded["gates"]["ci"] == ["coverage", "e2e", "db_tests", "mutation"]
+    assert lg.apply_layer_upgrades_to_repo(tmp_path) == []
+
+
 def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
-    shutil.copytree(FIXTURE_MINI, tmp_path / "app")
-    root = tmp_path / "app"
+    root = _ensure_mini_app(tmp_path)
     _git_init(root)
     _write_quality(
         root,

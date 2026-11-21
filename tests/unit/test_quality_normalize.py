@@ -35,6 +35,21 @@ def test_default_config_contract():
     assert "db_tests" not in cfg["gates"]["ci"]
 
 
+def test_quality_module_installs_age31_connect_hook():
+    """quality import must wrap connect.ensure_quality_config (AGE-31)."""
+    import agentized.connect as connect_mod
+    import agentized.quality as quality_mod
+
+    assert quality_mod.QUALITY_FILENAME == "quality.json"
+    assert getattr(connect_mod.ensure_quality_config, "_age31_layer_hook", False) is True
+    # Idempotent re-install must keep the same wrapped callable.
+    from agentized.layer_gates import install_ensure_quality_hook
+
+    before = connect_mod.ensure_quality_config
+    install_ensure_quality_hook()
+    assert connect_mod.ensure_quality_config is before
+
+
 def test_load_missing_returns_defaults(tmp_path: Path):
     data = load_quality(tmp_path / "nope")
     assert data["mutation"]["gate"] == "hard"

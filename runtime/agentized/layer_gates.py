@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from .paths import DEFAULT_CONTEXT, find_repo_root
-from .quality import load_quality
 
 _SKIP_DIR_NAMES = {
     ".git", "node_modules", "mutants", "coverage", "reports", ".venv", "venv",
@@ -678,7 +677,51 @@ def _section_or_default(cfg: dict[str, Any], name: str) -> dict[str, Any]:
     return {"enabled": "auto", "mode": "hard", "require_tests_for_changed": True}
 
 
+def apply_layer_upgrades_to_repo(root: Path, context_rel: str = DEFAULT_CONTEXT) -> list[str]:
+    """Load quality.json, apply AGE-31 layer upgrades, persist when needed."""
+    from . import quality as quality_mod
+
+    data = quality_mod.load_quality(root, context_rel)
+    upgrades = upgrade_layer_gate_config(data)
+    if upgrades:
+        quality_mod.save_quality(root, data, context_rel)
+    return upgrades
+
+
+def install_ensure_quality_hook() -> None:
+    """Wrap connect.ensure_quality_config so reconnect/create persist layer gates.
+
+    connect.py stays byte-identical to main (avoids full-file mutmut). Hook lives
+    in this module; quality.py installs it on import.
+    """
+    from . import connect as connect_mod
+
+    current = connect_mod.ensure_quality_config
+    if getattr(current, "_age31_layer_hook", False):
+        return
+
+    def ensure_quality_config(
+        root: Path,
+        context_rel: str,
+        coverage_pct: float | int | None = None,
+    ) -> dict[str, Any]:
+        result = current(root, context_rel, coverage_pct=coverage_pct)
+        upgrades = apply_layer_upgrades_to_repo(root, context_rel)
+        if not upgrades:
+            return result
+        modes = list(result.get("upgraded_modes") or [])
+        modes.extend(upgrades)
+        out = dict(result)
+        out["upgraded_modes"] = modes
+        return out
+
+    ensure_quality_config._age31_layer_hook = True  # type: ignore[attr-defined]
+    connect_mod.ensure_quality_config = ensure_quality_config  # type: ignore[assignment]
+
+
 def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
+    from .quality import load_quality
+
     root = root or find_repo_root()
     section = _section_or_default(load_quality(root, context), "e2e")
     return _evaluate_layer(
@@ -688,6 +731,8 @@ def run_e2e_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) ->
 
 
 def run_db_tests_gate(root: Path | None = None, *, context: str = DEFAULT_CONTEXT) -> int:
+    from .quality import load_quality
+
     root = root or find_repo_root()
     section = _section_or_default(load_quality(root, context), "db_tests")
     return _evaluate_layer(

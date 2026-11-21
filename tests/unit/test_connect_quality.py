@@ -3,15 +3,20 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from agentized import connect as connect_mod
+from agentized import quality as quality_mod  # installs AGE-31 ensure_quality hook
 from agentized.connect import (
     QUALITY_MARKER,
     _safe_install_template,
     connect,
     ensure_githooks_path,
-    ensure_quality_config,
     pin_quality_templates,
 )
 from agentized.quality import load_quality
+
+# Module attribute — picks up layer_gates hook (from-import would bind pre-hook).
+ensure_quality_config = connect_mod.ensure_quality_config
+assert quality_mod is not None
 
 
 def _skeleton(root: Path) -> None:

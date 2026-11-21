@@ -154,3 +154,13 @@ def set_reviewer_options(
         rev["budget_max"] = int(budget_max)
     save_quality(root, data, rel)
     return data
+
+
+def _install_layer_gates_connect_hook() -> None:
+    """Install AGE-31 reconnect hook without editing connect.py (see layer_gates)."""
+    from .layer_gates import install_ensure_quality_hook
+
+    install_ensure_quality_hook()
+
+
+_install_layer_gates_connect_hook()
