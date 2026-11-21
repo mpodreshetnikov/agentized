@@ -1,4 +1,5 @@
 """AGE-23: hooks_merge + hooks_boundary mutation-hard tests (no stamp/strip)."""
+
 from __future__ import annotations
 
 import pytest
@@ -56,19 +57,10 @@ def test_is_agentized_boundaries_and_owned():
     assert cursor_entry_is_ours({"command": ".cursor/hooks/my_lease_warn.py"}) is False
     unmarked = {"command": ".cursor/hooks/old_renamed.py"}
     assert cursor_entry_is_ours(unmarked) is False
-    assert (
-        cursor_entry_is_ours(
-            unmarked, previously_owned=frozenset({unmarked["command"]})
-        )
-        is True
-    )
+    assert cursor_entry_is_ours(unmarked, previously_owned=frozenset({unmarked["command"]})) is True
     assert (
         nested_hook_is_ours(
-            {
-                "command": (
-                    'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"'
-                )
-            },
+            {"command": ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/process_guard.py"')},
             "claude",
         )
         is True
@@ -121,9 +113,7 @@ def test_wrong_shape_and_merges():
         merge_cursor_hooks({"hooks": {"sessionStart": {"command": "x"}}}, {})
     assert str(e2.value) == "cursor.sessionStart: event value must be a list, got dict"
     with pytest.raises(HooksShapeError) as e3:
-        merge_nested_hooks(
-            {"SessionStart": [{"hooks": {"command": "x"}}]}, {}, harness="claude"
-        )
+        merge_nested_hooks({"SessionStart": [{"hooks": {"command": "x"}}]}, {}, harness="claude")
     assert str(e3.value) == "claude.SessionStart: block hooks must be a list, got dict"
 
     desired = {
@@ -166,9 +156,7 @@ def test_wrong_shape_and_merges():
         None, {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]}
     )
     assert created == {
-        "hooks": {
-            "sessionStart": [{"command": ".cursor/hooks/session_start.py"}]
-        },
+        "hooks": {"sessionStart": [{"command": ".cursor/hooks/session_start.py"}]},
         CURSOR_VERSION_KEY: 1,
     }
     # previously_owned must drop unmarked cursor commands (kills None/kwarg mutants)
@@ -195,9 +183,9 @@ def test_wrong_shape_and_merges():
         before, {"SessionStart": []}, previously_owned=frozenset({stale})
     ) == {"hooks": {}}
     assert merge_claude_settings(before, {"SessionStart": []}, previously_owned=None) == before
-    assert merge_codex_hooks(
-        before, {"hooks": {}}, previously_owned=frozenset({stale})
-    ) == {"hooks": {}}
+    assert merge_codex_hooks(before, {"hooks": {}}, previously_owned=frozenset({stale})) == {
+        "hooks": {}
+    }
     assert merge_codex_hooks(before, {"hooks": {}}, previously_owned=None) == before
 
     claude_desired = {
@@ -207,9 +195,7 @@ def test_wrong_shape_and_merges():
                 "hooks": [
                     {
                         "type": "command",
-                        "command": (
-                            'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"'
-                        ),
+                        "command": ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"'),
                     }
                 ],
             }
@@ -324,15 +310,13 @@ def test_wrong_shape_and_merges():
     assert market["plugins"][0] == {"name": "foreign"}
     assert market["plugins"][1]["source"]["path"] == "./x"
     assert (
-        merge_marketplace_plugins(None, {"name": "agentized-local", "plugins": []})[
-            "name"
-        ]
+        merge_marketplace_plugins(None, {"name": "agentized-local", "plugins": []})["name"]
         == "agentized-local"
     )
     assert (
-        merge_marketplace_plugins(
-            {"plugins": None}, {"plugins": [{"name": "agentized"}]}
-        )["plugins"][0]["name"]
+        merge_marketplace_plugins({"plugins": None}, {"plugins": [{"name": "agentized"}]})[
+            "plugins"
+        ][0]["name"]
         == "agentized"
     )
     with pytest.raises(HooksShapeError) as em:
@@ -363,9 +347,7 @@ def test_plan_json_and_collect_owned():
         "before_hooks_events": [],
         "after_hooks_events": ["X"],
     }
-    merge = plan_json_change(
-        "p", {"hooks": {"A": []}}, {"hooks": {"A": [], "B": []}}
-    )
+    merge = plan_json_change("p", {"hooks": {"A": []}}, {"hooks": {"A": [], "B": []}})
     assert merge["action"] == "merge" and merge["changed"] is True
     assert merge["before_hooks_events"] == ["A"]
     assert merge["after_hooks_events"] == ["A", "B"]
@@ -422,9 +404,7 @@ def test_plan_json_and_collect_owned():
         {"description": "keep"},
         {
             "description": "new",
-            "hooks": {
-                "E": [{"hooks": [{"command": ".codex/hooks/session_start.py"}]}]
-            },
+            "hooks": {"E": [{"hooks": [{"command": ".codex/hooks/session_start.py"}]}]},
         },
     )
     assert got["description"] == "keep"

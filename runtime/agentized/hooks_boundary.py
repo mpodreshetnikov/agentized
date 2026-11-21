@@ -1,4 +1,5 @@
 """AGE-23 command-path boundary checks for harness hook ownership."""
+
 from __future__ import annotations
 
 import re
@@ -23,9 +24,7 @@ _SLASH = "/"
 _DOLLAR = "$"
 _SCRIPTS_RE = "|".join(sorted(re.escape(s) for s in AGENTIZED_SCRIPTS))
 _AGENTIZED_RE = {
-    name: re.compile(
-        re.escape(marker) + "(?:" + _SCRIPTS_RE + ")" + r"(?:$|[\"\' \t;&|)])"
-    )
+    name: re.compile(re.escape(marker) + "(?:" + _SCRIPTS_RE + ")" + r"(?:$|[\"\' \t;&|)])")
     for name, marker in HARNESS_MARKERS.items()
 }
 

@@ -1,4 +1,5 @@
 """Pure merge of Agentized harness hooks (AGE-23). No filesystem I/O."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,9 +15,7 @@ class HooksShapeError(ValueError):
     """Valid JSON with wrong hooks shape — caller must refuse writes."""
 
 
-def cursor_entry_is_ours(
-    entry: Any, *, previously_owned: frozenset[str] | None = None
-) -> bool:
+def cursor_entry_is_ours(entry: Any, *, previously_owned: frozenset[str] | None = None) -> bool:
     if not isinstance(entry, dict):
         return False
     cmd = entry.get("command")
@@ -51,9 +50,7 @@ def _require_hooks_map(hooks: Any, *, ctx: str) -> dict:
     if hooks is None:
         return {}
     if not isinstance(hooks, dict):
-        raise HooksShapeError(
-            f"{ctx}: hooks must be an object, got {type(hooks).__name__}"
-        )
+        raise HooksShapeError(f"{ctx}: hooks must be an object, got {type(hooks).__name__}")
     return hooks
 
 
@@ -61,9 +58,7 @@ def _require_event_list(value: Any, *, ctx: str) -> list:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise HooksShapeError(
-            f"{ctx}: event value must be a list, got {type(value).__name__}"
-        )
+        raise HooksShapeError(f"{ctx}: event value must be a list, got {type(value).__name__}")
     return value
 
 
@@ -72,9 +67,7 @@ def _require_block_hooks(block: dict, *, ctx: str) -> list:
         return []
     nested = block.get("hooks")
     if not isinstance(nested, list):
-        raise HooksShapeError(
-            f"{ctx}: block hooks must be a list, got {type(nested).__name__}"
-        )
+        raise HooksShapeError(f"{ctx}: block hooks must be a list, got {type(nested).__name__}")
     return nested
 
 
@@ -90,9 +83,7 @@ def merge_cursor_hooks(
     for event in dict.fromkeys([*existing_hooks.keys(), *desired_hooks.keys()]):
         foreign = [
             e
-            for e in _require_event_list(
-                existing_hooks.get(event), ctx=f"cursor.{event}"
-            )
+            for e in _require_event_list(existing_hooks.get(event), ctx=f"cursor.{event}")
             if not cursor_entry_is_ours(e, previously_owned=previously_owned)
         ]
         ours = list(_as_list(desired_hooks.get(event)))
@@ -115,9 +106,7 @@ def merge_nested_hooks(
     out: dict[str, list] = {}
     for event in dict.fromkeys([*existing.keys(), *desired_hooks.keys()]):
         foreign_blocks: list = []
-        for block in _require_event_list(
-            existing.get(event), ctx=f"{harness}.{event}"
-        ):
+        for block in _require_event_list(existing.get(event), ctx=f"{harness}.{event}"):
             if not isinstance(block, dict):
                 foreign_blocks.append(block)
                 continue
@@ -125,9 +114,7 @@ def merge_nested_hooks(
             kept = [
                 h
                 for h in nested
-                if not nested_hook_is_ours(
-                    h, harness, previously_owned=previously_owned
-                )
+                if not nested_hook_is_ours(h, harness, previously_owned=previously_owned)
             ]
             if not nested:
                 foreign_blocks.append(block)
@@ -169,20 +156,14 @@ def merge_codex_hooks(
     previously_owned: frozenset[str] | None = None,
 ) -> dict:
     doc = dict(existing) if isinstance(existing, dict) else {}
-    desired_hooks = _as_dict(
-        desired.get("hooks") if isinstance(desired, dict) else None
-    )
+    desired_hooks = _as_dict(desired.get("hooks") if isinstance(desired, dict) else None)
     doc["hooks"] = merge_nested_hooks(
         doc.get("hooks"),
         desired_hooks,
         harness="codex",
         previously_owned=previously_owned,
     )
-    if (
-        isinstance(desired, dict)
-        and "description" not in doc
-        and "description" in desired
-    ):
+    if isinstance(desired, dict) and "description" not in doc and "description" in desired:
         doc["description"] = desired["description"]
     return doc
 
@@ -251,9 +232,7 @@ def merge_marketplace_plugins(existing: dict | None, ours: dict) -> dict:
         if isinstance(p, dict) and isinstance(p.get("name"), str)
     }
     foreign = [
-        p
-        for p in existing_plugins
-        if not (isinstance(p, dict) and p.get("name") in ours_names)
+        p for p in existing_plugins if not (isinstance(p, dict) and p.get("name") in ours_names)
     ]
     doc["plugins"] = foreign + [p for p in ours_plugins if isinstance(p, dict)]
     return doc
