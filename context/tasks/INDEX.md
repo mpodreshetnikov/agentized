@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-- [T-261121-2d72](T-261121-2d72.md) — Configurable merge and authorship policy (AGE-27) · claim: maxim
+_(пусто)_
 
 ## blocked
 
