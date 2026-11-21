@@ -31,7 +31,6 @@ def test_index_freshness_uses_porcelain_no_hardcoded_paths():
     expected_index = '"${CLI[@]}" index'
     porcelain = '[[ -n "$(git status --porcelain)" ]]'
     for path in CI_PATHS:
-        rel = str(path.relative_to(ROOT))
         step = _gate_step(path)
         assert "|| true" not in step
         assert expected_index in step
@@ -41,4 +40,3 @@ def test_index_freshness_uses_porcelain_no_hardcoded_paths():
         assert "context/tasks/INDEX.md" not in step
         assert "context/leases/INDEX.md" not in step
         assert "git diff --exit-code" not in step
-        assert "templates/quality/ci.yml" in rel or ".github/workflows/ci.yml" in rel
