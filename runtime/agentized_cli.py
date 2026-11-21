@@ -85,9 +85,10 @@ def cmd_connect(args: argparse.Namespace) -> int:
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
     try:
-        # Inits empty external registry + preflight bridge conflicts before writes.
-        # Bridges/gitignore after connect succeeds — avoid orphan bridges on failure.
-        layout = prepare_connect_layout(root, args.context, bridges=False)
+        # Seed empty external registry, preflight conflicts, then install bridges
+        # *before* connect so ensure_context_skeleton sees NAV and no-ops (no local
+        # bridge-path dirs). Honest connect.py external= skip waits AGE-68 A-final.
+        layout = prepare_connect_layout(root, args.context, bridges=True)
     except ValueError as exc:
         print(f"context layout error: {exc}", file=sys.stderr)
         return 1
@@ -97,15 +98,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
         harnesses=harnesses,
         coverage_pct=args.coverage,
     )
-    if layout.is_external:
-        from agentized.context_layout import ensure_bridge_gitignore, ensure_code_context_bridges
-
-        try:
-            ensure_code_context_bridges(layout)
-            ensure_bridge_gitignore(root, context_rel=args.context)
-        except ValueError as exc:
-            print(f"context layout error: {exc}", file=sys.stderr)
-            return 1
     result["layout"] = {
         "placement": layout.placement,
         "registry": str(layout.registry_root),

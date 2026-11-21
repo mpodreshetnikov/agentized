@@ -18,37 +18,6 @@ from agentized.connect import (
 )
 
 
-def test_external_skips_local_registry_dirs(tmp_path: Path):
-    """Kill ``external`` True branch → still creates tasks/leases/NAV locally."""
-    result = ensure_context_skeleton(tmp_path, "context", external=True)
-    assert result == {
-        "created": False,
-        "path": "context",
-        "files": [],
-        "skipped_external": True,
-    }
-    ctx = tmp_path / "context"
-    assert ctx.is_dir()
-    assert not (ctx / "tasks").exists()
-    assert not (ctx / "leases").exists()
-    assert not (ctx / "NAV.md").exists()
-
-
-def test_external_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Kill parents/exist_ok on external-only ctx.mkdir."""
-    seen: list[dict] = []
-    real = Path.mkdir
-
-    def wrapped(self: Path, *args, **kwargs):
-        if self.name == "context":
-            seen.append(dict(kwargs))
-        return real(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "mkdir", wrapped)
-    ensure_context_skeleton(tmp_path, "context", external=True)
-    assert seen == [{"parents": True, "exist_ok": True}]
-
-
 def test_noop_result_keys_are_literal_path(tmp_path: Path):
     """Kill ``path`` → ``XXpathXX`` / ``PATH`` on early return."""
     ctx = tmp_path / "context"
@@ -154,49 +123,30 @@ def test_seed_bodies_use_rstrip_not_lstrip_or_junk(tmp_path: Path):
     assert leases == MINIMAL_LEASES_INDEX_MD.rstrip() + "\n"
 
 
-def test_connect_external_skips_local_skeleton(tmp_path: Path):
-    """connect() with placement=external must not create local tasks/leases/NAV."""
+def test_prepare_bridges_before_connect_noops_local_skeleton(tmp_path: Path):
+    """Bridges first → NAV exists → connect skeleton no-op (no local registry dirs)."""
     import json
     import subprocess
 
     from agentized.connect import connect
+    from agentized.context_layout import prepare_connect_layout
 
     code, ext = tmp_path / "code", tmp_path / "ext"
     code.mkdir()
     ext.mkdir()
     subprocess.run(["git", "init"], cwd=ext, check=True, capture_output=True)
     subprocess.run(["git", "init"], cwd=code, check=True, capture_output=True)
-    (ext / "NAV.md").write_text("# n\n", encoding="utf-8")
-    (ext / "tasks").mkdir()
-    (ext / "leases").mkdir()
     ctx = code / "context"
     ctx.mkdir()
     (ctx / "context.json").write_text(
         json.dumps({"placement": "external", "external": {"path": str(ext), "remote": "r"}}) + "\n",
         encoding="utf-8",
     )
+    layout = prepare_connect_layout(code, bridges=True)
+    assert layout.is_external
+    assert (ctx / "NAV.md").is_symlink()
     result = connect(code, context_rel="context", harnesses=["cursor"])
-    assert result["skeleton"]["skipped_external"] is True
     assert result["skeleton"]["created"] is False
-    assert not (ctx / "tasks").exists()
-    assert not (ctx / "NAV.md").exists()
-    assert (ctx / "quality.json").exists()  # code-side pins still land
-
-
-def test_connect_invalid_layout_falls_back_to_local_skeleton(tmp_path: Path):
-    """ValueError from resolve_layout → external=False → local skeleton."""
-    from agentized.connect import connect
-
-    ctx = tmp_path / "context"
-    ctx.mkdir()
-    (ctx / "context.json").write_text('{"placement": "bogus"}\n', encoding="utf-8")
-    # connect may still fail later; ensure_context_skeleton path uses external=False
-    from agentized.connect import ensure_context_skeleton
-    from agentized.context_layout import resolve_layout
-    import pytest
-
-    with pytest.raises(ValueError):
-        resolve_layout(tmp_path, "context")
-    result = ensure_context_skeleton(tmp_path, "context", external=False)
-    assert result["created"] is True
-    assert (ctx / "NAV.md").is_file()
+    assert (ctx / "tasks").is_symlink()
+    assert (ctx / "NAV.md").is_symlink()
+    assert (ctx / "quality.json").exists()

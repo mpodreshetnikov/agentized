@@ -180,31 +180,14 @@ def test_lease_and_sync_status_use_registry(
     assert "active leases: 1" in sync
 
 
-def test_connect_bridges_after_connect_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Bridges must run only after connect() succeeds (no orphan bridges on failure)."""
+def test_connect_bridges_before_connect_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Bridges before connect so skeleton no-ops on NAV symlink (AGE-68 A-final pending)."""
     code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
 
-    calls: list[str] = []
-    real_connect = cli.connect
-
-    def boom(*a, **k):
-        calls.append("connect")
-        raise RuntimeError("connect failed")
-
-    monkeypatch.setattr(cli, "connect", boom)
-    with pytest.raises(RuntimeError, match="connect failed"):
-        cli.cmd_connect(_ns())
-    assert calls == ["connect"]
-    assert not (ctx / "tasks").exists() or not (ctx / "tasks").is_symlink()
-
     order: list[str] = []
-
-    def wrap_connect(*a, **k):
-        order.append("connect")
-        return real_connect(*a, **k)
-
+    real_connect = cli.connect
     import agentized.context_layout as layout_mod
 
     real_bridges = layout_mod.ensure_code_context_bridges
@@ -213,7 +196,13 @@ def test_connect_bridges_after_connect_order(tmp_path: Path, monkeypatch: pytest
         order.append("bridges")
         return real_bridges(layout)
 
-    monkeypatch.setattr(cli, "connect", wrap_connect)
+    def wrap_connect(*a, **k):
+        order.append("connect")
+        assert (ctx / "NAV.md").is_symlink()
+        return real_connect(*a, **k)
+
     monkeypatch.setattr(layout_mod, "ensure_code_context_bridges", wrap_bridges)
+    monkeypatch.setattr(cli, "connect", wrap_connect)
     assert cli.cmd_connect(_ns()) == 0
-    assert order == ["connect", "bridges"]
+    assert order == ["bridges", "connect"]
+    assert (ctx / "tasks").is_symlink()

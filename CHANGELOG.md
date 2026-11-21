@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- External `agentized connect`: empty external git clone is seeded (NAV + tasks/leases indexes); local skeleton skips bridge paths; bridge conflicts preflighted before connect writes (no CLI temp-NAV dodge).
+- External `agentized connect`: empty external git clone is seeded (NAV + tasks/leases indexes); bridge conflicts preflighted; bridges installed before connect so local skeleton no-ops (no CLI temp-NAV dodge). Honest `connect.py` external skip waits AGE-68 A-final (mut surface).
 
 ### Changed
 
