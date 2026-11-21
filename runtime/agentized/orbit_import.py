@@ -1,4 +1,4 @@
-"""Orbit-tasks → Agentized import (AGE-26)."""
+"""Orbit-tasks → Agentized import (AGE-46 / #26b)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from .task_schema import (
-    DEFAULT_VALUE,
+    PLACEHOLDER_TAGS,
     TASK_ID_RE,
     allocate_task_id,
     format_id_list,
+    list_tasks,
     map_orbit_status,
     parse_id_list,
+    rebuild_task_index,
     validate_kind_priority,
 )
 from .tasks import render_task_file
@@ -21,6 +23,11 @@ from .tasks import render_task_file
 FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
 SAFE_TASK_ID_RE = re.compile(r"^T-[0-9A-Za-z-]+$")
+MSG_NO_STATUS = "missing or empty Orbit status (refusing silent idea)"
+MSG_NO_FM = "no front matter / id"
+MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
+MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by)"
+VALUE_PLACEHOLDER = "_(нет ценности в источнике)_"
 
 
 @dataclass
@@ -42,6 +49,7 @@ class OrbitTaskDraft:
     pr: str = ""
     orbit_id: str = ""
     superseded_by: str = ""
+    value: str = ""
     body: str = ""
     warnings: list[str] = field(default_factory=list)
     error: str = ""
@@ -147,6 +155,26 @@ def resolve_dest_path(dest_tasks: Path, task_id: str) -> Path | None:
     return dest
 
 
+def existing_orbit_id_map(dest_tasks: Path) -> dict[str, str]:
+    """Map orbit_id → Agentized task_id for tasks already on disk."""
+    out: dict[str, str] = {}
+    if not dest_tasks.is_dir():
+        return out
+    for meta in list_tasks(dest_tasks):
+        oid = (meta.orbit_id or "").strip()
+        if oid and not oid.startswith("_"):
+            out[oid] = meta.task_id
+    return out
+
+
+def find_dest_by_orbit_id(dest_tasks: Path, orbit_id: str) -> Path | None:
+    tid = existing_orbit_id_map(dest_tasks).get(orbit_id)
+    if not tid:
+        return None
+    path = dest_tasks / f"{tid}.md"
+    return path if path.exists() else None
+
+
 def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
     text = path.read_text(encoding="utf-8")
     parsed = parse_yaml_front_matter(text)
@@ -162,12 +190,14 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
     warnings: list[str] = []
     error = ""
     if "status" not in meta:
-        status = "idea"
+        status = ""
+        error = MSG_NO_STATUS
     else:
         raw_status = meta["status"]
         cleaned = "" if raw_status is None else str(raw_status).strip()
         if not cleaned:
-            status = "idea"
+            status = ""
+            error = MSG_NO_STATUS
         else:
             mapped = map_orbit_status(cleaned)
             if mapped is None:
@@ -189,6 +219,7 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
         deps = []
     deps = [str(d) for d in deps]
     blocked_by = _meta_str(meta, "blocked_by")
+    value = _meta_str(meta, "value") or _meta_str(meta, "Ценность")
     return OrbitTaskDraft(
         source=path,
         task_id=task_id,
@@ -205,7 +236,9 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
         exit=_meta_str(meta, "exit"),
         review_note=_meta_str(meta, "review_note"),
         pr=_meta_str(meta, "pr"),
+        orbit_id=_meta_str(meta, "orbit_id"),
         superseded_by=_meta_str(meta, "superseded_by"),
+        value=value,
         body=body,
         warnings=warnings,
         error=error,
@@ -214,11 +247,12 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
 
 def agentized_markdown(draft: OrbitTaskDraft) -> str:
     acceptance = draft.exit if draft.status == "done" else ""
+    value = draft.value
     header = render_task_file(
         draft.task_id,
         draft.title,
         status=draft.status,
-        tags=draft.tags,
+        tags=draft.tags or PLACEHOLDER_TAGS,
         kind=draft.kind,
         priority=draft.priority,
         owner=draft.owner,
@@ -233,7 +267,7 @@ def agentized_markdown(draft: OrbitTaskDraft) -> str:
         orbit_id=draft.orbit_id,
         superseded_by=draft.superseded_by,
         goal="Imported from orbit-tasks fixture (see preserved body below).",
-        value=DEFAULT_VALUE,
+        value=value,
     )
     preserved = draft.body.strip()
     history = (
@@ -248,6 +282,33 @@ def collect_orbit_task_files(source: Path) -> list[Path]:
     if source.is_file():
         return [source]
     return sorted(source.rglob("T-*.md"))
+
+
+def _remap_id(raw: str, id_map: dict[str, str]) -> str | None:
+    if raw in id_map:
+        return id_map[raw]
+    if TASK_ID_RE.match(raw) and raw in id_map.values():
+        return raw
+    return None
+
+
+def _remap_draft_refs(draft: OrbitTaskDraft, id_map: dict[str, str]) -> list[str]:
+    errs: list[str] = []
+    new_deps: list[str] = []
+    for dep in draft.depends_on:
+        mapped = _remap_id(dep, id_map)
+        if mapped is None:
+            errs.append(MSG_UNRESOLVED.format(raw=dep))
+        else:
+            new_deps.append(mapped)
+    draft.depends_on = new_deps
+    if draft.superseded_by:
+        mapped = _remap_id(draft.superseded_by, id_map)
+        if mapped is None:
+            errs.append(MSG_UNRESOLVED.format(raw=draft.superseded_by))
+        else:
+            draft.superseded_by = mapped
+    return errs
 
 
 def import_orbit_tasks(
@@ -266,6 +327,9 @@ def import_orbit_tasks(
     )
     seen_ids: set[str] = set()
     reserved: set[str] = set()
+    pending: list[tuple[OrbitTaskDraft, Path]] = []
+    this_run_map: dict[str, str] = {}  # orbit/source id → agentized id
+
     for path in collect_orbit_task_files(source):
         report.sources.append(str(path))
         try:
@@ -274,7 +338,7 @@ def import_orbit_tasks(
             _skip(report, path, f"skip (read error): {path}: {exc}")
             continue
         if not draft or not draft.task_id:
-            _skip(report, path, f"skip (no front matter / id): {path}", err=False)
+            _skip(report, path, f"skip ({MSG_NO_FM}): {path}")
             continue
         if draft.error:
             _skip(report, path, f"skip ({draft.error}): {path}")
@@ -286,14 +350,38 @@ def import_orbit_tasks(
         if kp:
             _skip(report, path, f"skip ({'; '.join(kp)}): {path}")
             continue
+
+        source_id = draft.task_id
         if not TASK_ID_RE.match(draft.task_id):
             orbit_id = draft.task_id
             draft.orbit_id = orbit_id
+            existing = find_dest_by_orbit_id(dest_tasks, orbit_id)
+            if existing is not None:
+                _skip(
+                    report,
+                    path,
+                    f"skip ({MSG_EXISTS_ORBIT.format(oid=orbit_id)}): {existing}",
+                )
+                continue
             draft.task_id = allocate_task_id(dest_tasks)
             while draft.task_id in reserved or (dest_tasks / f"{draft.task_id}.md").exists():
                 draft.task_id = allocate_task_id(dest_tasks)
             reserved.add(draft.task_id)
-            report.warnings.append(f"{orbit_id}: converted → {draft.task_id} (orbit_id preserved)")
+            report.warnings.append(
+                f"{orbit_id}: converted → {draft.task_id} (orbit_id preserved)"
+            )
+            this_run_map[orbit_id] = draft.task_id
+        else:
+            this_run_map[source_id] = draft.task_id
+            if draft.orbit_id:
+                this_run_map[draft.orbit_id] = draft.task_id
+
+        if not draft.value:
+            draft.value = VALUE_PLACEHOLDER
+            report.warnings.append(
+                f"{source_id}: no Orbit value — using placeholder {VALUE_PLACEHOLDER!r}"
+            )
+
         dest = resolve_dest_path(dest_tasks, draft.task_id)
         if dest is None:
             _skip(report, path, f"skip (path escape {draft.task_id!r}): {path}")
@@ -304,14 +392,34 @@ def import_orbit_tasks(
         if dest.exists():
             _skip(report, path, f"skip (exists, no overwrite): {dest}")
             continue
-        md = agentized_markdown(draft)
         seen_ids.add(draft.task_id)
+        pending.append((draft, dest))
         report.drafts.append(draft)
         report.warnings.extend(draft.warnings)
         report.would_write.append(str(dest))
-        if not dry_run:
-            dest_tasks.mkdir(parents=True, exist_ok=True)
-            dest.write_text(md, encoding="utf-8")
+
+    # Remap depends_on / superseded_by using this-run + existing orbit_id map.
+    id_map = {**existing_orbit_id_map(dest_tasks), **this_run_map}
+    for tid in this_run_map.values():
+        id_map[tid] = tid
+    for draft, _dest in pending:
+        for msg in _remap_draft_refs(draft, id_map):
+            report.errors.append(f"{draft.task_id}: {msg}")
+            report.warnings.append(f"{draft.task_id}: {msg}")
+
+    if report.errors:
+        # Validate-all / write-nothing: clear would_write for honesty on failed runs.
+        report.would_write = []
+        report.drafts = []
+        return report
+
+    if dry_run or not pending:
+        return report
+
+    dest_tasks.mkdir(parents=True, exist_ok=True)
+    for draft, dest in pending:
+        dest.write_text(agentized_markdown(draft), encoding="utf-8")
+    (dest_tasks / "INDEX.md").write_text(rebuild_task_index(dest_tasks), encoding="utf-8")
     return report
 
 
