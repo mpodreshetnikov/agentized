@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,7 +16,13 @@ _WRAPPER_CANDIDATES = (
     ("templates", "quality", "run-mutation-js.cjs"),
     ("templates", "quality", "run-mutation-js.cjs.example"),
 )
-
+_REPORT_NAMES = ("mutation.json", "mutation-result.json")
+_STATUS_MAP = {
+    "Killed": "killed",
+    "Survived": "survived",
+    "NoCoverage": "no_tests",
+    "Timeout": "timeout",
+}
 
 def find_stryker_wrapper(root: Path) -> Path | None:
     for parts in _WRAPPER_CANDIDATES:
@@ -24,26 +31,23 @@ def find_stryker_wrapper(root: Path) -> Path | None:
             return path
     return None
 
-
 def read_stryker_covered(root: Path) -> dict | None:
-    for name in ("mutation.json", "mutation-result.json"):
+    for name in _REPORT_NAMES:
         file = root / "reports" / "mutation" / name
         if not file.is_file():
             continue
-        data = json.loads(file.read_text(encoding="utf-8"))
+        data = json.loads(file.read_text())
         files = data.get("files") or {}
-        killed = survived = no_coverage = timeout = 0
+        counts: Counter[str] = Counter()
         for entry in files.values():
             for mutant in entry.get("mutants") or []:
-                status = mutant.get("status")
-                if status == "Killed":
-                    killed += 1
-                elif status == "Survived":
-                    survived += 1
-                elif status == "NoCoverage":
-                    no_coverage += 1
-                elif status == "Timeout":
-                    timeout += 1
+                key = _STATUS_MAP.get(str(mutant.get("status")))
+                if key is not None:
+                    counts[key] += 1
+        killed = counts["killed"]
+        survived = counts["survived"]
+        no_coverage = counts["no_tests"]
+        timeout = counts["timeout"]
         covered = killed + survived + timeout
         computed_covered = (
             None if covered == 0 else round(10000 * (killed + timeout) / covered) / 100
@@ -54,16 +58,9 @@ def read_stryker_covered(root: Path) -> dict | None:
             if overall_den == 0
             else round(10000 * (killed + timeout) / overall_den) / 100
         )
-        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
         return {
-            "mutationScoreCovered": (
-                data.get("mutationScoreOfCoveredCode")
-                or metrics.get("mutationScoreOfCoveredCode")
-                or computed_covered
-            ),
-            "mutationScore": (
-                data.get("mutationScore") or metrics.get("mutationScore") or computed_overall
-            ),
+            "mutationScoreCovered": computed_covered,
+            "mutationScore": computed_overall,
             "killed": killed,
             "survived": survived,
             "no_tests": no_coverage,
@@ -73,7 +70,6 @@ def read_stryker_covered(root: Path) -> dict | None:
             "source": str(file.relative_to(root)),
         }
     return None
-
 
 def run_stryker_gate(
     root: Path,
@@ -86,6 +82,7 @@ def run_stryker_gate(
     write_summary: WriteSummary,
 ) -> int:
     """Fail closed unless project/template wrapper exists; wrapper owns the score gate."""
+    del mut  # API symmetry; wrapper reads quality.json
     wrapper = find_stryker_wrapper(root)
     if wrapper is None:
         write_summary(
@@ -110,7 +107,5 @@ def run_stryker_gate(
         "STRYKER_BASE": base,
         "MUTATION_MIN_SCORE_COVERED": str(min_score),
     }
-    # mut retained for API symmetry with callers; wrapper reads quality.json itself.
-    _ = mut
     run = subprocess.run(["node", str(wrapper)], cwd=root, env=env)
-    return run.returncode or 0
+    return int(run.returncode)

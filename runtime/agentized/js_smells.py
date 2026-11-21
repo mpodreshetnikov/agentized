@@ -15,46 +15,30 @@ JS_WEAK_PATTERNS = (
 TEST_FILE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 SKIP_DIR_PARTS = frozenset({"node_modules", ".git", "mutants", "coverage", "dist", "build"})
 
-
 def expand_brace_glob(pattern: str) -> list[str]:
     """Expand `{a,b}` brace groups (enough for *.{test,spec}.{js,ts})."""
-    if "{" not in pattern or "}" not in pattern:
+    prefix, brace, rest = pattern.partition("{")
+    if not brace:
         return [pattern]
-    start = pattern.index("{")
-    end = pattern.index("}", start)
-    body = pattern[start + 1 : end]
-    if "," not in body:
+    body, close, suffix = rest.partition("}")
+    if not close or "," not in body:
         return [pattern]
-    prefix, suffix = pattern[:start], pattern[end + 1 :]
     out: list[str] = []
     for part in body.split(","):
         out.extend(expand_brace_glob(prefix + part + suffix))
     return out
 
-
 def scan_js_ts_file(path: Path, root: Path) -> list[dict]:
     """Lightweight test-smell lint for JS/TS tests (Orbit weak-oracle patterns)."""
     rel = path.relative_to(root).as_posix()
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return [{"file": rel, "line": 1, "kind": "read_error", "detail": str(exc)}]
+    text = path.read_text()
     findings: list[dict] = []
     for i, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
-        if stripped.startswith("//") or stripped.startswith("*"):
+        if stripped.startswith("//"):
             continue
         for needle, kind in JS_WEAK_PATTERNS:
             if needle in line:
-                findings.append(
-                    {
-                        "file": rel,
-                        "line": i,
-                        "kind": kind,
-                        "detail": (
-                            f"JS/TS weak oracle ({needle.strip('(')}) — prefer exact value asserts"
-                        ),
-                    }
-                )
+                findings.append({"file": rel, "line": i, "kind": kind, "detail": needle})
                 break
     return findings

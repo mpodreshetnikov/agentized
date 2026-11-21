@@ -1,29 +1,34 @@
-"""Architecture entry (AGE-34): Python gate + JS/TS dependency-cruiser/eslint."""
+"""Architecture entry (AGE-34): Python + JS/TS runners."""
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from .architecture_gate import run_architecture_gate as run_python_architecture
 from .architecture_js import run_dependency_cruiser, run_eslint_boundaries
-from .gate_dispatch import architecture_tool_for_language, detect_languages
+from .gate_dispatch import (
+    architecture_tool_for_language,
+    combine_gate_rc,
+    detect_languages,
+)
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
 
+_JS_LANGS = ("javascript", "typescript")
+_DC = "dependency-cruiser"
+_ESLINT = "eslint-boundaries"
+_DEFAULT_DC_FILE = ".dependency-cruiser.cjs"
 
-def run_js_architecture(
-    root: Path,
-    section: dict,
-    detected: dict[str, list[str]],
-) -> tuple[list[dict], list[str]]:
+
+def _tool_plan(section: dict, detected: dict[str, list[str]]) -> tuple[list[dict], list[str]]:
     findings: list[dict] = []
-    tools_run: list[str] = []
-    for lang in ("javascript", "typescript"):
+    ordered: list[str] = []
+    for lang in _JS_LANGS:
         if lang not in detected:
             continue
         tool = architecture_tool_for_language(section, lang)
-        if not tool:
+        if tool is None:
             findings.append(
                 {
                     "file": "(architecture)",
@@ -32,26 +37,34 @@ def run_js_architecture(
                 }
             )
             continue
-        if tool in tools_run:
-            continue
-        if tool == "dependency-cruiser":
+        if tool not in ordered:
+            ordered.append(tool)
+    return findings, ordered
+
+
+def run_js_architecture(
+    root: Path,
+    section: dict,
+    detected: dict[str, list[str]],
+) -> tuple[list[dict], list[str]]:
+    findings, tools_run = _tool_plan(section, detected)
+    for tool in tools_run:
+        if tool == _DC:
             rc, out = run_dependency_cruiser(root, section)
-            tools_run.append(tool)
             if rc != 0:
                 findings.append(
                     {
-                        "file": str(section.get("js_config") or ".dependency-cruiser.cjs"),
+                        "file": str(section["js_config"]) if "js_config" in section else _DEFAULT_DC_FILE,
                         "kind": "dependency_cruiser",
                         "detail": out or f"exit {rc}",
                     }
                 )
-        elif tool == "eslint-boundaries":
+        elif tool == _ESLINT:
             rc, out = run_eslint_boundaries(root, section)
-            tools_run.append(tool)
             if rc != 0:
                 findings.append(
                     {
-                        "file": str(section.get("eslint_config") or "eslint"),
+                        "file": str(section["eslint_config"]) if "eslint_config" in section else "eslint",
                         "kind": "eslint_boundaries",
                         "detail": out or f"exit {rc}",
                     }
@@ -73,19 +86,18 @@ def run_architecture_gate(
     context: str = DEFAULT_CONTEXT,
     now=None,
 ) -> int:
-    root = root or find_repo_root()
-    cfg = load_quality(root, context)
+    resolved = find_repo_root() if root is None else root
+    cfg = load_quality(resolved, context)
     section = cfg.get("architecture") or {}
-    if not section.get("enabled", False):
-        return run_python_architecture(root, context=context)
+    if section.get("enabled") is not True:
+        return run_python_architecture(resolved, context=context)
 
-    py_rc = run_python_architecture(root, context=context)
-    lang_section = cfg.get("languages") if isinstance(cfg.get("languages"), dict) else {}
-    detected = detect_languages(root, exclude_globs=list(lang_section.get("exclude_globs") or []) or None)
-    findings, tools_run = run_js_architecture(root, section, detected)
-    mode = str(section.get("mode") or "hard").lower()
-    stamp = (now or datetime.now)(timezone.utc).isoformat()
-    out_dir = root / "reports" / "architecture"
+    py_rc = run_python_architecture(resolved, context=context)
+    detected = detect_languages(resolved)
+    findings, tools_run = run_js_architecture(resolved, section, detected)
+    mode = str(section.get("mode", "hard"))
+    stamp = (now or datetime.now)().isoformat()
+    out_dir = resolved / "reports" / "architecture"
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schemaVersion": 1,
@@ -94,13 +106,7 @@ def run_architecture_gate(
         "detectedLanguages": sorted(detected),
         "generatedAt": stamp,
         "findings": findings,
-        "passed": True if mode == "warn" else not findings,
+        "passed": mode == "warn" or not findings,
     }
-    (out_dir / "architecture-js-summary.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
-    if mode == "warn":
-        return 0 if py_rc == 0 else py_rc
-    if findings:
-        return 1
-    return 0 if py_rc == 0 else py_rc
+    (out_dir / "architecture-js-summary.json").write_text(json.dumps(payload) + "\n")
+    return combine_gate_rc(mode, bool(findings), py_rc)

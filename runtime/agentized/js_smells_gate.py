@@ -1,31 +1,26 @@
-"""Test-smells entry (AGE-34): Python AST gate + JS/TS weak-oracle scan."""
+"""Test-smells entry (AGE-34): Python + JS/TS weak-oracle scan."""
 from __future__ import annotations
 
 import fnmatch
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
+from .gate_dispatch import combine_gate_rc
+from .js_smells import SKIP_DIR_PARTS, expand_brace_glob, scan_js_ts_file
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
 from .test_smells import run_test_smells as run_python_smells
-from .js_smells import SKIP_DIR_PARTS, expand_brace_glob, scan_js_ts_file
 
-_JS_SUFFIXES = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+_JS_SUFFIXES = frozenset({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"})
+_DEFAULT_GLOBS = (
+    "**/*.{test,spec}.{js,jsx,ts,tsx}",
+    "**/__tests__/**/*.{js,jsx,ts,tsx}",
+)
 
 
 def glob_match(rel: str, pattern: str) -> bool:
-    for pat in expand_brace_glob(pattern):
-        if fnmatch.fnmatch(rel, pat):
-            return True
-        if "**" not in pat:
-            continue
-        simplified = pat.replace("/**/", "/").replace("**/", "").replace("**", "*")
-        if fnmatch.fnmatch(rel, simplified) or any(
-            fnmatch.fnmatch(rel[i + 1 :], simplified) for i, ch in enumerate(rel) if ch == "/"
-        ):
-            return True
-    return False
+    return any(fnmatch.fnmatch(rel, pat) for pat in expand_brace_glob(pattern))
 
 
 def iter_js_test_files(root: Path, globs: list[str]) -> list[Path]:
@@ -36,7 +31,7 @@ def iter_js_test_files(root: Path, globs: list[str]) -> list[Path]:
         if path.suffix.lower() not in _JS_SUFFIXES:
             continue
         rel = path.relative_to(root).as_posix()
-        if any(part in SKIP_DIR_PARTS for part in rel.split("/")):
+        if SKIP_DIR_PARTS.intersection(rel.split("/")):
             continue
         if any(glob_match(rel, g) for g in globs):
             out.append(path)
@@ -44,10 +39,7 @@ def iter_js_test_files(root: Path, globs: list[str]) -> list[Path]:
 
 
 def run_js_smells(root: Path, section: dict) -> tuple[list[dict], list[Path]]:
-    globs = list(
-        section.get("include_globs")
-        or ["**/*.{test,spec}.{js,jsx,ts,tsx}", "**/__tests__/**/*.{js,jsx,ts,tsx}"]
-    )
+    globs = list(section["include_globs"]) if "include_globs" in section else list(_DEFAULT_GLOBS)
     files = iter_js_test_files(root, globs)
     findings: list[dict] = []
     for path in files:
@@ -61,17 +53,17 @@ def run_test_smells(
     context: str = DEFAULT_CONTEXT,
     now=None,
 ) -> int:
-    root = root or find_repo_root()
-    cfg = load_quality(root, context)
+    resolved = find_repo_root() if root is None else root
+    cfg = load_quality(resolved, context)
     section = cfg.get("test_smells") or {}
-    if not section.get("enabled", False):
-        return run_python_smells(root, context=context)
+    if section.get("enabled") is not True:
+        return run_python_smells(resolved, context=context)
 
-    py_rc = run_python_smells(root, context=context)
-    findings, files = run_js_smells(root, section)
-    mode = str(section.get("mode") or "hard").lower()
-    stamp = (now or datetime.now)(timezone.utc).isoformat()
-    out_dir = root / "reports" / "test-smells"
+    py_rc = run_python_smells(resolved, context=context)
+    findings, files = run_js_smells(resolved, section)
+    mode = str(section.get("mode", "hard"))
+    stamp = (now or datetime.now)().isoformat()
+    out_dir = resolved / "reports" / "test-smells"
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schemaVersion": 1,
@@ -79,13 +71,7 @@ def run_test_smells(
         "generatedAt": stamp,
         "filesScanned": len(files),
         "findings": findings,
-        "passed": True if mode == "warn" else not findings,
+        "passed": mode == "warn" or not findings,
     }
-    (out_dir / "test-smells-js-summary.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
-    if mode == "warn":
-        return 0 if py_rc == 0 else py_rc
-    if findings:
-        return 1
-    return 0 if py_rc == 0 else py_rc
+    (out_dir / "test-smells-js-summary.json").write_text(json.dumps(payload) + "\n")
+    return combine_gate_rc(mode, bool(findings), py_rc)

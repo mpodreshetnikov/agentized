@@ -1,4 +1,4 @@
-"""Multi-language mutation entry (AGE-34): Stryker for JS/TS, mutmut for Python."""
+"""Multi-language mutation entry (AGE-34): Stryker + mutmut."""
 from __future__ import annotations
 
 import fnmatch
@@ -15,27 +15,31 @@ from .mutation_stryker import run_stryker_gate
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality
 
+_DEFAULT_PREFIXES = ["runtime/agentized"]
+_DEFAULT_BASE = "origin/main"
+_DEFAULT_MIN = 100.0
+
 
 def run_mutation(
     root: Path | None = None,
     *,
     context: str = DEFAULT_CONTEXT,
 ) -> int:
-    root = root or find_repo_root()
-    cfg = load_quality(root, context)
+    resolved = find_repo_root() if root is None else root
+    cfg = load_quality(resolved, context)
     mut = cfg.get("mutation") or {}
-    if not mut.get("enabled", True):
-        return run_mutmut(root, context=context)
+    if mut.get("enabled") is False:
+        return run_mutmut(resolved, context=context)
 
-    base = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or "origin/main"
-    min_score = float(mut.get("min_score_covered", 100))
+    base = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or _DEFAULT_BASE
+    min_score = float(mut["min_score_covered"]) if "min_score_covered" in mut else _DEFAULT_MIN
     prefixes = [
         str(src).replace("\\", "/")
-        for module in cfg.get("modules") or []
-        for src in module.get("source") or []
-    ] or ["runtime/agentized"]
+        for module in (cfg.get("modules") or [])
+        for src in (module.get("source") or [])
+    ] or list(_DEFAULT_PREFIXES)
 
-    changed = changed_source_files(root, base, prefixes)
+    changed = changed_source_files(resolved, base, prefixes)
     include_globs = list(mut.get("include_globs") or [])
     if include_globs:
         changed = [
@@ -62,7 +66,7 @@ def run_mutation(
 
     if missing:
         _write_summary(
-            root,
+            resolved,
             {
                 "schemaVersion": 1,
                 "mode": "incremental",
@@ -78,7 +82,7 @@ def run_mutation(
 
     if js_files:
         rc = run_stryker_gate(
-            root,
+            resolved,
             changed=sorted(set(js_files)),
             mut=mut,
             base=base,
@@ -89,4 +93,4 @@ def run_mutation(
         if rc != 0:
             return rc
 
-    return run_mutmut(root, context=context)
+    return run_mutmut(resolved, context=context)
