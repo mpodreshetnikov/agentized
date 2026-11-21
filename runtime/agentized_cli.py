@@ -532,6 +532,13 @@ def cmd_check(args: argparse.Namespace) -> int:
         warnings.append("нет pinned skill quality-gates — запустите connect")
 
     # live index freshness (soft): statuses in INDEX vs files
+    from agentized.task_schema import (
+        unknown_depends_on_ids,
+        validate_kind_priority,
+        validate_task_status,
+    )
+    from agentized.tasks import dependency_cycles_for_dir
+
     tasks = list_tasks(ctx / "tasks")
     index_text = (
         (ctx / "tasks" / "INDEX.md").read_text(encoding="utf-8")
@@ -539,8 +546,16 @@ def cmd_check(args: argparse.Namespace) -> int:
         else ""
     )
     for t in tasks:
+        for err in validate_task_status(t.status):
+            errors.append(f"{t.task_id}: {err}")
         if t.status in ACTIVE_STATUSES and t.task_id not in index_text:
             warnings.append(f"задача {t.task_id} активна, но нет в INDEX — запустите index")
+        for err in validate_kind_priority(t.kind, t.priority):
+            errors.append(f"{t.task_id}: {err}")
+    for cycle in dependency_cycles_for_dir(ctx / "tasks"):
+        errors.append("depends_on cycle: " + " → ".join(cycle))
+    for tid, dep in unknown_depends_on_ids(tasks):
+        errors.append(f"{tid}: unknown depends_on {dep!r}")
 
     # harness wiring
     for label, path in (
