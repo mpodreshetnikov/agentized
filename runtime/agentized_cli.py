@@ -84,20 +84,36 @@ def cmd_connect(args: argparse.Namespace) -> int:
     harnesses = args.harness
     if harnesses == ["all"]:
         harnesses = ["cursor", "claude", "codex"]
+    bridged: list[str] = []
+    layout = None
     try:
-        # Seed empty external registry, preflight conflicts, then install bridges
-        # *before* connect so ensure_context_skeleton sees NAV and no-ops (no local
-        # bridge-path dirs). Honest connect.py external= skip waits AGE-68 A-final.
-        layout = prepare_connect_layout(root, args.context, bridges=True)
+        # Preflight → seed → bridges before connect (skeleton no-ops on NAV bridge).
+        # On connect() failure, roll back bridges we just created.
+        from agentized.context_layout import (
+            ensure_bridge_gitignore,
+            ensure_code_context_bridges,
+            rollback_code_context_bridges,
+        )
+
+        layout = prepare_connect_layout(root, args.context, bridges=False)
+        if layout.is_external:
+            bridged = ensure_code_context_bridges(layout)
+            ensure_bridge_gitignore(root, context_rel=args.context)
+        result = connect(
+            root,
+            context_rel=args.context,
+            harnesses=harnesses,
+            coverage_pct=args.coverage,
+        )
     except ValueError as exc:
+        if layout is not None and bridged:
+            rollback_code_context_bridges(layout, bridged)
         print(f"context layout error: {exc}", file=sys.stderr)
         return 1
-    result = connect(
-        root,
-        context_rel=args.context,
-        harnesses=harnesses,
-        coverage_pct=args.coverage,
-    )
+    except Exception:
+        if layout is not None and bridged:
+            rollback_code_context_bridges(layout, bridged)
+        raise
     result["layout"] = {
         "placement": layout.placement,
         "registry": str(layout.registry_root),

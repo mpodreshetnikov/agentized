@@ -635,12 +635,19 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
     assert "tasks" in created and "leases" in created
     (code / "context" / "goals").mkdir()
     (code / "context" / "goals" / "G.md").write_text("g", encoding="utf-8")
+    with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
+        ensure_code_context_bridges(layout)
+    import shutil as _shutil
+
+    _shutil.rmtree(code / "context" / "goals")
+    (ext / "goals").mkdir()
+    (ext / "goals" / "G.md").write_text("g", encoding="utf-8")
     assert "goals" in ensure_code_context_bridges(layout)
-    assert (ext / "goals" / "G.md").read_text(encoding="utf-8") == "g"
+    assert (code / "context" / "goals").resolve() == (ext / "goals").resolve()
     (ext / "decisions").mkdir()
     assert "decisions" in ensure_code_context_bridges(layout)
-    (ext / "decisions").rmdir()
     (code / "context" / "decisions").unlink(missing_ok=True)
+    (ext / "decisions").rmdir()
     from agentized.process_control import active_claims
 
     (code / "context" / "tasks").unlink(missing_ok=True)
@@ -674,6 +681,10 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
         not nested_ready.is_external
         and nested_ready.registry_root == (nested / "context").resolve()
     )
+    for name in ("tasks", "leases", "decisions", "goals", "digests", "NAV.md"):
+        p = code / "context" / name
+        if p.is_symlink() or p.exists():
+            p.unlink()
     _write_layout(
         code,
         {"placement": "external", "external": {"path": str(tmp_path / "missing"), "remote": "r"}},
@@ -682,6 +693,34 @@ def test_bridges_and_prepare_connect(tmp_path: Path, monkeypatch):
         ValueError, match="external Context not ready|external Context path missing"
     ):
         prepare_connect_layout(code)
+
+
+def test_atomic_write_text_utf8_under_c_locale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Seed writes use encoding=utf-8 (not locale) via temp+replace — no 0-byte NAV."""
+    from agentized.context_layout import _EXT_NAV_MD, _atomic_write_text
+
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    path = tmp_path / "NAV.md"
+    names: list[str] = []
+    writes: list[dict] = []
+    real_with_name, real_write = Path.with_name, Path.write_text
+
+    def spy_with_name(self, name):
+        names.append(name)
+        return real_with_name(self, name)
+
+    def spy_write(self, data, *a, **k):
+        writes.append({"name": self.name, "data": data, **dict(k)})
+        return real_write(self, data, *a, **k)
+
+    monkeypatch.setattr(Path, "with_name", spy_with_name)
+    monkeypatch.setattr(Path, "write_text", spy_write)
+    _atomic_write_text(path, _EXT_NAV_MD)
+    assert names == ["NAV.md.tmp"]  # exact suffix (not .TMP / XX.tmpXX)
+    assert writes == [{"name": "NAV.md.tmp", "data": _EXT_NAV_MD, "encoding": "utf-8"}]
+    assert path.read_bytes() == _EXT_NAV_MD.encode("utf-8")
+    assert not (tmp_path / "NAV.md.tmp").exists()
 
 
 def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
@@ -713,6 +752,8 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     assert "| path | task | owner | expires |" in (ext / "leases" / "INDEX.md").read_text(
         encoding="utf-8"
     )
+    for sub in ("tasks", "leases", "decisions", "goals", "digests"):
+        assert (ext / sub).is_dir()
     assert ensure_external_registry_skeleton(layout) == []  # idempotent
     require_registry_ready(layout)
     preflight_bridge_conflicts(layout)  # clean — no raise
@@ -739,7 +780,7 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     (code / "context" / "tasks" / "stale.md").write_text("x", encoding="utf-8")
     with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
         preflight_bridge_conflicts(layout)
-    # prepare_connect_layout seeds empty clone then fails preflight before bridges
+    # prepare_connect_layout: preflight BEFORE seed — conflict leaves registry empty
     empty = tmp_path / "empty-ext"
     empty.mkdir()
     _git_init(empty)
@@ -753,7 +794,7 @@ def test_empty_external_registry_skeleton_and_preflight(tmp_path: Path):
     (code2 / "context" / "tasks" / "x.md").write_text("y", encoding="utf-8")
     with pytest.raises(ValueError, match=ERR_BRIDGE_CONFLICT):
         prepare_connect_layout(code2, bridges=False)
-    assert (empty / "NAV.md").is_file()  # seeded before preflight
+    assert not (empty / "NAV.md").exists()  # not seeded when preflight fails
 
     bad = tmp_path / "code-bad"
     bad.mkdir()

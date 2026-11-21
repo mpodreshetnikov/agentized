@@ -74,9 +74,10 @@ def test_layout_ctx_exits_on_bad_config(tmp_path: Path, capsys: pytest.CaptureFi
     assert "context layout error:" in capsys.readouterr().err
 
 
-def test_empty_external_connect_check_idempotent(
+def test_empty_external_connect_index_check_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
+    """P0 e2e: empty external connect → index (write_metrics via tasks bridge) → check."""
     code, ext, ctx = _empty_external(tmp_path)
     monkeypatch.setattr(cli, "find_repo_root", lambda: code)
     monkeypatch.chdir(code)
@@ -89,10 +90,17 @@ def test_empty_external_connect_check_idempotent(
     assert (ext / "NAV.md").is_file()
     assert (ext / "tasks" / "INDEX.md").is_file()
     assert (ext / "leases" / "INDEX.md").is_file()
-    assert (ctx / "tasks").is_symlink()
-    assert (ctx / "tasks").resolve() == (ext / "tasks").resolve()
+    for sub in ("tasks", "leases", "decisions", "goals", "digests"):
+        assert (ext / sub).is_dir()
+        assert (ctx / sub).is_symlink()
+        assert (ctx / sub).resolve() == (ext / sub).resolve()
     assert (ctx / "NAV.md").is_symlink()
     assert "context/tasks" in (code / ".gitignore").read_text(encoding="utf-8")
+
+    assert cli.cmd_index(_ns(print=False)) == 0
+    idx_out = capsys.readouterr().out
+    assert "пересобраны:" in idx_out
+    assert (ctx / "board" / "metrics.json").is_file()
 
     assert cli.cmd_check(_ns()) == 0
     assert "check OK" in capsys.readouterr().out
@@ -116,8 +124,9 @@ def test_bridges_error_prints_layout_error_no_traceback(
     assert rc == 1
     assert "context layout error:" in err
     assert "Traceback" not in err
-    # No connect artifacts when preflight fails
+    # No connect artifacts / no seed when preflight fails
     assert not (code / "AGENTS.md").exists()
+    assert not (ext / "NAV.md").exists()
 
 
 def test_check_process_control_and_external_clone(
@@ -206,3 +215,32 @@ def test_connect_bridges_before_connect_order(tmp_path: Path, monkeypatch: pytes
     assert cli.cmd_connect(_ns()) == 0
     assert order == ["bridges", "connect"]
     assert (ctx / "tasks").is_symlink()
+
+
+def test_connect_rolls_back_bridges_on_connect_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    code, ext, ctx = _empty_external(tmp_path)
+    monkeypatch.setattr(cli, "find_repo_root", lambda: code)
+    monkeypatch.chdir(code)
+
+    def boom(*a, **k):
+        raise RuntimeError("connect failed")
+
+    monkeypatch.setattr(cli, "connect", boom)
+    with pytest.raises(RuntimeError, match="connect failed"):
+        cli.cmd_connect(_ns())
+    assert (ext / "NAV.md").is_file()  # seed kept
+    assert not (ctx / "tasks").exists() or not (ctx / "tasks").is_symlink()
+    assert not (ctx / "NAV.md").exists() or not (ctx / "NAV.md").is_symlink()
+    assert not (code / "AGENTS.md").exists()
+
+    # ValueError after bridges also rolls back (layout-error path).
+    def boom_val(*a, **k):
+        raise ValueError("post-bridge layout boom")
+
+    monkeypatch.setattr(cli, "connect", boom_val)
+    assert cli.cmd_connect(_ns()) == 1
+    err = capsys.readouterr().err
+    assert "context layout error: post-bridge layout boom" in err
+    assert not (ctx / "tasks").is_symlink() if (ctx / "tasks").exists() else True

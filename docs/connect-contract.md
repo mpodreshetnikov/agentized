@@ -23,7 +23,7 @@
 
 | Артефакт | Поведение |
 |----------|-----------|
-| `{context}/` skeleton | Local: если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает. **External:** CLI seeds empty external clone (`NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`), preflights bridge conflicts, then installs bridges **before** connect so skeleton no-ops on existing NAV; `.gitignore` updated for bridge paths. Honest `connect.py` `external=` skip deferred to AGE-68 A-final |
+| `{context}/` skeleton | Local: если нет `NAV.md` — connect создаёт минимальный каркас: `NAV.md`, `tasks/INDEX.md`, `leases/INDEX.md`. Если Context уже есть — **не** перезаписывает. **External:** CLI preflights bridge conflicts, then seeds empty clone (`NAV.md`, indexes, `decisions`/`goals`/`digests` dirs) with atomic UTF-8 writes, installs bridges **before** connect (rollback on connect failure) so skeleton no-ops on existing NAV; `.gitignore` updated for bridge paths. Honest `connect.py` `external=` skip deferred to AGE-68 A-final |
 | Корневой `AGENTS.md` | Блок между `<!-- AGENTIZED:BEGIN -->` … `<!-- AGENTIZED:END -->`: путь к Context, читать `NAV.md`, дальше только его ссылки |
 | `CLAUDE.md` | Если файл **уже есть** — тот же указатель; если нет — connect его **не создаёт** |
 | `{context}/skills/` | Pinned: `navigate`, `registry`, `lease-sync`, `digest`, `quality-gates`, `communication-autonomy`, `acceptance-artifacts`, `strong-reviewer` |
