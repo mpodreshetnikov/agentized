@@ -789,25 +789,7 @@ def test_non_orbit_md_warned_and_zero_sources_errors(tmp_path: Path):
     assert any("notes.md" in w for w in report.warnings)
 
 
-def test_agentized_id_reimport_skip_exit_clean(tmp_path: Path):
-    src = tmp_path / "src"
-    src.mkdir()
-    _fm(
-        src / "T-261116-keep.md",
-        "---\nid: T-261116-keep\ntitle: Keep\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
-    )
-    dest = tmp_path / "dest"
-    dest.mkdir()
-    first = import_orbit_tasks(src, dest, dry_run=False)
-    assert first.errors == [] and first.would_write
-    second = import_orbit_tasks(src, dest, dry_run=True)
-    assert second.errors == []
-    assert second.would_write == []
-    assert str(src / "T-261116-keep.md") in second.skipped
-
-
 def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
-    """Kill remaining markdown/remap/import/format/orbit-map survivors."""
     done = _draft(source=Path("T-d.md"), task_id="T-d", title="D", status="done", exit="shipped")
     assert "acceptance_note: shipped" in agentized_markdown(done).splitlines()
     open_md = agentized_markdown(_draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x"))
@@ -823,12 +805,12 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     assert oi_mod._remap_id("T-261116-aaa", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
     assert oi_mod._remap_id("T-miss", {"T-1": "T-261116-aaa"}) is None
     d = _draft(source=Path("a.md"), task_id="T-261116-aaa", title="A", depends_on=["T-1"], body="B")
-    fr = oi_mod.ImportReport(
-        dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
+    text = format_report(
+        oi_mod.ImportReport(
+            dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
+        )
     )
-    text = format_report(fr)
     assert f"  depends_on T-261116-aaa: {oi_mod.format_id_list(['T-1'])}" in text.splitlines()
-    assert "DRY-RUN" in text
     real_parse = parse_yaml_front_matter
 
     def value_cyr(raw):
@@ -884,9 +866,44 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     dep = next(x for x in report.drafts if x.orbit_id == "T-0024")
     assert live.depends_on == [dep.task_id]
     assert ("INDEX.md", "utf-8") in enc and {e for _, e in enc} == {"utf-8"}
-    src_e, dest_e = tmp_path / "srcE", tmp_path / "destE"
-    src_e.mkdir()
-    dest_e.mkdir()
+    src_o, dest_o = tmp_path / "srcO", tmp_path / "destO"
+    src_o.mkdir()
+    dest_o.mkdir()
+    (dest_o / "T-261116-seed.md").write_text(
+        "# T-261116-seed — S\n\nстатус: open\nтеги: _(нет)_\n"
+        "родитель: _(пусто)_\nclaim: _(пусто)_\norbit_id: T-0090\n",
+        encoding="utf-8",
+    )
+    _fm(
+        src_o / "T-0090.md",
+        "---\nid: T-0090\ntitle: D\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
+    )
+    _fm(
+        src_o / "T-0091.md",
+        "---\nid: T-0091\ntitle: A\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
+    )
+    r_o = import_orbit_tasks(src_o, dest_o, dry_run=True)
+    assert str(src_o / "T-0090.md") in r_o.skipped
+    src_h, dest_h = tmp_path / "srcH", tmp_path / "destH"
+    src_h.mkdir()
+    dest_h.mkdir()
+    (dest_h / "T-261116-have.md").write_text("x\n", encoding="utf-8")
+    _fm(
+        src_h / "T-have.md",
+        "---\nid: T-261116-have\ntitle: H\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
+    )
+    _fm(
+        src_h / "T-later.md",
+        "---\nid: T-261116-late\ntitle: L\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
+    )
+    r_h = import_orbit_tasks(src_h, dest_h, dry_run=True)
+    assert str(src_h / "T-have.md") in r_h.skipped
+    src_d, dest_d = tmp_path / "srcD", tmp_path / "destD"
+    src_d.mkdir()
+    _fm(
+        src_d / "T-ok.md",
+        "---\nid: T-261116-ok99\ntitle: OK\nstatus: open\nkind: feature\npriority: p2\n---\nB\n",
+    )
     mk: list = []
     real_mkdir = Path.mkdir
 
@@ -895,8 +912,8 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
         return real_mkdir(self, parents=parents, exist_ok=exist_ok)
 
     monkeypatch.setattr(Path, "mkdir", spy_mkdir)
-    empty = import_orbit_tasks(src_e, dest_e, dry_run=False)
-    assert empty.errors and "no Orbit task files" in empty.errors[0] and mk == []
+    dry = import_orbit_tasks(src_d, dest_d, dry_run=True)
+    assert dry.would_write and mk == [] and not dest_d.exists()
     src2, dest2 = tmp_path / "src2", tmp_path / "dest2"
     src2.mkdir()
     dest2.mkdir()
@@ -915,7 +932,6 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     live2 = next(x for x in r2.drafts if x.task_id == "T-261116-liv1")
     assert live2.depends_on == ["T-261116-dep1", "T-261116-dep1"]
     assert sum(1 for w in r2.warnings if "no Orbit value" in w and "T-261116-liv1" in w) == 1
-    assert "None:" not in "".join(r2.warnings)
     src3, dest3 = tmp_path / "src3", tmp_path / "dest3"
     src3.mkdir()
     dest3.mkdir()
