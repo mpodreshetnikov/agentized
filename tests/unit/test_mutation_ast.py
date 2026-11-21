@@ -274,6 +274,7 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
         exclude_refs.append(base_ref)
         return real_exclude(root, base_ref, paths)
 
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.setattr(mut, "load_quality", load)
     monkeypatch.setattr(mut, "_changed_py_files", changed)
     monkeypatch.setattr(mast, "exclude_ast_equivalent", spy_exclude)
