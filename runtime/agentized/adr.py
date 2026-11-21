@@ -95,10 +95,15 @@ def _yaml_quote(value: str) -> str:
     return '"' + escaped + '"'
 
 
+def _forbidden_title_char(ch: str) -> bool:
+    code = ord(ch)
+    return code < 32 or 0x7F <= code <= 0x9F or code in (0x2028, 0x2029)
+
+
 def validate_title(title: str) -> None:
     if not title or not title.strip():
         raise ValueError(ADR_TITLE_EMPTY)
-    if any(ord(ch) < 32 for ch in title):
+    if any(_forbidden_title_char(ch) for ch in title):
         raise ValueError(ADR_TITLE_CONTROL)
 
 

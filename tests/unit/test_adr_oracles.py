@@ -15,6 +15,7 @@ from agentized.adr import (
     ADR_TASK_ID_ERROR,
     ADR_TITLE_CONTROL,
     ADR_TITLE_EMPTY,
+    _forbidden_title_char,
     _yaml_quote,
     allocate_adr_id,
     create_adr,
@@ -73,6 +74,22 @@ def test_title_and_task_validation():
         validate_title("line\nbreak")
     with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
         validate_title("tab\there")
+    with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
+        validate_title("del\x7f")
+    with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
+        validate_title("c1\x80")
+    with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
+        validate_title("c1\x9f")
+    with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
+        validate_title("sep\u2028")
+    with pytest.raises(ValueError, match=re.escape(ADR_TITLE_CONTROL)):
+        validate_title("para\u2029")
+    assert not _forbidden_title_char(" ") and not _forbidden_title_char("~")
+    assert not _forbidden_title_char("\xa0")  # 0xA0 — just above C1
+    assert _forbidden_title_char("\x1f") and _forbidden_title_char("\x7f")
+    assert _forbidden_title_char("\x80") and _forbidden_title_char("\x9f")
+    assert _forbidden_title_char("\u2028") and _forbidden_title_char("\u2029")
+    assert not _forbidden_title_char("\u2027") and not _forbidden_title_char("\u202a")
     validate_task_ids(["T-261121-abcd"])
     validate_task_ids([])
     with pytest.raises(ValueError) as ei:
