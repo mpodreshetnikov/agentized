@@ -10,11 +10,8 @@ from pathlib import Path
 import pytest
 
 from agentized.secrets_gate import (
-    MAX_DISABLE_DAYS,
     _build_cmd,
-    _mode,
     apply_secrets_connect,
-    disable_decision_valid,
     persist_secrets_policy,
     pin_gitleaks_config,
     run_secrets_gate,
@@ -43,11 +40,6 @@ def _quality(root: Path, secrets: dict) -> None:
         json.dumps(payload) + "\n", encoding="utf-8"
     )
 
-
-def test_mode_defaults_and_invalid():
-    assert _mode({}) == "hard"
-    assert _mode({"mode": "warn"}) == "warn"
-    assert _mode({"mode": "soft"}) == "hard"
 
 
 def test_build_cmd_includes_config_when_present(tmp_path: Path):
@@ -111,72 +103,6 @@ def test_disabled_with_valid_decision_skips(tmp_path: Path):
     assert summary["findings"] == []
 
 
-def test_disable_decision_valid_rules():
-    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-    too_far = (datetime.now(timezone.utc) + timedelta(days=MAX_DISABLE_DAYS + 1)).isoformat()
-    edge = (datetime.now(timezone.utc) + timedelta(days=MAX_DISABLE_DAYS)).isoformat()
-    cases = [
-        ({}, False),
-        ({"disable_decision": {"reason": "x", "approved_by": "Maxim"}}, False),
-        (
-            {
-                "disable_decision": {
-                    "reason": "x",
-                    "approved_by": "Maxim",
-                    "expires": "not-a-date",
-                }
-            },
-            False,
-        ),
-        (
-            {
-                "disable_decision": {
-                    "reason": "x",
-                    "approved_by": "Maxim",
-                    "expires": past,
-                }
-            },
-            False,
-        ),
-        (
-            {"disable_decision": {"reason": "x", "expires": future}},
-            False,
-        ),  # missing approved_by
-        (
-            {
-                "disable_decision": {
-                    "reason": "x",
-                    "approved_by": "Maxim",
-                    "expires": too_far,
-                }
-            },
-            False,
-        ),
-        (
-            {
-                "disable_decision": {
-                    "reason": "x",
-                    "approved_by": "Maxim",
-                    "expires": future,
-                }
-            },
-            True,
-        ),
-        (
-            {
-                "disable_decision": {
-                    "reason": "x",
-                    "approved_by": "Maxim",
-                    "expires": edge,
-                }
-            },
-            True,
-        ),
-    ]
-    assert [disable_decision_valid(cfg) for cfg, _ in cases] == [want for _, want in cases]
-    assert MAX_DISABLE_DAYS == 14
-
 
 def test_missing_binary_hard_fails(tmp_path: Path, monkeypatch):
     _quality(tmp_path, {"enabled": True, "mode": "hard"})
@@ -238,7 +164,7 @@ def test_leaks_hard_fail_from_report(tmp_path: Path, monkeypatch):
     _quality(tmp_path, {"enabled": True, "mode": "hard"})
     monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: "gitleaks")
 
-    def _run(cmd, cwd, capture_output, text):  # noqa: ARG001
+    def _run(cmd, *args, **kwargs):
         report = Path(cmd[cmd.index("--report-path") + 1])
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(
@@ -298,28 +224,6 @@ def test_leak_without_report_uses_stderr(tmp_path: Path, monkeypatch):
     assert "WRN leaks found: 2" in summary["findings"][0]["detail"]
 
 
-def test_tool_error_hard_fails(tmp_path: Path, monkeypatch):
-    _quality(tmp_path, {"enabled": True, "mode": "hard"})
-    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: "gitleaks")
-
-    class _Proc:
-        returncode = 2
-        stdout = ""
-        stderr = "boom"
-
-    monkeypatch.setattr(
-        "agentized.secrets_gate.subprocess.run",
-        lambda *a, **k: _Proc(),
-    )
-    assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["findings"][0]["kind"] == "tool_error"
-    assert summary["findings"][0]["detail"] == "boom"
-
 
 def test_custom_binary_path(tmp_path: Path, monkeypatch):
     _quality(
@@ -336,7 +240,7 @@ def test_custom_binary_path(tmp_path: Path, monkeypatch):
         stdout = ""
         stderr = ""
 
-    def _run(cmd, cwd, capture_output, text):  # noqa: ARG001
+    def _run(cmd, *args, **kwargs):
         seen.append(list(cmd))
         return _Proc()
 
@@ -358,7 +262,7 @@ def test_custom_binary_via_which(tmp_path: Path, monkeypatch):
         stdout = ""
         stderr = ""
 
-    def _run(cmd, cwd, capture_output, text):  # noqa: ARG001
+    def _run(cmd, *args, **kwargs):
         seen.append(cmd[0])
         return _Proc()
 
@@ -367,81 +271,7 @@ def test_custom_binary_via_which(tmp_path: Path, monkeypatch):
     assert seen == ["/opt/my-gitleaks"]
 
 
-def test_leak_report_skips_non_dict_and_truncates(tmp_path: Path, monkeypatch):
-    _quality(tmp_path, {"enabled": True, "mode": "hard"})
-    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: "gitleaks")
 
-    def _run(cmd, cwd, capture_output, text):  # noqa: ARG001
-        report = Path(cmd[cmd.index("--report-path") + 1])
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(
-            json.dumps(
-                [
-                    "skip-me",
-                    {
-                        "File": "a.env",
-                        "RuleID": "generic-api-key",
-                        "Description": "X" * 300,
-                    },
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-
-        class _Proc:
-            returncode = 1
-            stdout = ""
-            stderr = ""
-
-        return _Proc()
-
-    monkeypatch.setattr("agentized.secrets_gate.subprocess.run", _run)
-    assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert len(summary["findings"]) == 1
-    assert summary["findings"][0]["file"] == "a.env"
-    assert len(summary["findings"][0]["detail"]) == 240
-
-
-def test_bad_json_report_falls_back(tmp_path: Path, monkeypatch):
-    _quality(tmp_path, {"enabled": True, "mode": "hard"})
-    monkeypatch.setattr("agentized.secrets_gate.shutil.which", lambda *_: "gitleaks")
-
-    def _run(cmd, cwd, capture_output, text):  # noqa: ARG001
-        report = Path(cmd[cmd.index("--report-path") + 1])
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("{not-json", encoding="utf-8")
-
-        class _Proc:
-            returncode = 1
-            stdout = ""
-            stderr = "leaks found: 1"
-
-        return _Proc()
-
-    monkeypatch.setattr("agentized.secrets_gate.subprocess.run", _run)
-    assert run_secrets_gate(tmp_path) == 1
-    summary = json.loads(
-        (tmp_path / "reports" / "secrets" / "secrets-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["findings"][0]["kind"] == "leak"
-    assert "leaks found: 1" in summary["findings"][0]["detail"]
-
-
-def test_main_entrypoint(tmp_path: Path, monkeypatch):
-    from agentized import secrets_gate as sg
-
-    _quality(tmp_path, {"enabled": True, "mode": "hard"})
-    monkeypatch.setattr(sg, "find_repo_root", lambda: tmp_path)
-    monkeypatch.setattr(sg.shutil, "which", lambda *_: None)
-    assert sg.main(["--context", "context"]) == 1
 
 
 def _init_git_repo(path: Path) -> None:

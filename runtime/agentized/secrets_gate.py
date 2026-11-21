@@ -41,16 +41,23 @@ def _mode(section: dict[str, Any]) -> str:
 
 
 def _is_disabled_flag(enabled: Any) -> bool:
-    if enabled is False:
+    if enabled is False or enabled == 0:
         return True
     if enabled is True:
         return False
-    if enabled == 0:
-        return True
-    if enabled == 1:
-        return False
     text = str(enabled).strip().lower()
     return text in _FALSEY
+
+
+def _decision_field(decision: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        raw = decision.get(key)
+        if not isinstance(raw, str):
+            continue
+        text = raw.strip()
+        if len(text) > 0:
+            return text
+    return ""
 
 
 def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = None) -> bool:
@@ -58,17 +65,13 @@ def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = No
     decision = section.get("disable_decision")
     if not isinstance(decision, dict):
         return False
-    reason = str(decision.get("reason") or "").strip()
-    approved_by = str(decision.get("approved_by") or "").strip()
-    expires_raw = str(decision.get("expires") or "").strip()
-    if expires_raw == "":
-        expires_raw = str(decision.get("expiry") or "").strip()
-    if expires_raw == "":
-        expires_raw = str(decision.get("expires_at") or "").strip()
-    if reason == "" or approved_by == "" or expires_raw == "":
+    reason = _decision_field(decision, "reason")
+    approved_by = _decision_field(decision, "approved_by")
+    expires_raw = _decision_field(decision, "expires", "expiry", "expires_at")
+    if len(reason) == 0 or len(approved_by) == 0 or len(expires_raw) == 0:
         return False
     try:
-        expires = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(expires_raw)
     except ValueError:
         return False
     if expires.tzinfo is None:
@@ -78,8 +81,7 @@ def disable_decision_valid(section: dict[str, Any], *, now: datetime | None = No
         clock = clock.replace(tzinfo=timezone.utc)
     if expires <= clock:
         return False
-    delta = expires - clock
-    if delta > timedelta(days=MAX_DISABLE_DAYS):
+    if expires - clock > timedelta(days=MAX_DISABLE_DAYS):
         return False
     return True
 
@@ -148,7 +150,10 @@ def persist_secrets_policy(
     dirty = False
 
     if "secrets" not in raw:
-        data["secrets"] = default_quality_config()["secrets"]
+        injected = default_quality_config()["secrets"]
+        if not isinstance(injected, dict):
+            raise TypeError("default secrets must be a dict")
+        data["secrets"] = injected
         upgraded.append("secrets")
         dirty = True
         gates = data.get("gates")
@@ -164,7 +169,6 @@ def persist_secrets_policy(
 
     secrets = data.get("secrets")
     if isinstance(secrets, dict):
-        # Overlay on-disk secrets onto normalized defaults.
         disk = raw.get("secrets")
         if isinstance(disk, dict):
             secrets.update(disk)
@@ -173,14 +177,15 @@ def persist_secrets_policy(
             if "secrets" not in upgraded:
                 upgraded.append("secrets")
             dirty = True
-        if _is_disabled_flag(secrets.get("enabled", True)):
+        enabled = True if "enabled" not in secrets else secrets["enabled"]
+        if _is_disabled_flag(enabled):
             if not disable_decision_valid(secrets):
                 secrets["enabled"] = True
                 if "secrets_enabled" not in upgraded:
                     upgraded.append("secrets_enabled")
                 dirty = True
 
-    if dirty:
+    if dirty is True:
         save_quality(root, data, context_rel)
     return {"upgraded_modes": upgraded, "created": False}
 
@@ -262,8 +267,36 @@ def _write_summary(
         "toolRc": tool_rc,
         "toolNote": tool_note,
     }
-    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(payload, indent=2) + "\n"
+    summary_path.write_bytes(text.encode())
     return payload
+
+
+def _finding_detail(item: dict[str, Any]) -> str:
+    for key in ("Description", "Secret", "Match"):
+        raw = item.get(key)
+        if raw is None:
+            continue
+        text = str(raw)
+        if len(text) > 0:
+            return text[:240]
+    return "secret detected"
+
+
+def _finding_file(item: dict[str, Any]) -> str:
+    for key in ("File", "file"):
+        raw = item.get(key)
+        if isinstance(raw, str) and len(raw) > 0:
+            return raw
+    return ""
+
+
+def _finding_kind(item: dict[str, Any]) -> str:
+    for key in ("RuleID", "Rule"):
+        raw = item.get(key)
+        if isinstance(raw, str) and len(raw) > 0:
+            return raw
+    return "leak"
 
 
 def _findings_from_report(report_path: Path, tool_note: str) -> list[dict[str, Any]]:
@@ -271,30 +304,24 @@ def _findings_from_report(report_path: Path, tool_note: str) -> list[dict[str, A
     leaks: list[Any] = []
     if report_path.is_file():
         try:
-            loaded = json.loads(report_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            loaded = None
+            loaded = json.loads(report_path.read_bytes().decode())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            loaded = []
         if isinstance(loaded, list):
             leaks = loaded
-    if leaks:
-        for item in leaks[:50]:
-            if not isinstance(item, dict):
-                continue
-            detail = str(
-                item.get("Description")
-                or item.get("Secret")
-                or item.get("Match")
-                or "secret detected"
-            )
-            findings.append(
-                {
-                    "file": str(item.get("File") or item.get("file") or ""),
-                    "kind": str(item.get("RuleID") or item.get("Rule") or "leak"),
-                    "detail": detail[:240],
-                }
-            )
+    for item in leaks[:50]:
+        if not isinstance(item, dict):
+            continue
+        findings.append(
+            {
+                "file": _finding_file(item),
+                "kind": _finding_kind(item),
+                "detail": _finding_detail(item),
+            }
+        )
+    if findings:
         return findings
-    note = tool_note if tool_note else "gitleaks exit 1 (secrets detected)"
+    note = tool_note if tool_note != "" else "gitleaks exit 1 (secrets detected)"
     return [{"file": "", "kind": "leak", "detail": note}]
 
 
@@ -310,13 +337,22 @@ def run_secrets_gate(
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "gitleaks-report.json"
     summary_path = out_dir / "secrets-summary.json"
-    config_rel = str(section.get("config") or DEFAULT_CONFIG)
+    raw_config = section.get("config")
+    if isinstance(raw_config, str) and raw_config.strip() != "":
+        config_rel = raw_config.strip()
+    else:
+        config_rel = DEFAULT_CONFIG
     config_path = root / config_rel
-    config_for_summary = config_rel if config_path.is_file() else None
+    if config_path.is_file():
+        config_for_summary = config_rel
+    else:
+        config_for_summary = None
 
-    if _is_disabled_flag(section.get("enabled", True)):
+    enabled = True if "enabled" not in section else section["enabled"]
+    if _is_disabled_flag(enabled):
         if disable_decision_valid(section):
-            print("[secrets] disabled by recorded decision — skip")
+            skip_msg = "[secrets] disabled by recorded decision — skip"
+            print(skip_msg)
             _write_summary(
                 summary_path,
                 mode=mode,
@@ -363,9 +399,11 @@ def run_secrets_gate(
         findings.append({"file": "", "kind": "missing_binary", "detail": tool_note})
     else:
         cmd = _build_cmd(binary, root, config_path=config_path, report_path=report_path)
-        proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True)
         tool_rc = proc.returncode
-        tool_note = ((proc.stdout or "") + (proc.stderr or "")).strip()[:4000]
+        stdout = proc.stdout if isinstance(proc.stdout, str) else ""
+        stderr = proc.stderr if isinstance(proc.stderr, str) else ""
+        tool_note = (stdout + stderr).strip()[:4000]
         if tool_rc == 1:
             findings = _findings_from_report(report_path, tool_note)
         elif tool_rc != 0:
@@ -373,7 +411,7 @@ def run_secrets_gate(
                 {
                     "file": "",
                     "kind": "tool_error",
-                    "detail": tool_note if tool_note else f"gitleaks exit {tool_rc}",
+                    "detail": tool_note if tool_note != "" else f"gitleaks exit {tool_rc}",
                 }
             )
 
@@ -390,7 +428,7 @@ def run_secrets_gate(
     if findings:
         print(f"[secrets] {len(findings)} finding(s) (mode={mode})")
         for item in findings[:30]:
-            loc = item["file"] if item["file"] else "(repo)"
+            loc = item["file"] if item["file"] != "" else "(repo)"
             print(f"  {loc}: {item['kind']}: {item['detail'][:200]}")
         extra = len(findings) - 30
         if extra > 0:
@@ -407,11 +445,13 @@ def run_secrets_gate(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(argv if argv is not None else sys.argv[1:])
+    if argv is None:
+        args = list(sys.argv[1:])
+    else:
+        args = list(argv)
+    context = DEFAULT_CONTEXT
     if "--context" in args:
         context = args[args.index("--context") + 1]
-    else:
-        context = DEFAULT_CONTEXT
     return run_secrets_gate(find_repo_root(), context=context)
 
 
