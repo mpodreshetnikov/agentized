@@ -89,7 +89,9 @@ def test_extract_and_resolve_pr():
     assert resolve_pr(env={"GITHUB_REF": "refs/heads/main"}).pr_number is None
     assert resolve_pr(env={"GITHUB_REF": "   "}).pr_number is None
     assert (
-        resolve_pr(env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "nope", "GITHUB_PR_NUMBER": "8"}).pr_number
+        resolve_pr(
+            env={"AGENTIZED_PR": "  ", "TIP_HYGIENE_PR": "nope", "GITHUB_PR_NUMBER": "8"}
+        ).pr_number
         == 8
     )
     assert resolve_pr(env={"AGENTIZED_PR": "0", "TIP_HYGIENE_PR": "1"}).pr_number == 1
@@ -272,9 +274,7 @@ def test_validate_tip_hygiene_pull_request_and_conflict(tmp_path: Path):
     local = validate_tip_hygiene(tasks, env={"GITHUB_EVENT_NAME": "push"})
     assert local == GateResult(True)
 
-    skip_idx = validate_tip_hygiene(
-        tasks, pr=9, env={}, check_index=False
-    )
+    skip_idx = validate_tip_hygiene(tasks, pr=9, env={}, check_index=False)
     assert skip_idx == GateResult(True)
 
 
