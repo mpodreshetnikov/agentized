@@ -23,7 +23,7 @@ def test_cmd_quality_show_no_unboundlocal(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
     monkeypatch.setattr(
         "agentized_cli.load_state",
-        lambda root: {"context": "context"},  # noqa: ARG005
+        lambda _root: {"context": "context"},
     )
     (tmp_path / "context").mkdir(exist_ok=True)
 
@@ -44,7 +44,7 @@ def test_cmd_quality_show_after_ensure_quality(tmp_path: Path, monkeypatch, caps
     monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
     monkeypatch.setattr(
         "agentized_cli.load_state",
-        lambda root: {"context": "context"},  # noqa: ARG005
+        lambda _root: {"context": "context"},
     )
     (tmp_path / "context").mkdir(exist_ok=True)
     info = ensure_quality_config(tmp_path, "context")

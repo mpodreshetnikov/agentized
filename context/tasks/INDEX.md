@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-0d7a](T-261121-0d7a.md) — Fix quality show UnboundLocalError on load_quality (AGE-81) (родитель: T-261115-918b)
 
 ## blocked
 
