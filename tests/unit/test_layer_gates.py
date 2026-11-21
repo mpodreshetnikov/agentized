@@ -297,8 +297,9 @@ def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     lg.install_ensure_quality_hook()
     wrapped = connect_mod.ensure_quality_config
     assert wrapped._age31_layer_hook is True and wrapped._age31_orig is not None
+    real_orig = wrapped._age31_orig
     # Bare orig (no hook attr) must install without AttributeError.
-    connect_mod.ensure_quality_config = wrapped._age31_orig
+    connect_mod.ensure_quality_config = real_orig
     lg.install_ensure_quality_hook()
     wrapped2 = connect_mod.ensure_quality_config
     assert wrapped2._age31_layer_hook is True
@@ -319,7 +320,8 @@ def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     assert loaded["gates"]["ci"].index("e2e") < loaded["gates"]["ci"].index("mutation")
     assert loaded["gates"]["pre_push"] == ["e2e", "db_tests", "mutation"]
     assert wrapped2(tmp_path, "alt-ctx")["upgraded_modes"] == []
-    # Missing upgraded_modes key on bare result (kills `in result or True`).
+    # Missing upgraded_modes key (kills `in result or True`). Restore connect after —
+    # mutmut fork-server keeps process state across clean/mutant runs.
     bare_root = tmp_path / "bare-hook"
     bare_root.mkdir()
     cfg2 = defaults_fn()
@@ -327,14 +329,16 @@ def test_install_ensure_quality_hook_oracles(tmp_path: Path):
     cfg2["db_tests"] = {"enabled": False, "mode": "warn"}
     cfg2["gates"] = {"ci": ["mutation"], "pre_push": ["mutation"]}
     sq(bare_root, cfg2, context_rel="ctx2")
-
-    def bare_orig(root, context_rel, coverage_pct=None):
-        return {"created": False}
-
-    connect_mod.ensure_quality_config = bare_orig
-    lg.install_ensure_quality_hook()
-    bare_out = connect_mod.ensure_quality_config(bare_root, "ctx2")
-    assert "e2e.enabled" in bare_out["upgraded_modes"] and "gates.pre_push" in bare_out["upgraded_modes"]
+    try:
+        def bare_orig(root, context_rel, coverage_pct=None):
+            return {"created": False}
+        connect_mod.ensure_quality_config = bare_orig
+        lg.install_ensure_quality_hook()
+        bare_out = connect_mod.ensure_quality_config(bare_root, "ctx2")
+        assert "e2e.enabled" in bare_out["upgraded_modes"] and "gates.pre_push" in bare_out["upgraded_modes"]
+    finally:
+        connect_mod.ensure_quality_config = real_orig
+        lg.install_ensure_quality_hook()
 def test_orbit_mini_and_upgrade(tmp_path: Path, monkeypatch):
     root = _ensure_mini_app(tmp_path)
     _git_init(root)
