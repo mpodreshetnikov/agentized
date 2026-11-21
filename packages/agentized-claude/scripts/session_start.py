@@ -36,7 +36,7 @@ def _apply_env(env_result: dict, root: Path) -> dict:
         from agentized.context_layout import apply_external_env_check
 
         return apply_external_env_check(env_result, root)
-    except Exception:  # noqa: BLE001
+    except ImportError:
         return env_result
 
 

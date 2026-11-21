@@ -44,7 +44,7 @@
 
 ## Два режима размещения Context
 
-1. **Вложенный каталог** (этот репозиторий): `context/` внутри code-репо — текущий режим dogfooding.
-2. **Отдельный git-репозиторий** Context: тот же каркас (`NAV.md`, `tasks/`, …) живёт в своём репо; code-репо указывает на него через блок в корневом `AGENTS.md`. Отдельный репо здесь **не создаём** — только описываем режим.
+1. **Вложенный каталог** (этот репозиторий): `context/` внутри code-репо — текущий режим dogfooding (`context.json` → `placement: nested`).
+2. **Отдельный git-репозиторий** Context: тот же каркас (`NAV.md`, `tasks/`, …) живёт в своём репо; code-репо указывает на него через блок в корневом `AGENTS.md`. Отдельный репо здесь **не создаём** — только описываем режим. Для `placement: external` + `path`/`remote`: registry (`tasks/` / `decisions/` / `goals/` / NAV/leases/digests) в private clone; quality / process / env-check / skills / hooks остаются в code-репо `context/` для CI. См. [`docs/external-context.md`](../docs/external-context.md).
 
 Канон: [`docs/target-architecture.md`](../docs/target-architecture.md) (§4.1, §6, §11).
