@@ -8,7 +8,7 @@
 |--------|------|------------|
 | Задачи (живая доска) | [`tasks/INDEX.md`](tasks/INDEX.md) | Активная работа: open / in-progress / blocked |
 | Шаблон задачи | [`tasks/TEMPLATE.md`](tasks/TEMPLATE.md) | Поля статуса, родителя, Progress |
-| Решения | [`decisions/`](decisions/) | ADR / решения в силе |
+| Решения | [`decisions/`](decisions/) | ADR (YAML front matter; `agentized adr`) |
 | Цели | [`goals/`](goals/) | Цели и приоритеты |
 | Path leases | [`leases/INDEX.md`](leases/INDEX.md) | Кто держит какие пути (warn-only) |
 | Дайджесты | [`digests/`](digests/) | development / management / releases / architecture |
