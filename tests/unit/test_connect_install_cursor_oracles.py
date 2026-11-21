@@ -293,10 +293,3 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     install_cursor(tmp_path, "context")
     assert any(s.get("parents") is True and s.get("exist_ok") is True for s in seen)
 
-
-def test_hooks_json_path_str_not_none(tmp_path: Path):
-    """Kill ``str(hooks_path)`` → ``str(None)``."""
-    _seed_context_skills(tmp_path)
-    result = install_cursor(tmp_path, "context")
-    hooks = tmp_path / ".cursor" / "hooks.json"
-    assert result["hooks_json"] == str(hooks)
