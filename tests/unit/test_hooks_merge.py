@@ -76,6 +76,9 @@ def test_is_agentized_exact_match_only():
     assert isinstance(KNOWN_COMMAND_FORMS["codex"], frozenset)
     assert set(KNOWN_COMMAND_FORMS) == {"cursor", "claude", "codex"}
     assert is_agentized_command(".cursor/hooks/ensure_agent_hooks.py", "cursor") is True
+
+    # AGE-52 abs-path whole-command aliases (no compound / echo).
+    assert is_agentized_command("/home/u/repo/.cursor/hooks/session_start.py", "cursor") is True
     assert is_agentized_command(".cursor/hooks/lease_warn.py", "cursor") is True
     assert (
         is_agentized_command(

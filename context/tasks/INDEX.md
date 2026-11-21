@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-1b51](T-261121-1b51.md) — AGE-52 connect wiring (B) (родитель: T-261116-2d8d) · claim: bc-753e4141
 
 ## blocked
 
