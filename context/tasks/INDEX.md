@@ -12,7 +12,7 @@ _(пусто)_
 
 ## in-progress
 
-_(пусто)_
+- [T-261116-age31](T-261116-age31.md) — Mandatory e2e and DB test gates (AGE-31) · claim: age31-worker
 
 ## blocked
 
