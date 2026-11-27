@@ -89,6 +89,10 @@ MSG_BASE_NOT_BEFORE_HEAD = (
 MSG_BASE_UNRESOLVED = "append-only base {ref!r} cannot be resolved: {detail}"
 MSG_HISTORY_PAIR = "{name}: branch history {old}..{new}: {err}"
 MSG_GIT_FAILED = "git {cmd} failed: {detail}"
+MSG_HISTORY_RENAME = (
+    "{old} -> {new}: branch history {parent}..{commit}: task file renamed or moved; "
+    "history identity is lost (fail closed)"
+)
 PROGRESS_SECTION = "## Progress"
 DECISION_SECTION = "## Decision Log"
 
@@ -535,12 +539,17 @@ def _git_task_blob(root: Path, commit: str, rel: str) -> str | None:
         raise RuntimeError(f"{rel}@{commit}: {MSG_UNREADABLE.format(detail=exc)}") from exc
 
 
+def _is_task_name(name: str) -> bool:
+    return name.startswith("T-") and name.endswith(".md")
+
+
 def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tuple[str, ...]:
     """Progress/Decision Log must stay an exact prefix across every commit pair in ``ref..HEAD``.
 
     Pairs are (parent, commit) for non-merge commits; a file that was deleted and re-added is
     compared with its last existing version. Merge commits are not pair endpoints (conflict
     resolution may reorder concurrent appends); their successors are still judged against them.
+    A task file renamed or moved (git rename detection) loses its identity, so it fails closed.
     Unreadable blobs and git failures raise ``RuntimeError`` (fail closed).
     """
     try:
@@ -557,10 +566,28 @@ def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tupl
         if len(parts) != 2:
             continue
         commit, parent = parts
-        diff = ["diff", "-z", "--name-only", "--no-renames", parent, commit, "--", rel_dir]
-        for rel in _git_checked(repo_root, diff).split("\0")[:-1]:
+        diff = ["diff", "-z", "--name-status", "-M", parent, commit, "--", rel_dir]
+        tokens = _git_checked(repo_root, diff).split("\0")[:-1]
+        changed: list[str] = []
+        i = 0
+        while i < len(tokens):
+            if tokens[i][0] == "R":
+                old_rel, new_rel = tokens[i + 1], tokens[i + 2]
+                if _is_task_name(PurePosixPath(old_rel).name) or _is_task_name(
+                    PurePosixPath(new_rel).name
+                ):
+                    errors.append(
+                        MSG_HISTORY_RENAME.format(
+                            old=old_rel, new=new_rel, parent=parent[:7], commit=commit[:7]
+                        )
+                    )
+                i += 3
+            else:
+                changed.append(tokens[i + 1])
+                i += 2
+        for rel in changed:
             name = PurePosixPath(rel).name
-            if not (name.startswith("T-") and name.endswith(".md")):
+            if not _is_task_name(name):
                 continue
             old = _git_task_blob(repo_root, parent, rel)
             if old is not None:

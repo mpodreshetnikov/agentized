@@ -12,6 +12,8 @@ from agentized.status_gates import (
     MSG_GIT_ERROR,
     MSG_GIT_FAILED,
     MSG_HISTORY_PAIR,
+    MSG_HISTORY_RENAME,
+    MSG_TASK_DELETED,
     MSG_PROGRESS_PREFIX,
     MSG_UNREADABLE,
     GateResult,
@@ -85,6 +87,10 @@ def _tip_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_message_constants_exact():
     assert MSG_HISTORY_PAIR == "{name}: branch history {old}..{new}: {err}"
     assert MSG_GIT_FAILED == "git {cmd} failed: {detail}"
+    assert MSG_HISTORY_RENAME == (
+        "{old} -> {new}: branch history {parent}..{commit}: task file renamed or moved; "
+        "history identity is lost (fail closed)"
+    )
 
 
 def test_delete_mid_branch_then_readd_other_lines_is_red(tmp_path: Path, monkeypatch):
@@ -335,3 +341,74 @@ def test_unreadable_history_fails_closed_with_exact_messages(tmp_path: Path, mon
     with pytest.raises(RuntimeError) as rev_os:
         branch_history_errors(tasks, repo_root=root, ref=base)
     assert str(rev_os.value) == MSG_GIT_FAILED.format(cmd="rev-list", detail="rev-boom")
+
+
+OTHER = "T-261127-moved.md"
+OTHER_REL = f"context/tasks/{OTHER}"
+LONG = ["entry %d with enough text to keep similarity high" % n for n in range(8)]
+
+
+def _rename_msg(old: str, new: str, parent: str, commit: str) -> str:
+    return MSG_HISTORY_RENAME.format(old=old, new=new, parent=parent[:7], commit=commit[:7])
+
+
+def test_branch_only_task_renamed_and_rewritten_is_red(tmp_path: Path, monkeypatch):
+    root, tasks, base = _repo(tmp_path)
+    c1 = _commit(root, {REL: _doc(LONG)}, "add")
+    c2 = _commit(root, {REL: None, OTHER_REL: _doc(LONG[:2])}, "rename and wipe prefix")
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == (
+        _rename_msg(REL, OTHER_REL, c1, c2),
+    )
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
+    assert validate_tasks_dir(tasks, previous_by_name=prev) == GateResult(True)
+    _tip_ok(monkeypatch)
+    assert run_tasks_validate(tasks, repo_root=root, base_ref=base)[1] == GateResult(
+        False, (_rename_msg(REL, OTHER_REL, c1, c2),)
+    )
+
+
+def test_base_task_renamed_is_red_by_deletion_and_by_history(tmp_path: Path, monkeypatch):
+    root, tasks, base = _repo(tmp_path, {REL: _doc(LONG)})
+    c1 = _commit(root, {REL: None, OTHER_REL: _doc(LONG)}, "rename")
+    expected_history = (_rename_msg(REL, OTHER_REL, base, c1),)
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == expected_history
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
+    assert validate_tasks_dir(tasks, previous_by_name=prev) == GateResult(
+        False, (f"{NAME}: {MSG_TASK_DELETED}",)
+    )
+    _tip_ok(monkeypatch)
+    assert run_tasks_validate(tasks, repo_root=root, base_ref=base)[1] == GateResult(
+        False, (f"{NAME}: {MSG_TASK_DELETED}",) + expected_history
+    )
+
+
+def test_rename_to_or_from_non_task_name_is_red_but_non_task_rename_is_ignored(tmp_path: Path):
+    plain = "context/tasks/notes.txt"
+    plain2 = "context/tasks/notes-2.txt"
+    root, tasks, base = _repo(tmp_path, {REL: _doc(LONG), plain: _doc(LONG)})
+    c1 = _commit(root, {plain: None, plain2: _doc(LONG)}, "rename non-task")
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == ()
+    c2 = _commit(root, {REL: None, plain: _doc(LONG)}, "task to non-task")
+    c3 = _commit(root, {plain2: None, OTHER_REL: _doc(LONG)}, "non-task to task")
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == (
+        _rename_msg(REL, plain, c1, c2),
+        _rename_msg(plain2, OTHER_REL, c2, c3),
+    )
+
+
+def test_entries_after_a_rename_in_the_same_commit_are_still_judged(tmp_path: Path):
+    third = "T-261127-zzzz"
+    root, tasks, base = _repo(
+        tmp_path, {REL: _doc(LONG), f"context/tasks/{third}.md": _doc(["A", "B"])}
+    )
+    old = "context/tasks/T-261127-aaaa.md"
+    c1 = _commit(root, {old: _doc(LONG)}, "add aaaa")
+    c2 = _commit(
+        root,
+        {old: None, OTHER_REL: _doc(LONG), f"context/tasks/{third}.md": _doc(["A"])},
+        "rename aaaa and shrink zzzz",
+    )
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == (
+        _rename_msg(old, OTHER_REL, c1, c2),
+        f"{third}.md: branch history {c1[:7]}..{c2[:7]}: {MSG_PROGRESS_PREFIX}",
+    )
