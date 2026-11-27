@@ -13,7 +13,7 @@
 
 ## in-progress
 
-- [T-261127-3256](T-261127-3256.md) — connect.py skills/hooks pinning mutants (tests-only A-PR b1) (родитель: T-261127-1acf) · claim: cursor-agent
+_(пусто)_
 
 ## blocked
 
