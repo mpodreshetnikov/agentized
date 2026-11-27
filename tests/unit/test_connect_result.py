@@ -12,8 +12,6 @@ from agentized.connect import (
 )
 from agentized.paths import load_state
 
-REPO = Path(__file__).resolve().parents[2]
-
 
 def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
@@ -151,36 +149,42 @@ def test_connect_harness_selection_manifest_and_skipped_dedupe(tmp_path: Path, m
     assert list(none["harnesses"]) == ["cursor", "claude"]
 
 
+def _local_templates(root: Path, *, stryker: bool) -> Path:
+    tdir = root / "templates" / "quality"
+    tdir.mkdir(parents=True)
+    for name in ("pre-push", "commit-msg", "ci.yml"):
+        (tdir / name).write_text(f"# AGENTIZED:QUALITY {name}\n", encoding="utf-8")
+    if stryker:
+        (tdir / "stryker.config.mjs.example").write_text("{}\n", encoding="utf-8")
+    return tdir
+
+
 def test_pin_quality_templates_result_paths_and_flags(tmp_path: Path):
     bare = tmp_path / "bare"
     bare.mkdir()
+    tdir = _local_templates(bare, stryker=True)
     (bare / ".GIT").write_text("x", encoding="utf-8")
     (bare / "XX.gitXX").write_text("x", encoding="utf-8")
     res = pin_quality_templates(bare)
-    assert sorted(res) == [
-        "ci_workflow",
-        "commit_msg",
-        "hooks_path",
-        "js_guidance",
-        "pre_push",
-        "templates_from",
-    ]
-    assert res["hooks_path"] == "skipped-no-git"
-    templates = REPO / "templates" / "quality"
-    from_dir = Path(res["templates_from"])
-    assert from_dir.is_absolute() and from_dir.parts[-2:] == ("templates", "quality")
-    assert (from_dir / "pre-push").read_bytes() == (templates / "pre-push").read_bytes()
-    assert res["js_guidance"] is True and (from_dir / "stryker.config.mjs.example").is_file()
+    assert res == {
+        "pre_push": "created",
+        "commit_msg": "created",
+        "ci_workflow": "created",
+        "js_guidance": True,
+        "templates_from": str(tdir),
+        "hooks_path": "skipped-no-git",
+    }
     for src, dst in (
         ("pre-push", ".githooks/pre-push"),
         ("commit-msg", ".githooks/commit-msg"),
         ("ci.yml", ".github/workflows/ci.yml"),
     ):
-        assert (bare / dst).read_bytes() == (templates / src).read_bytes()
-    assert res["pre_push"] == res["commit_msg"] == res["ci_workflow"] == "created"
+        assert (bare / dst).read_text(encoding="utf-8") == f"# AGENTIZED:QUALITY {src}\n"
     repo = _repo(tmp_path / "repo")
-    assert pin_quality_templates(repo)["hooks_path"] == "set"
+    _local_templates(repo, stryker=False)
+    res = pin_quality_templates(repo)
+    assert res["hooks_path"] == "set" and res["js_guidance"] is False
     gitfile = tmp_path / "wt"
-    gitfile.mkdir()
+    _local_templates(gitfile, stryker=False)
     (gitfile / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
     assert pin_quality_templates(gitfile)["hooks_path"] != "skipped-no-git"
