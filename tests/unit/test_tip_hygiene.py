@@ -418,6 +418,7 @@ def test_run_tasks_validate_merges_tip(tmp_path: Path, monkeypatch):
     (tasks / "INDEX.md").write_text("stale\n", encoding="utf-8")
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda *a, **k: "BASE")
+    monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {})
     monkeypatch.setattr(sg, "validate_tasks_dir", lambda *a, **k: GateResult(True))
 

@@ -171,7 +171,7 @@ def test_new_claim_ready_tasks_validate(tmp_path: Path, monkeypatch: pytest.Monk
         "GITHUB_EVENT_NAME": "pull_request",
         "GITHUB_REF": "refs/pull/1/merge",
     }
-    validate = _cli(repo, "tasks-validate", "--pr", "#1", "--base", "HEAD", env=env)
+    validate = _cli(repo, "tasks-validate", "--pr", "#1", "--base", "HEAD~1", env=env)
     assert validate.returncode == 0, validate.stderr + validate.stdout
 
 

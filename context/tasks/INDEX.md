@@ -8,7 +8,7 @@
 
 ## open
 
-_(пусто)_
+- [T-261127-1acf](T-261127-1acf.md) — AGE-68 A-final: connect.py mut 100% + ship gates to templates (родитель: T-261115-918b)
 
 ## in-progress
 

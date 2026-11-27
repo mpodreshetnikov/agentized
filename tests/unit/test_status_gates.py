@@ -9,11 +9,13 @@ import pytest
 
 from agentized.status_gates import (
     ALLOWED_TRANSITIONS,
+    DECISION_SECTION,
     MSG_BAD_PR,
     MSG_BLOCKED_DEADLINE,
     MSG_BLOCKED_DEADLINE_FMT,
     MSG_BLOCKED_DEADLINE_INVALID,
     MSG_BLOCKED_REASON,
+    MSG_DECISION_PREFIX,
     MSG_DONE_EVIDENCE,
     MSG_DUPLICATE_FIELD,
     MSG_GIT_ERROR,
@@ -21,6 +23,7 @@ from agentized.status_gates import (
     MSG_MISSING_STATUS,
     MSG_MISSING_VALUE,
     MSG_NEW_PATH,
+    MSG_PROGRESS_PREFIX,
     MSG_REVIEW_EVIDENCE,
     MSG_TASK_DELETED,
     MSG_UNKNOWN_NEW,
@@ -28,10 +31,12 @@ from agentized.status_gates import (
     MSG_UNKNOWN_STATUS,
     MSG_UNREADABLE,
     NEW_PATH_ALLOWED_STATUSES,
+    PROGRESS_SECTION,
     GateResult,
     _cmd_detail,
     _git_err,
     _git_missing_path,
+    append_only_section_errors,
     duplicate_field_errors,
     extract_status,
     has_value_line,
@@ -43,6 +48,8 @@ from agentized.status_gates import (
     previous_task_texts_from_git,
     resolve_validate_base_ref,
     run_tasks_validate,
+    section_body,
+    section_is_prefix,
     validate_status_requirements,
     validate_task_file,
     validate_task_text,
@@ -444,10 +451,9 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
 
     assert resolve_validate_base_ref(tmp_path, explicit="abc123") == "abc123"
     monkeypatch.setenv("MUTATION_BASE", "env-base")
-    assert resolve_validate_base_ref(tmp_path) == "env-base"
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.setenv("TASKS_VALIDATE_BASE", "tv-base")
-    assert resolve_validate_base_ref(tmp_path) == "tv-base"
+    assert resolve_validate_base_ref(tmp_path) == "origin/main"
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
     monkeypatch.setattr(
         subprocess,
@@ -607,6 +613,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     from agentized.task_schema import rebuild_task_index
 
     (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
+    monkeypatch.setattr("agentized.status_gates.require_base_before_head", lambda *a: None)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref == "deadbeef" and result.ok is True
 
@@ -690,6 +697,7 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
         return GateResult(False, ("illegal transition open → done",))
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", fake_resolve)
+    monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
     monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")
@@ -738,9 +746,105 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path, monkeypatch):
         check=True,
         capture_output=True,
     )
-    monkeypatch.setenv("MUTATION_BASE", base)
-    prev = previous_task_texts_from_git(tasks, repo_root=root)
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
     assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
     result = validate_tasks_dir(tasks, previous_by_name=prev)
     assert result.ok is False
     assert any("illegal transition open → done" in e for e in result.errors)
+
+
+def _with_sections(progress_body: str, decision_body: str) -> str:
+    """Build task text; bodies are exact raw ``section_body`` values."""
+    return _task(
+        "open",
+        body=f"{PROGRESS_SECTION}{progress_body}{DECISION_SECTION}{decision_body.rstrip(chr(10))}",
+    )
+
+
+def test_progress_decision_exact_prefix_gate(tmp_path: Path):
+    """AGE-86: base Progress/Decision must be exact prefix of HEAD (blanks count)."""
+    assert PROGRESS_SECTION == "## Progress"
+    assert DECISION_SECTION == "## Decision Log"
+    assert MSG_PROGRESS_PREFIX == (
+        "Progress is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    assert MSG_DECISION_PREFIX == (
+        "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
+    )
+    prog = "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep\n\n"
+    dec = "\n\n_(append-only)_\n- decide-a\n"
+    base = _with_sections(prog, dec)
+
+    assert section_body("no markers", PROGRESS_SECTION) is None
+    assert section_body(base, PROGRESS_SECTION) == prog
+    assert section_body(base, DECISION_SECTION) == dec
+    only = f"{PROGRESS_SECTION}\n\nsolo\n"
+    assert section_body(only, PROGRESS_SECTION) == "\n\nsolo\n"
+    assert section_is_prefix("no", "also-no", PROGRESS_SECTION) is True
+    assert section_is_prefix(base, "no Progress", PROGRESS_SECTION) is False
+    assert section_is_prefix(base, base, PROGRESS_SECTION) is True
+
+    # pure append → green
+    prog_app = (
+        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep\n- 2026-11-21 11:00 UTC: append\n\n"
+    )
+    appended = _with_sections(prog_app, dec + "- decide-b\n")
+    assert append_only_section_errors(base, appended) == ()
+    assert section_is_prefix(base, appended, PROGRESS_SECTION) is True
+    assert section_is_prefix(base, appended, DECISION_SECTION) is True
+
+    # delete line → red
+    deleted_line = _with_sections("\n\n_(append-only)_\n\n", dec)
+    assert append_only_section_errors(base, deleted_line) == (MSG_PROGRESS_PREFIX,)
+
+    # reword → red
+    reworded = _with_sections(
+        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: CHANGED\n\n",
+        dec,
+    )
+    assert append_only_section_errors(base, reworded) == (MSG_PROGRESS_PREFIX,)
+
+    # delete blank line inside Progress → red
+    prog_blank = "\n\n_(append-only)_\n- keep\n\n- next\n\n"
+    base_blank = _with_sections(prog_blank, dec)
+    no_blank = _with_sections("\n\n_(append-only)_\n- keep\n- next\n\n", dec)
+    assert section_body(base_blank, PROGRESS_SECTION) == prog_blank
+    assert append_only_section_errors(base_blank, no_blank) == (MSG_PROGRESS_PREFIX,)
+
+    # Decision-only rewrite → red Decision
+    bad_dec = _with_sections(prog, "\n\n_(append-only)_\n- decide-Z\n")
+    assert append_only_section_errors(base, bad_dec) == (MSG_DECISION_PREFIX,)
+
+    # both broken → both messages, Progress first
+    both_bad = _with_sections("\n\nx\n\n", "\n\ny\n")
+    assert append_only_section_errors(base, both_bad) == (
+        MSG_PROGRESS_PREFIX,
+        MSG_DECISION_PREFIX,
+    )
+
+    d = tmp_path / "prefix"
+    d.mkdir()
+    name = "T-261121-prefix.md"
+    path = d / name
+    path.write_text(appended, encoding="utf-8")
+    assert validate_tasks_dir(d, previous_by_name={name: base}) == GateResult(True)
+    assert validate_task_file(path, old_text=base) == GateResult(True)
+
+    path.write_text(deleted_line, encoding="utf-8")
+    red = validate_tasks_dir(d, previous_by_name={name: base})
+    assert red == GateResult(False, (f"{name}: {MSG_PROGRESS_PREFIX}",))
+    assert validate_task_file(path, old_text=base) == GateResult(False, (MSG_PROGRESS_PREFIX,))
+
+    # new task file (not on base) → green once prior file is fixed
+    path.write_text(appended, encoding="utf-8")
+    (d / "T-261121-brand.md").write_text(
+        _with_sections("\n\n_(append-only)_\n\n", "\n\n_(append-only)_\n"),
+        encoding="utf-8",
+    )
+    assert validate_tasks_dir(d, previous_by_name={name: base}) == GateResult(True)
+
+    # delete file on disk → red MSG_TASK_DELETED
+    path.unlink()
+    (d / "T-261121-brand.md").unlink()
+    gone = validate_tasks_dir(d, previous_by_name={name: base})
+    assert gone == GateResult(False, (f"{name}: {MSG_TASK_DELETED}",))
