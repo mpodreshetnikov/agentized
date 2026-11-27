@@ -12,7 +12,7 @@
 
 ## in-progress
 
-_(пусто)_
+- [T-261127-0cb5](T-261127-0cb5.md) — Connect authorship wiring after #27 (AGE-95) (родитель: T-261121-2d72) · claim: bc-bf292e15-eb39-51d8-957a-5f41dea37f9b
 
 ## blocked
 
