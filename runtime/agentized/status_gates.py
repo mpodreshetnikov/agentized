@@ -89,6 +89,10 @@ MSG_BASE_NOT_BEFORE_HEAD = (
 MSG_BASE_UNRESOLVED = "append-only base {ref!r} cannot be resolved: {detail}"
 MSG_HISTORY_PAIR = "{name}: branch history {old}..{new}: {err}"
 MSG_GIT_FAILED = "git {cmd} failed: {detail}"
+MSG_HISTORY_BASE_DELETED = (
+    "task file present on base deleted in a branch commit; "
+    "set статус: canceled instead of deleting (fail closed)"
+)
 MSG_HISTORY_RENAME = (
     "{old} -> {new}: branch history {parent}..{commit}: task file renamed or moved; "
     "history identity is lost (fail closed)"
@@ -550,6 +554,8 @@ def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tupl
     compared with its last existing version. Merge commits are not pair endpoints (conflict
     resolution may reorder concurrent appends); their successors are still judged against them.
     A task file renamed or moved (git rename detection) loses its identity, so it fails closed.
+    Deleting a task file that exists on ``ref`` in any branch commit is red; deleting a file that
+    is not on ``ref`` (branch-only) stays allowed.
     Unreadable blobs and git failures raise ``RuntimeError`` (fail closed).
     """
     try:
@@ -594,6 +600,15 @@ def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tupl
                 last[name] = old
             new = _git_task_blob(repo_root, commit, rel)
             if new is None:
+                if _git_task_blob(repo_root, ref, rel) is not None:
+                    errors.append(
+                        MSG_HISTORY_PAIR.format(
+                            name=name,
+                            old=parent[:7],
+                            new=commit[:7],
+                            err=MSG_HISTORY_BASE_DELETED,
+                        )
+                    )
                 continue
             if name in last:
                 for err in append_only_section_errors(last[name], new):

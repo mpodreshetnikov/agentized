@@ -6,6 +6,7 @@
 
 - `tasks-validate` (hard, CI + pre-push) also checks every non-merge commit pair in `base..HEAD`: each touched `context/tasks/T-*.md` must keep Progress and Decision Log as an exact prefix of its parent version, so a mid-branch deletion cannot be hidden by later appends (task files that are not on `main` included).
 - A file deleted and re-added is compared with its last existing version. Merge commits are not pair endpoints (conflict resolution may reorder concurrent appends); the next commit is compared with the merge.
+- A task file renamed or moved in a branch commit (git `--find-renames`, default threshold) fails closed. Deleting a task file that exists on `base` in any branch commit is red; deleting a branch-only file stays allowed.
 - Unreadable blobs (git error, non-UTF-8) fail closed. A force-push rewrite to a clean history passes: only the final branch history is judged.
 
 ### AGE-76 — PR tip hygiene gate

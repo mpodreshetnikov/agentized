@@ -11,10 +11,11 @@ from agentized.status_gates import (
     MSG_DECISION_PREFIX,
     MSG_GIT_ERROR,
     MSG_GIT_FAILED,
+    MSG_HISTORY_BASE_DELETED,
     MSG_HISTORY_PAIR,
     MSG_HISTORY_RENAME,
-    MSG_TASK_DELETED,
     MSG_PROGRESS_PREFIX,
+    MSG_TASK_DELETED,
     MSG_UNREADABLE,
     GateResult,
     branch_history_errors,
@@ -87,6 +88,10 @@ def _tip_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_message_constants_exact():
     assert MSG_HISTORY_PAIR == "{name}: branch history {old}..{new}: {err}"
     assert MSG_GIT_FAILED == "git {cmd} failed: {detail}"
+    assert MSG_HISTORY_BASE_DELETED == (
+        "task file present on base deleted in a branch commit; "
+        "set статус: canceled instead of deleting (fail closed)"
+    )
     assert MSG_HISTORY_RENAME == (
         "{old} -> {new}: branch history {parent}..{commit}: task file renamed or moved; "
         "history identity is lost (fail closed)"
@@ -345,7 +350,7 @@ def test_unreadable_history_fails_closed_with_exact_messages(tmp_path: Path, mon
 
 OTHER = "T-261127-moved.md"
 OTHER_REL = f"context/tasks/{OTHER}"
-LONG = ["entry %d with enough text to keep similarity high" % n for n in range(8)]
+LONG = [f"entry {n} with enough text to keep similarity high" for n in range(8)]
 
 
 def _rename_msg(old: str, new: str, parent: str, commit: str) -> str:
@@ -402,12 +407,12 @@ def test_entries_around_a_rename_in_the_same_commit_are_still_judged(tmp_path: P
     root, tasks, base = _repo(
         tmp_path,
         {
-            OTHER_REL: _doc(LONG),
             src: _doc(LONG),
             f"context/tasks/{first}.md": _doc(["A"]),
             f"context/tasks/{last}.md": _doc(["A", "B"]),
         },
     )
+    _commit(root, {OTHER_REL: _doc(LONG)}, "add branch-only target")
     c1 = _commit(root, {OTHER_REL: None}, "free the target name")
     c2 = _commit(
         root,
@@ -423,3 +428,46 @@ def test_entries_around_a_rename_in_the_same_commit_are_still_judged(tmp_path: P
         _rename_msg(src, OTHER_REL, c1, c2),
         f"{last}.md: branch history {c1[:7]}..{c2[:7]}: {MSG_PROGRESS_PREFIX}",
     )
+
+
+def test_base_task_deleted_mid_branch_and_restored_identically_is_red(tmp_path: Path, monkeypatch):
+    root, tasks, base = _repo(tmp_path, {REL: _doc(LONG)})
+    c1 = _commit(root, {REL: None}, "delete base task")
+    _commit(root, {REL: _doc(LONG)}, "restore identical")
+    assert (root / REL).read_text(encoding="utf-8") == _doc(LONG)
+    expected = (_msg(base, c1, MSG_HISTORY_BASE_DELETED),)
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == expected
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
+    assert validate_tasks_dir(tasks, previous_by_name=prev) == GateResult(True)
+    _tip_ok(monkeypatch)
+    assert run_tasks_validate(tasks, repo_root=root, base_ref=base)[1] == GateResult(
+        False, expected
+    )
+
+
+def test_base_task_replaced_by_dissimilar_file_then_restored_is_red(tmp_path: Path, monkeypatch):
+    root, tasks, base = _repo(tmp_path, {REL: _doc(LONG)})
+    c1 = _commit(
+        root,
+        {REL: None, OTHER_REL: _doc([f"unrelated {n * 9973}" for n in range(40)])},
+        "delete and add dissimilar",
+    )
+    status = _git(root, "diff", "--name-status", "-M", base, c1, "--", "context/tasks")
+    assert status.splitlines() == [f"D\t{REL}", f"A\t{OTHER_REL}"]
+    _commit(root, {REL: _doc(LONG)}, "restore original path")
+    expected = (_msg(base, c1, MSG_HISTORY_BASE_DELETED),)
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == expected
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
+    assert validate_tasks_dir(tasks, previous_by_name=prev) == GateResult(True)
+    _tip_ok(monkeypatch)
+    assert run_tasks_validate(tasks, repo_root=root, base_ref=base)[1] == GateResult(
+        False, expected
+    )
+
+
+def test_deleting_branch_only_task_is_green_and_base_files_stay_untouched(tmp_path: Path):
+    root, tasks, base = _repo(tmp_path, {OTHER_REL: _doc(LONG)})
+    _commit(root, {REL: _doc(LONG)}, "add branch-only")
+    _commit(root, {REL: None}, "delete branch-only")
+    assert not (root / REL).exists()
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == ()
