@@ -265,6 +265,7 @@ def test_run_tasks_validate_merges_tip_errors_exact(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda root, *, explicit=None: "BASE")
     monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
+    monkeypatch.setattr(sg, "branch_history_errors", lambda *a, **k: ())
     monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {"T-x.md": "# old\n"})
     monkeypatch.setattr(
         sg,
