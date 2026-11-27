@@ -96,7 +96,7 @@ def test_settings_json_exact_structure_and_utf8_indent(tmp_path: Path):
     settings_path = tmp_path / ".claude" / "settings.json"
     raw = settings_path.read_text(encoding="utf-8")
     assert raw == json.dumps(EXPECTED_SETTINGS, indent=2) + "\n"
-    assert seen_enc and all(enc == "utf-8" for enc in seen_enc)
+    assert seen_enc == ["utf-8"]
     assert result["settings"] == str(settings_path)
     assert result["plugin_hint"] == HINT
 
@@ -182,7 +182,7 @@ def test_force_default_false_passed_to_managed_copy(
     install_claude(tmp_path, "context")  # omit force=
     assert seen == [False]
     install_claude(tmp_path, "context", force=True)
-    assert seen[-1] is True
+    assert seen == [False, True]
 
 
 def test_managed_copy_argv_exact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -322,7 +322,11 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(Path, "mkdir", wrap)
     install_claude(tmp_path, "context")
-    assert seen[0] == {"parents": True, "exist_ok": True}
+    assert seen == [
+        {"parents": True, "exist_ok": True},
+        {"parents": False, "exist_ok": True},
+        {"parents": True, "exist_ok": True},
+    ]
 
 
 def test_settings_get_hooks_key_and_preserve_other_fields(tmp_path: Path):
@@ -359,6 +363,6 @@ def test_settings_path_read_encoding_utf8(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(Path, "read_text", wrap)
     install_claude(tmp_path, "context")
-    assert seen and all(enc == "utf-8" for enc in seen)
+    assert seen == ["utf-8"]
     data = json.loads(settings_path.read_text(encoding="utf-8"))
     assert data["keep"] is True
