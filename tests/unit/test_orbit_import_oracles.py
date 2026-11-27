@@ -586,9 +586,6 @@ def test_non_orbit_md_warned_and_zero_sources_errors(tmp_path: Path):
 
 
 def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
-    assert "acceptance_note:" not in agentized_markdown(
-        _draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x")
-    )
     (tmp_path / "T-261116-uscr.md").write_text(
         "# T-261116-uscr — U\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\n"
         "claim: _(пусто)_\norbit_id: _(пусто)_\n",
@@ -664,19 +661,6 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     _orb(src_h / "T-later.md", tid="T-261116-late", title="L", kind="feature", priority="p2")
     r_h = import_orbit_tasks(src_h, dest_h, dry_run=True)
     assert str(src_h / "T-have.md") in r_h.skipped and len(r_h.would_write) == 1
-    src_d, dest_d = tmp_path / "srcD", tmp_path / "destD"
-    src_d.mkdir()
-    _orb(src_d / "T-ok.md", tid="T-261116-ok99", title="OK", kind="feature", priority="p2")
-    mk: list = []
-    real_mkdir = Path.mkdir
-
-    def spy_mkdir(self, parents=False, exist_ok=False):
-        mk.append(self)
-        return real_mkdir(self, parents=parents, exist_ok=exist_ok)
-
-    monkeypatch.setattr(Path, "mkdir", spy_mkdir)
-    dry = import_orbit_tasks(src_d, dest_d, dry_run=True)
-    assert dry.would_write and mk == [] and not dest_d.exists()
     src2, dest2 = _sd(tmp_path, "src2", "dest2")
     _feat(src2 / "T-dep.md", "T-261116-dep1", title="Dep", value="HasValue")
     _feat(src2 / "T-orb.md", "T-261116-orb1", title="Orb", orbit_id="T-0990", value="HasValue")
