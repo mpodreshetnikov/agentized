@@ -81,6 +81,8 @@ MSG_PROGRESS_PREFIX = (
 MSG_DECISION_PREFIX = (
     "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
 )
+MSG_PROGRESS_DUPLICATE = "duplicate ## Progress heading (append-only history must have one)"
+MSG_DECISION_DUPLICATE = "duplicate ## Decision Log heading (append-only history must have one)"
 PROGRESS_SECTION = "## Progress"
 DECISION_SECTION = "## Decision Log"
 
@@ -295,38 +297,71 @@ def _read_task_text(path: Path) -> str:
     return path.read_bytes().decode(TEXT_ENCODING)
 
 
-def section_body(text: str, marker: str) -> str | None:
-    """Body after the first ``marker`` heading until the next ``\\n## ``, or None if absent.
+_NEXT_H2_RE = re.compile(r"^## ", re.M)
 
-    Includes leading newlines after the marker so blank-line edits are prefix-visible.
-    """
-    start = text.find(marker)
-    if start < 0:
+
+def _heading_re(marker: str) -> re.Pattern[str]:
+    return re.compile(rf"^{re.escape(marker)}[^\S\n]*$", re.M)
+
+
+def section_heading_count(text: str, marker: str) -> int:
+    return len(_heading_re(marker).findall(text))
+
+
+def _section_span(text: str, marker: str) -> tuple[str, bool] | None:
+    """Body after the first exact ``marker`` heading line, and whether another H2 follows."""
+    heading = _heading_re(marker).search(text)
+    if heading is None:
         return None
-    after = text[start + len(marker) :]
-    end = after.find("\n## ")
-    if end < 0:
-        return after
-    return after[:end]
+    nxt = _NEXT_H2_RE.search(text, heading.end())
+    if nxt is None:
+        return text[heading.end() :], False
+    return text[heading.end() : nxt.start()], True
+
+
+def section_body(text: str, marker: str) -> str | None:
+    """Raw body after the first exact heading line until the next ``## `` heading (or EOF).
+
+    Keeps every newline, so blank-line edits and trailing separators are prefix-visible.
+    """
+    span = _section_span(text, marker)
+    return None if span is None else span[0]
+
+
+def _trailing_newlines(body: str) -> int:
+    return len(body) - len(body.rstrip("\n"))
 
 
 def section_is_prefix(old_text: str, new_text: str, marker: str) -> bool:
-    """True when base section is absent, or present body is an exact prefix of HEAD body."""
-    old = section_body(old_text, marker)
-    if old is None:
+    """True when base section is absent, or its body is preserved as an exact prefix of HEAD.
+
+    When another H2 follows the base section, the separator newlines before that heading
+    must keep the same count (no delete-blank-then-append).
+    """
+    old_span = _section_span(old_text, marker)
+    if old_span is None:
         return True
-    new = section_body(new_text, marker)
-    if new is None:
+    new_span = _section_span(new_text, marker)
+    if new_span is None:
         return False
-    return new.startswith(old)
+    old, bounded = old_span
+    new = new_span[0]
+    if not bounded:
+        return new.startswith(old)
+    content = old.rstrip("\n") or old
+    return new.startswith(content) and _trailing_newlines(new) == _trailing_newlines(old)
 
 
 def append_only_section_errors(old_text: str, new_text: str) -> tuple[str, ...]:
     errors: list[str] = []
-    if not section_is_prefix(old_text, new_text, PROGRESS_SECTION):
-        errors.append(MSG_PROGRESS_PREFIX)
-    if not section_is_prefix(old_text, new_text, DECISION_SECTION):
-        errors.append(MSG_DECISION_PREFIX)
+    for marker, dup_msg, prefix_msg in (
+        (PROGRESS_SECTION, MSG_PROGRESS_DUPLICATE, MSG_PROGRESS_PREFIX),
+        (DECISION_SECTION, MSG_DECISION_DUPLICATE, MSG_DECISION_PREFIX),
+    ):
+        if section_heading_count(new_text, marker) > 1:
+            errors.append(dup_msg)
+        elif not section_is_prefix(old_text, new_text, marker):
+            errors.append(prefix_msg)
     return tuple(errors)
 
 

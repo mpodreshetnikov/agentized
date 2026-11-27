@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from agentized.status_gates import (
     ALLOWED_TRANSITIONS,
     DECISION_SECTION,
@@ -39,10 +40,10 @@ from agentized.status_gates import (
     duplicate_field_errors,
     extract_status,
     has_value_line,
-    header_block,
     is_known_status,
     is_real_pr_ref,
     normalize_status,
+    header_block,
     parse_task_fields,
     previous_task_texts_from_git,
     resolve_validate_base_ref,
@@ -510,8 +511,6 @@ def test_claim_and_file_edges(tmp_path: Path):
 
 
 def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
-    import subprocess
-
     from agentized import tasks as tasks_mod
     from agentized.status_gates import (
         ALL_STATUSES,
@@ -521,6 +520,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
         STATUS_ALIASES,
         default_repo_root_for_tasks,
     )
+    import subprocess
 
     assert ALL_STATUSES is tasks_mod.ALL_STATUSES
     assert CANONICAL_STATUSES is tasks_mod.CANONICAL_STATUSES
@@ -754,10 +754,10 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path, monkeypatch):
 
 
 def _with_sections(progress_body: str, decision_body: str) -> str:
-    """Build task text; bodies are exact ``section_body`` values (no eaten delimiter)."""
+    """Build task text; bodies are exact raw ``section_body`` values."""
     return _task(
         "open",
-        body=f"{PROGRESS_SECTION}{progress_body}\n{DECISION_SECTION}{decision_body}",
+        body=f"{PROGRESS_SECTION}{progress_body}{DECISION_SECTION}{decision_body.rstrip(chr(10))}",
     )
 
 
@@ -771,10 +771,9 @@ def test_progress_decision_exact_prefix_gate(tmp_path: Path):
     assert MSG_DECISION_PREFIX == (
         "Decision Log is not an exact prefix of base (append-only; corrections = append only)"
     )
-    # Progress: delimiter \\n## consumes the inserted \\n. Decision: _task EOF \\n stays in body.
-    prog = "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep"
+    prog = "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep\n\n"
     dec = "\n\n_(append-only)_\n- decide-a\n"
-    base = _with_sections(prog, dec.rstrip("\n"))  # _task adds final \\n → body == dec
+    base = _with_sections(prog, dec)
 
     assert section_body("no markers", PROGRESS_SECTION) is None
     assert section_body(base, PROGRESS_SECTION) == prog
@@ -786,38 +785,38 @@ def test_progress_decision_exact_prefix_gate(tmp_path: Path):
     assert section_is_prefix(base, base, PROGRESS_SECTION) is True
 
     # pure append → green
-    appended = _with_sections(
-        prog + "\n- 2026-11-21 11:00 UTC: append",
-        (dec + "- decide-b\n").rstrip("\n"),
+    prog_app = (
+        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: keep\n- 2026-11-21 11:00 UTC: append\n\n"
     )
+    appended = _with_sections(prog_app, dec + "- decide-b\n")
     assert append_only_section_errors(base, appended) == ()
     assert section_is_prefix(base, appended, PROGRESS_SECTION) is True
     assert section_is_prefix(base, appended, DECISION_SECTION) is True
 
     # delete line → red
-    deleted_line = _with_sections("\n\n_(append-only)_", dec.rstrip("\n"))
+    deleted_line = _with_sections("\n\n_(append-only)_\n\n", dec)
     assert append_only_section_errors(base, deleted_line) == (MSG_PROGRESS_PREFIX,)
 
     # reword → red
     reworded = _with_sections(
-        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: CHANGED",
-        dec.rstrip("\n"),
+        "\n\n_(append-only)_\n- 2026-11-21 10:00 UTC: CHANGED\n\n",
+        dec,
     )
     assert append_only_section_errors(base, reworded) == (MSG_PROGRESS_PREFIX,)
 
     # delete blank line inside Progress → red
-    prog_blank = "\n\n_(append-only)_\n- keep\n\n- next"
-    base_blank = _with_sections(prog_blank, dec.rstrip("\n"))
-    no_blank = _with_sections("\n\n_(append-only)_\n- keep\n- next", dec.rstrip("\n"))
+    prog_blank = "\n\n_(append-only)_\n- keep\n\n- next\n\n"
+    base_blank = _with_sections(prog_blank, dec)
+    no_blank = _with_sections("\n\n_(append-only)_\n- keep\n- next\n\n", dec)
     assert section_body(base_blank, PROGRESS_SECTION) == prog_blank
     assert append_only_section_errors(base_blank, no_blank) == (MSG_PROGRESS_PREFIX,)
 
     # Decision-only rewrite → red Decision
-    bad_dec = _with_sections(prog, "\n\n_(append-only)_\n- decide-Z")
+    bad_dec = _with_sections(prog, "\n\n_(append-only)_\n- decide-Z\n")
     assert append_only_section_errors(base, bad_dec) == (MSG_DECISION_PREFIX,)
 
     # both broken → both messages, Progress first
-    both_bad = _with_sections("\n\nx", "\n\ny")
+    both_bad = _with_sections("\n\nx\n\n", "\n\ny\n")
     assert append_only_section_errors(base, both_bad) == (
         MSG_PROGRESS_PREFIX,
         MSG_DECISION_PREFIX,
@@ -839,7 +838,7 @@ def test_progress_decision_exact_prefix_gate(tmp_path: Path):
     # new task file (not on base) → green once prior file is fixed
     path.write_text(appended, encoding="utf-8")
     (d / "T-261121-brand.md").write_text(
-        _with_sections("\n\n_(append-only)_", "\n\n_(append-only)_"),
+        _with_sections("\n\n_(append-only)_\n\n", "\n\n_(append-only)_\n"),
         encoding="utf-8",
     )
     assert validate_tasks_dir(d, previous_by_name={name: base}) == GateResult(True)
