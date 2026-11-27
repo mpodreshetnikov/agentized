@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
+import pytest
 from agentized.status_gates import (
     ALL_STATUSES,
     CANONICAL_STATUSES,
     DECISION_SECTION,
     INDEX_ACTIVE_STATUSES,
+    MSG_BASE_NOT_BEFORE_HEAD,
+    MSG_BASE_UNRESOLVED,
     MSG_DECISION_DUPLICATE,
     MSG_DECISION_PREFIX,
     MSG_PROGRESS_DUPLICATE,
@@ -18,9 +22,11 @@ from agentized.status_gates import (
     PROGRESS_SECTION,
     STATUS_ALIASES,
     GateResult,
+    append_only_section_errors,
     is_known_status,
     normalize_status,
-    append_only_section_errors,
+    require_base_before_head,
+    resolve_validate_base_ref,
     run_tasks_validate,
     section_body,
     section_heading_count,
@@ -257,6 +263,7 @@ def test_run_tasks_validate_merges_tip_errors_exact(tmp_path: Path, monkeypatch)
     tip_calls: list[object] = []
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", lambda root, *, explicit=None: "BASE")
+    monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {"T-x.md": "# old\n"})
     monkeypatch.setattr(
         sg,
@@ -293,3 +300,134 @@ def test_run_tasks_validate_merges_tip_errors_exact(tmp_path: Path, monkeypatch)
     assert ref2 == "BASE"
     assert tip_calls == ["#7"]
     assert result2 == GateResult(False, ("gate-err",))
+
+
+def test_last_line_is_frozen_exact_oracles():
+    """Whatever follows the last base line must start on a new line (no suffix / trailing blanks)."""
+    base = "## Progress\n\n- a\n\n## Decision Log\n\n- d\n"
+    head = "## Progress\n\n- a{x}\n\n## Decision Log\n\n- d\n"
+    assert section_is_prefix(base, head.format(x=""), PROGRESS_SECTION) is True
+    assert section_is_prefix(base, head.format(x="b"), PROGRESS_SECTION) is False
+    assert section_is_prefix(base, head.format(x=" "), PROGRESS_SECTION) is False
+    assert section_is_prefix(base, head.format(x="  \t"), PROGRESS_SECTION) is False
+    assert section_is_prefix(base, head.format(x="\n- b"), PROGRESS_SECTION) is True
+    assert section_is_prefix(base, head.format(x="\n\n- b"), PROGRESS_SECTION) is True
+    assert append_only_section_errors(base, head.format(x="b")) == (MSG_PROGRESS_PREFIX,)
+    assert append_only_section_errors(base, head.format(x=" ")) == (MSG_PROGRESS_PREFIX,)
+    assert append_only_section_errors(base, head.format(x="\n- b")) == ()
+    # EOF section (Decision Log last): same freeze, with or without a final newline.
+    eof = "## Decision Log\n\n- d"
+    assert section_is_prefix(eof, eof, DECISION_SECTION) is True
+    assert section_is_prefix(eof, eof + "x", DECISION_SECTION) is False
+    assert section_is_prefix(eof, eof + " ", DECISION_SECTION) is False
+    assert section_is_prefix(eof, eof + "\n- e\n", DECISION_SECTION) is True
+    assert section_is_prefix(eof, eof + "\n", DECISION_SECTION) is True
+    assert section_is_prefix(eof + "\n", eof + "\n- e", DECISION_SECTION) is True
+    assert section_is_prefix("## Decision Log", "## Decision Log\n- e", DECISION_SECTION) is True
+    assert section_is_prefix("## Decision Log", "## Decision Log", DECISION_SECTION) is True
+
+
+def _git(root: Path, *args: str) -> str:
+    cmd = ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args]
+    return subprocess.run(cmd, cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _task_text(progress_line: str) -> str:
+    return (
+        "# T-261121-hist — history\n\nстатус: open\nтеги: t\nродитель: _(пусто)_\n"
+        "claim: _(пусто)_\n\nЦенность: v\n\n## Цель\n\ng\n\n## Progress\n\n"
+        f"_(append-only)_\n- {progress_line}\n\n## Decision Log\n\n_(append-only)_\n"
+    )
+
+
+def _history_repo(tmp_path: Path) -> tuple[Path, Path, str, str]:
+    """Return (root, tasks, base_sha, head_sha); head rewrites the base Progress line."""
+    root = tmp_path / "repo"
+    tasks = root / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    root.joinpath("README.md").write_text("x\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    task = tasks / "T-261121-hist.md"
+    task.write_text(_task_text("original"), encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "base")
+    base = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", base)
+    task.write_text(_task_text("REWRITTEN"), encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "rewrite")
+    return root, tasks, base, _git(root, "rev-parse", "HEAD")
+
+
+def test_resolve_ignores_env_and_guards_head_base(tmp_path: Path, monkeypatch):
+    root, tasks, base, head = _history_repo(tmp_path)
+    for var in ("MUTATION_BASE", "TASKS_VALIDATE_BASE"):
+        monkeypatch.delenv("MUTATION_BASE", raising=False)
+        monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
+        monkeypatch.setenv(var, "HEAD")
+        assert resolve_validate_base_ref(root) == base
+        monkeypatch.setenv(var, head)
+        assert resolve_validate_base_ref(root) == base
+        ref, result = run_tasks_validate(tasks, repo_root=root)
+        assert ref == base
+        assert result.ok is False
+        assert any(MSG_PROGRESS_PREFIX in e for e in result.errors)
+    monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
+
+    assert resolve_validate_base_ref(root, explicit="X") == "X"
+    for bad in ("HEAD", head, "@"):
+        with pytest.raises(RuntimeError) as exc:
+            run_tasks_validate(tasks, repo_root=root, base_ref=bad)
+        assert str(exc.value) == MSG_BASE_NOT_BEFORE_HEAD.format(ref=bad)
+    require_base_before_head(root, base)
+    _git(root, "checkout", "-q", "-b", "later")
+    (root / "later.txt").write_text("l\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "later")
+    later = _git(root, "rev-parse", "HEAD")
+    _git(root, "checkout", "-q", head)
+    with pytest.raises(RuntimeError) as exc2:
+        require_base_before_head(root, later)
+    assert str(exc2.value) == MSG_BASE_NOT_BEFORE_HEAD.format(ref=later)
+    with pytest.raises(RuntimeError) as exc3:
+        require_base_before_head(root, "no-such-ref")
+    assert str(exc3.value).startswith(
+        MSG_BASE_UNRESOLVED.format(ref="no-such-ref", detail="").rstrip()
+    )
+    assert "no-such-ref" in str(exc3.value)
+
+
+def test_main_push_uses_first_parent_not_head(tmp_path: Path):
+    root, tasks, base, head = _history_repo(tmp_path)
+    _git(root, "update-ref", "refs/remotes/origin/main", head)
+    assert resolve_validate_base_ref(root) == base
+    ref, result = run_tasks_validate(tasks, repo_root=root)
+    assert ref == base
+    assert result.ok is False
+    # Single-commit repo: nothing earlier than HEAD → fail closed.
+    solo = tmp_path / "solo"
+    (solo / "context" / "tasks").mkdir(parents=True)
+    (solo / "context" / "tasks" / "T-261121-hist.md").write_text(_task_text("a"), encoding="utf-8")
+    _git(solo, "init", "-q")
+    _git(solo, "add", "-A")
+    _git(solo, "commit", "-qm", "only")
+    only = _git(solo, "rev-parse", "HEAD")
+    _git(solo, "update-ref", "refs/remotes/origin/main", only)
+    assert resolve_validate_base_ref(solo) == only
+    with pytest.raises(RuntimeError) as exc:
+        run_tasks_validate(solo / "context" / "tasks", repo_root=solo)
+    assert str(exc.value) == MSG_BASE_NOT_BEFORE_HEAD.format(ref=only)
+
+
+def test_resolve_git_oserror_message(tmp_path: Path, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("boom")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    with pytest.raises(RuntimeError) as exc:
+        resolve_validate_base_ref(tmp_path)
+    assert str(exc.value) == "git merge-base failed: boom"
+    with pytest.raises(RuntimeError) as exc2:
+        require_base_before_head(tmp_path, "main")
+    assert str(exc2.value) == MSG_BASE_UNRESOLVED.format(ref="main", detail="boom")

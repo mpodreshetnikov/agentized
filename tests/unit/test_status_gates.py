@@ -451,10 +451,9 @@ def test_git_previous_and_base_ref(tmp_path: Path, monkeypatch):
 
     assert resolve_validate_base_ref(tmp_path, explicit="abc123") == "abc123"
     monkeypatch.setenv("MUTATION_BASE", "env-base")
-    assert resolve_validate_base_ref(tmp_path) == "env-base"
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.setenv("TASKS_VALIDATE_BASE", "tv-base")
-    assert resolve_validate_base_ref(tmp_path) == "tv-base"
+    assert resolve_validate_base_ref(tmp_path) == "origin/main"
+    monkeypatch.delenv("MUTATION_BASE", raising=False)
     monkeypatch.delenv("TASKS_VALIDATE_BASE", raising=False)
     monkeypatch.setattr(
         subprocess,
@@ -614,6 +613,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
     from agentized.task_schema import rebuild_task_index
 
     (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
+    monkeypatch.setattr("agentized.status_gates.require_base_before_head", lambda *a: None)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref == "deadbeef" and result.ok is True
 
@@ -697,6 +697,7 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
         return GateResult(False, ("illegal transition open → done",))
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", fake_resolve)
+    monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
     monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")
@@ -745,8 +746,7 @@ def test_two_commit_open_to_done_vs_base(tmp_path: Path, monkeypatch):
         check=True,
         capture_output=True,
     )
-    monkeypatch.setenv("MUTATION_BASE", base)
-    prev = previous_task_texts_from_git(tasks, repo_root=root)
+    prev = previous_task_texts_from_git(tasks, repo_root=root, ref=base)
     assert "T-261116-ci.md" in prev and "статус: open" in prev["T-261116-ci.md"]
     result = validate_tasks_dir(tasks, previous_by_name=prev)
     assert result.ok is False

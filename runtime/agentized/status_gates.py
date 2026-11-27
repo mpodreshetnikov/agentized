@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -83,6 +82,11 @@ MSG_DECISION_PREFIX = (
 )
 MSG_PROGRESS_DUPLICATE = "duplicate ## Progress heading (append-only history must have one)"
 MSG_DECISION_DUPLICATE = "duplicate ## Decision Log heading (append-only history must have one)"
+MSG_BASE_NOT_BEFORE_HEAD = (
+    "append-only base {ref!r} is HEAD or a descendant of HEAD; "
+    "history base must be an earlier commit (env vars cannot choose it)"
+)
+MSG_BASE_UNRESOLVED = "append-only base {ref!r} cannot be resolved: {detail}"
 PROGRESS_SECTION = "## Progress"
 DECISION_SECTION = "## Decision Log"
 
@@ -297,11 +301,11 @@ def _read_task_text(path: Path) -> str:
     return path.read_bytes().decode(TEXT_ENCODING)
 
 
-_NEXT_H2_RE = re.compile(r"^## ", re.M)
+_NEXT_H2_RE = re.compile(r"^## ", re.MULTILINE)
 
 
 def _heading_re(marker: str) -> re.Pattern[str]:
-    return re.compile(rf"^{re.escape(marker)}[^\S\n]*$", re.M)
+    return re.compile(rf"^{re.escape(marker)}[^\S\n]*$", re.MULTILINE)
 
 
 def section_heading_count(text: str, marker: str) -> int:
@@ -332,6 +336,12 @@ def _trailing_newlines(body: str) -> int:
     return len(body) - len(body.rstrip("\n"))
 
 
+def _append_starts_new_line(old: str, new: str) -> bool:
+    """Last base line is frozen: whatever follows it must begin on a new line."""
+    tail = new[len(old) :]
+    return old[-1:] in {"", "\n"} or tail == "" or tail.startswith("\n")
+
+
 def section_is_prefix(old_text: str, new_text: str, marker: str) -> bool:
     """True when base section is absent, or its body is preserved as an exact prefix of HEAD.
 
@@ -347,9 +357,14 @@ def section_is_prefix(old_text: str, new_text: str, marker: str) -> bool:
     old, bounded = old_span
     new = new_span[0]
     if not bounded:
-        return new.startswith(old)
-    content = old.rstrip("\n") or old
-    return new.startswith(content) and _trailing_newlines(new) == _trailing_newlines(old)
+        return new.startswith(old) and _append_starts_new_line(old, new)
+    old_c = old.rstrip("\n")
+    if not old_c:
+        content_ok = new.startswith(old)
+    else:
+        new_c = new.rstrip("\n")
+        content_ok = new_c == old_c or new_c.startswith(old_c + "\n")
+    return content_ok and _trailing_newlines(new) == _trailing_newlines(old)
 
 
 def append_only_section_errors(old_text: str, new_text: str) -> tuple[str, ...]:
@@ -449,21 +464,42 @@ def previous_task_texts_from_git(
     return out
 
 
+def _git_stdout(repo_root: Path, args: list[str]) -> str | None:
+    try:
+        proc = _run_git(repo_root, args)
+    except OSError as exc:
+        raise RuntimeError(f"git {args[0]} failed: {exc}") from exc
+    if proc.returncode != 0:
+        return None
+    return (proc.stdout or "").strip() or None
+
+
 def resolve_validate_base_ref(repo_root: Path, *, explicit: str | None = None) -> str:
+    """History base for append-only checks: explicit ref, else merge-base with origin/main.
+
+    Environment variables never choose the base. When HEAD itself is the merge-base
+    (main push), the first parent is used so the merge is still compared with history.
+    """
     if explicit:
         return explicit
-    env = (os.environ.get("MUTATION_BASE") or os.environ.get("TASKS_VALIDATE_BASE") or "").strip()
-    if env:
-        return env
+    sha = _git_stdout(repo_root, ["merge-base", "origin/main", "HEAD"])
+    if not sha:
+        return "origin/main"
+    if sha == _git_stdout(repo_root, ["rev-parse", "HEAD"]):
+        return _git_stdout(repo_root, ["rev-parse", "HEAD^"]) or sha
+    return sha
+
+
+def require_base_before_head(repo_root: Path, ref: str) -> None:
+    """Fail closed when ``ref`` is HEAD or a descendant of HEAD (rewrite would pass trivially)."""
     try:
-        proc = _run_git(repo_root, ["merge-base", "origin/main", "HEAD"])
+        proc = _run_git(repo_root, ["merge-base", "--is-ancestor", "HEAD", ref])
     except OSError as exc:
-        raise RuntimeError(f"git merge-base failed: {exc}") from exc
+        raise RuntimeError(MSG_BASE_UNRESOLVED.format(ref=ref, detail=exc)) from exc
     if proc.returncode == 0:
-        sha = (proc.stdout or "").strip()
-        if sha:
-            return sha
-    return "origin/main"
+        raise RuntimeError(MSG_BASE_NOT_BEFORE_HEAD.format(ref=ref))
+    if proc.returncode != 1:
+        raise RuntimeError(MSG_BASE_UNRESOLVED.format(ref=ref, detail=_cmd_detail(proc)))
 
 
 def validate_tasks_dir(
@@ -521,6 +557,7 @@ def run_tasks_validate(
     from .tip_hygiene import validate_tip_hygiene
 
     ref = resolve_validate_base_ref(repo_root, explicit=base_ref)
+    require_base_before_head(repo_root, ref)
     previous = previous_task_texts_from_git(tasks_dir, repo_root=repo_root, ref=ref)
     result = validate_tasks_dir(tasks_dir, previous_by_name=previous)
     tip = validate_tip_hygiene(tasks_dir, pr=pr)
