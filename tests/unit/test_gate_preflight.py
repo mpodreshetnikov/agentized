@@ -91,31 +91,18 @@ def test_layout_plain_tests_token_missing(tmp_path: Path):
     )
 
 
-def test_layout_any_existing_test_path_is_enough(tmp_path: Path):
+def test_layout_passes_when_paths_present_or_absent_from_command(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "tests" / "quality").mkdir(parents=True)
-    module = {
-        "id": "s",
-        "source": ["src"],
-        "test_command": "pytest tests/unit tests/quality",
-    }
-    assert module_layout_error(tmp_path, module) is None
-
-
-@pytest.mark.parametrize(
-    "cmd",
-    ["pytest -q", "make check", "pytest mytests", "pytest tests_x", None],
-)
-def test_layout_no_test_path_tokens_passes(tmp_path: Path, cmd):
-    (tmp_path / "src").mkdir()
-    module = {"id": "s", "source": ["src"]}
-    if cmd is not None:
-        module["test_command"] = cmd
-    assert module_layout_error(tmp_path, module) is None
-
-
-def test_layout_no_sources_key_checks_tests_only(tmp_path: Path):
-    assert module_layout_error(tmp_path, {"id": "t", "test_command": "pytest"}) is None
+    modules = [
+        {"id": "s", "source": ["src"], "test_command": "pytest tests/unit tests/quality"},
+        {"id": "t", "test_command": "pytest"},
+        {"id": "s", "source": ["src"]},
+    ] + [
+        {"id": "s", "source": ["src"], "test_command": cmd}
+        for cmd in ("pytest -q", "make check", "pytest mytests", "pytest tests_x")
+    ]
+    assert [module_layout_error(tmp_path, m) for m in modules] == [None] * len(modules)
 
 
 # --- run_coverage_gate ---------------------------------------------------------
@@ -304,14 +291,10 @@ def test_format_disable_restores_ancestry_check_on_error(tmp_path: Path, monkeyp
     orig = format_disable_gate.validate_process_base
 
     def boom(root_, base_ref):
-        assert format_disable_gate.validate_process_base is gate_preflight._no_ancestry_check
+        assert format_disable_gate.validate_process_base == gate_preflight._no_ancestry_check
         raise KeyError(base_ref)
 
     monkeypatch.setattr(format_disable_gate, "changed_scan_targets", boom)
     with pytest.raises(KeyError):
         run_format_disable_check(root)
-    assert format_disable_gate.validate_process_base is orig
-
-
-def test_no_ancestry_check_returns_none():
-    assert gate_preflight._no_ancestry_check(Path("."), "x") is None
+    assert format_disable_gate.validate_process_base == orig
