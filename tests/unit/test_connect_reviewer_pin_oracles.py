@@ -448,9 +448,19 @@ def test_pin_reviewer_missing_reviewer_key_falls_back_to_defaults(tmp_path: Path
 
 def test_pin_reviewer_reads_quality_for_given_context(tmp_path: Path):
     _agents_src(tmp_path)
-    with _load_quality_returning({"reviewer": {}}) as loader:
-        pin_reviewer_agents(tmp_path, "ctx/deep")
-    loader.assert_called_once_with(tmp_path, "ctx/deep")
+    for rel, model in (("context", "wrong-codex"), ("ctx/deep", "deep-codex")):
+        cfg_path = tmp_path / rel / "quality.json"
+        cfg_path.parent.mkdir(parents=True)
+        cfg_path.write_text(
+            json.dumps({"reviewer": {"harnesses": {"codex": {"model": model}}}}),
+            encoding="utf-8",
+        )
+    result = pin_reviewer_agents(tmp_path, "ctx/deep")
+    assert result["models"] == {
+        "cursor": DEFAULT_MODEL,
+        "claude": "claude-fable-5-2",
+        "codex": "deep-codex",
+    }
 
 
 def test_pin_reviewer_real_quality_json_roundtrip(tmp_path: Path):
