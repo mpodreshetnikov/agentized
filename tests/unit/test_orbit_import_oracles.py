@@ -12,6 +12,7 @@ from agentized.orbit_import import (
     MSG_NO_FM,
     MSG_NO_STATUS,
     MSG_NO_VALUE,
+    MSG_UNRESOLVED,
     OrbitTaskDraft,
     _id_from_filename,
     _parse_scalar,
@@ -798,8 +799,8 @@ def test_orbit_open_aliases_and_closed_skipped(tmp_path: Path):
     for tid, st in (("T-0101", "in-review"), ("T-0102", "blocked"), ("T-0103", "Review")):
         _feat(src / f"{tid}.md", tid, status=st, blocked_by="ext")
     _feat(src / "T-0104.md", "T-0104", status="done")
-    _feat(src / "T-0105.md", "T-0105", status="dropped", depends_on="[T-0104]")
-    _feat(src / "T-0106.md", "T-0106", status="open", depends_on="[T-0104, T-0101]")
+    _feat(src / "T-0105.md", "T-0105", status="canceled")
+    _feat(src / "T-0106.md", "T-0106", status="open", depends_on="[T-0101]")
     rep = import_orbit_tasks(src, dest, dry_run=False)
     assert rep.errors == [] and rep.closed == ["T-0104", "T-0105"]
     assert sorted(d.orbit_status for d in rep.drafts) == ["", "Review", "blocked", "in-review"]
@@ -811,12 +812,20 @@ def test_orbit_open_aliases_and_closed_skipped(tmp_path: Path):
     assert "Orbit status:" not in texts["T-0106"]
     last = next(d for d in rep.drafts if d.orbit_id == "T-0106")
     assert last.depends_on == [next(d.task_id for d in rep.drafts if d.orbit_id == "T-0101")]
-    assert any("dropped depends_on closed in Orbit: ['T-0104']" in w for w in rep.warnings)
     assert len(list(dest.glob("T-*.md"))) == 4
-    odd = _feat(src / "T-0107.md", "T-0107", status="wip")
-    assert odd.exists()
-    again = import_orbit_tasks(src, dest, dry_run=True)
-    assert any("unknown Orbit status 'wip'" in e for e in again.errors)
+
+
+def test_unknown_and_alias_status_fail_closed_dep_on_closed_fails(tmp_path: Path):
+    src, dest = _sd(tmp_path)
+    _feat(src / "T-0301.md", "T-0301", status="wip")
+    _feat(src / "T-0302.md", "T-0302", status="dropped")
+    _feat(src / "T-0303.md", "T-0303", status="done")
+    _feat(src / "T-0304.md", "T-0304", depends_on="[T-0303]")
+    rep = import_orbit_tasks(src, dest, dry_run=False)
+    assert rep.closed == ["T-0303"] and rep.would_write == [] and not list(dest.glob("T-*.md"))
+    assert any("unknown Orbit status 'wip'" in e for e in rep.errors)
+    assert any("unknown Orbit status 'dropped'" in e for e in rep.errors)
+    assert any(e.endswith(MSG_UNRESOLVED.format(raw="T-0303")) for e in rep.errors)
 
 
 def test_e2e_import_commit_tasks_validate(tmp_path: Path, monkeypatch):

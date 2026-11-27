@@ -28,7 +28,9 @@ MSG_NO_STATUS = "missing or empty Orbit status (refusing silent idea)"
 MSG_NO_FM = "no front matter / id"
 MSG_NO_VALUE = "missing Orbit value/Ценность (refusing placeholder)"
 MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
-MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by)"
+MSG_UNRESOLVED = (
+    "unresolved id {raw!r} (depends_on/superseded_by; not imported, e.g. closed in Orbit)"
+)
 # Orbit states Agentized cannot start a new task in: imported as open, original kept in body.
 ORBIT_AS_OPEN = frozenset({"review", "in-review", "blocked"})
 ORBIT_CLOSED = frozenset({"done", "canceled"})
@@ -211,13 +213,16 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
             status = ""
             error = MSG_NO_STATUS
         else:
-            mapped = "open" if cleaned.lower() in ORBIT_AS_OPEN else map_orbit_status(cleaned)
+            key = cleaned.lower()
+            mapped = "open" if key in ORBIT_AS_OPEN else map_orbit_status(cleaned)
+            if mapped in ORBIT_CLOSED and key not in ORBIT_CLOSED:
+                mapped = None
             if mapped is None:
                 status = ""
                 error = f"unknown Orbit status {cleaned!r}"
             else:
                 status = mapped
-                if cleaned.lower() in ORBIT_AS_OPEN:
+                if key in ORBIT_AS_OPEN:
                     orbit_status = cleaned
                     warnings.append(f"{task_id}: Orbit status {cleaned} → open (kept in body)")
     tags_val = meta.get("tags") or []
@@ -448,10 +453,6 @@ def import_orbit_tasks(
     for tid in this_run_map.values():
         id_map[tid] = tid
     for draft, _dest in pending:
-        gone = [d for d in draft.depends_on if d in report.closed]
-        if gone:
-            draft.depends_on = [d for d in draft.depends_on if d not in gone]
-            report.warnings.append(f"{draft.task_id}: dropped depends_on closed in Orbit: {gone}")
         for msg in _remap_draft_refs(draft, id_map):
             report.errors.append(f"{draft.task_id}: {msg}")
             report.warnings.append(f"{draft.task_id}: {msg}")
