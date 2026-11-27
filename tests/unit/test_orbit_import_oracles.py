@@ -876,6 +876,11 @@ def test_closed_edges_become_body_notes(tmp_path: Path):
             notes="",
         ),
     }
+    assert {d.orbit_id: d.superseded_by for d in rep.drafts} == {
+        "T-0401": "",
+        "T-0402": "",
+        "T-0403": ids["T-0401"],
+    }
     assert sorted(len(d.closed_edges) for d in rep.drafts) == [0, 0, 3]
     assert rep.closed_edge_count == 3 and rep.as_dict()["closed_edges"] == 3
     assert format_report(rep).splitlines()[:8] == [
