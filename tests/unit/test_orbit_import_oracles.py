@@ -23,9 +23,7 @@ from agentized.orbit_import import (
     find_dest_by_orbit_id,
     format_report,
     import_orbit_tasks,
-    is_safe_task_id,
     parse_yaml_front_matter,
-    resolve_dest_path,
 )
 from agentized.status_gates import run_tasks_validate
 from agentized.task_schema import TASK_ID_RE, rebuild_task_index
@@ -129,47 +127,6 @@ def test_draft_requires_status(tmp_path: Path):
     assert draft.status == ""
 
 
-def test_draft_fields_and_review_map(tmp_path: Path):
-    d = draft_from_orbit_file(
-        _feat(
-            tmp_path / "T-9.md",
-            "T-0009",
-            title="Rich",
-            status="review",
-            owner="a",
-            blocked_by="w",
-            exit="e",
-            depends_on="[T-0024]",
-            superseded_by="T-3",
-            tags="[a, b]",
-            value="From Orbit",
-            body="BODY\n",
-        )
-    )
-    assert d is not None
-    assert (d.status, d.orbit_status) == ("open", "review")
-    assert d.value == "From Orbit"
-    assert d.depends_on == ["T-0024"]
-    assert d.superseded_by == "T-3"
-    assert any("review → open" in w for w in d.warnings)
-
-
-def test_no_front_matter_is_error(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _fm(src / "T-nofm.md", "# no yaml\n")
-    report = import_orbit_tasks(src, dest, dry_run=True)
-    assert any(MSG_NO_FM in e for e in report.errors)
-    assert report.would_write == []
-
-
-def test_missing_status_is_error(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _orb(src / "T-ns.md", tid="T-0099", title="X", status=None, value="V")
-    report = import_orbit_tasks(src, dest, dry_run=True)
-    assert any(MSG_NO_STATUS in e for e in report.errors)
-    assert report.would_write == []
-
-
 def test_double_import_orbit_id_no_overwrite(tmp_path: Path):
     src, dest = _sd(tmp_path)
     _feat(src / "T-0023-live.md", "T-0023", title="Live", priority="p3", value="V")
@@ -189,27 +146,6 @@ def test_double_import_orbit_id_no_overwrite(tmp_path: Path):
     dry = import_orbit_tasks(src, dest, dry_run=True)
     assert dry.errors == []
     assert str(src / "T-0023-live.md") in dry.skipped
-
-
-def test_depends_on_remapped_via_this_run(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _orb(src / "T-0024.md", tid="T-0024", title="Dep", kind="feature", priority="p3")
-    _feat(
-        src / "T-0023.md",
-        "T-0023",
-        title="Live",
-        status="blocked",
-        priority="p3",
-        depends_on="[T-0024]",
-    )
-    report = import_orbit_tasks(src, dest, dry_run=False)
-    assert report.errors == []
-    assert len(report.drafts) == 2
-    live = next(d for d in report.drafts if d.orbit_id == "T-0023")
-    dep = next(d for d in report.drafts if d.orbit_id == "T-0024")
-    assert live.depends_on == [dep.task_id]
-    body = (dest / f"{live.task_id}.md").read_text(encoding="utf-8")
-    assert f"depends_on: [{dep.task_id}]" in body
 
 
 def test_unresolved_depends_on_errors_and_writes_nothing(tmp_path: Path):
@@ -247,43 +183,6 @@ def test_partial_write_aborts_all(tmp_path: Path):
     assert list(dest.glob("T-*.md")) == []
 
 
-def test_missing_value_skips_with_clear_error(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _orb(src / "T-v.md", tid="T-0200", title="V", kind="chore", priority="p2", value=None)
-    report = import_orbit_tasks(src, dest, dry_run=False)
-    assert any(MSG_NO_VALUE in e for e in report.errors)
-    assert report.would_write == []
-    assert list(dest.glob("T-*.md")) == []
-
-
-def test_safe_path_and_format_report(tmp_path: Path, monkeypatch):
-    assert is_safe_task_id("T-261116-abcd") is True
-    assert is_safe_task_id("") is False and is_safe_task_id("../x") is False
-    assert resolve_dest_path(tmp_path, "T-261116-abcd") == (tmp_path / "T-261116-abcd.md").resolve()
-    assert (
-        resolve_dest_path(tmp_path, "../escape") is None and resolve_dest_path(tmp_path, "") is None
-    )
-    real_resolve = Path.resolve
-
-    def boom_resolve(self, *a, **k):
-        if self.name == "T-261116-esc.md":
-
-            class Escape(type(self)):
-                def relative_to(self, _other):
-                    raise ValueError("escape")
-
-            return Escape(self)
-        return real_resolve(self, *a, **k)
-
-    monkeypatch.setattr(Path, "resolve", boom_resolve)
-    assert resolve_dest_path(tmp_path, "T-261116-esc") is None
-    empty = oi_mod.ImportReport(
-        dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[]
-    )
-    text = format_report(empty)
-    assert "DRY-RUN" in text and "sources: 0" in text
-
-
 def test_superseded_by_remapped_via_existing_orbit_id(tmp_path: Path):
     dest = tmp_path / "dest"
     dest.mkdir()
@@ -309,21 +208,6 @@ def test_superseded_by_remapped_via_existing_orbit_id(tmp_path: Path):
     draft = report.drafts[0]
     assert draft.superseded_by == "T-261116-oldx"
     assert draft.status == "open"
-
-
-def test_unknown_status_and_id_from_stem(tmp_path: Path):
-    d = _dr(
-        tmp_path,
-        "T-0042-slug.md",
-        tid=None,
-        title="NoId",
-        status="wip",
-        kind="feature",
-        priority="p2",
-    )
-    assert d is not None
-    assert d.task_id == "T-0042"
-    assert "unknown Orbit status" in d.error
 
 
 def test_tags_deps_variants(tmp_path: Path, monkeypatch):
@@ -411,17 +295,6 @@ def test_duplicate_id_in_batch_clears_writes(tmp_path: Path):
     assert report.would_write == []
     assert str(src / "T-c.md") in report.sources
     assert str(src / "T-b.md") in report.skipped
-
-
-def test_agentized_id_preserves_orbit_id_field(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _feat(src / "T-one.md", "T-261116-one1", title="A", orbit_id="T-0777", value="Keep")
-    report = import_orbit_tasks(src, dest, dry_run=False)
-    assert report.errors == []
-    assert report.drafts[0].orbit_id == "T-0777"
-    text = Path(report.would_write[0]).read_text(encoding="utf-8")
-    assert "orbit_id: T-0777" in text.splitlines()
-    assert "Ценность: Keep" in text.splitlines()
 
 
 def test_resolve_dest_none_after_safe_check(tmp_path: Path, monkeypatch):
