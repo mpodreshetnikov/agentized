@@ -27,9 +27,8 @@ MSG_NO_STATUS = "missing or empty Orbit status (refusing silent idea)"
 MSG_NO_FM = "no front matter / id"
 MSG_NO_VALUE = "missing Orbit value/Ценность (refusing placeholder)"
 MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
-MSG_UNRESOLVED = (
-    "unresolved id {raw!r} (depends_on/superseded_by; not imported, e.g. closed in Orbit)"
-)
+MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by; unknown id, not imported)"
+MSG_CLOSED_EDGE = "{field} Orbit {raw}: closed in Orbit, not imported"
 # Orbit states Agentized cannot start a new task in: imported as open, original kept in body.
 ORBIT_AS_OPEN = frozenset({"review", "blocked"})
 ORBIT_CLOSED = frozenset({"done", "dropped"})
@@ -57,6 +56,7 @@ class OrbitTaskDraft:
     orbit_id: str = ""
     superseded_by: str = ""
     orbit_status: str = ""
+    closed_edges: list[str] = field(default_factory=list)
     value: str = ""
     body: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -74,6 +74,10 @@ class ImportReport:
     drafts: list[OrbitTaskDraft] = field(default_factory=list)
     closed: list[str] = field(default_factory=list)
 
+    @property
+    def closed_edge_count(self) -> int:
+        return sum(len(d.closed_edges) for d in self.drafts)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "dry_run": self.dry_run,
@@ -84,6 +88,7 @@ class ImportReport:
             "errors": list(self.errors),
             "count": len(self.drafts),
             "closed_in_orbit": len(self.closed),
+            "closed_edges": self.closed_edge_count,
         }
 
 
@@ -304,6 +309,7 @@ def agentized_markdown(draft: OrbitTaskDraft) -> str:
     )
     preserved = draft.body.strip()
     kept = f"Orbit status: {draft.orbit_status}\n\n" if draft.orbit_status else ""
+    kept += "".join(f"{note}\n\n" for note in draft.closed_edges)
     history = (
         "\n## Imported body (preserved ids / history links)\n\n"
         f"_source: `{draft.source.name}`_\n\n"
@@ -334,22 +340,31 @@ def _remap_id(raw: str, id_map: dict[str, str]) -> str | None:
     return None
 
 
-def _remap_draft_refs(draft: OrbitTaskDraft, id_map: dict[str, str]) -> list[str]:
+def _remap_draft_refs(
+    draft: OrbitTaskDraft, id_map: dict[str, str], closed: list[str]
+) -> list[str]:
     errs: list[str] = []
     new_deps: list[str] = []
     for dep in draft.depends_on:
         mapped = _remap_id(dep, id_map)
-        if mapped is None:
-            errs.append(MSG_UNRESOLVED.format(raw=dep))
-        else:
+        if mapped is not None:
             new_deps.append(mapped)
+        elif dep in closed:
+            draft.closed_edges.append(MSG_CLOSED_EDGE.format(field="depends_on", raw=dep))
+        else:
+            errs.append(MSG_UNRESOLVED.format(raw=dep))
     draft.depends_on = new_deps
     if draft.superseded_by:
         mapped = _remap_id(draft.superseded_by, id_map)
-        if mapped is None:
-            errs.append(MSG_UNRESOLVED.format(raw=draft.superseded_by))
-        else:
+        if mapped is not None:
             draft.superseded_by = mapped
+        elif draft.superseded_by in closed:
+            draft.closed_edges.append(
+                MSG_CLOSED_EDGE.format(field="superseded_by", raw=draft.superseded_by)
+            )
+            draft.superseded_by = ""
+        else:
+            errs.append(MSG_UNRESOLVED.format(raw=draft.superseded_by))
     return errs
 
 
@@ -453,7 +468,7 @@ def import_orbit_tasks(
     for tid in this_run_map.values():
         id_map[tid] = tid
     for draft, _dest in pending:
-        for msg in _remap_draft_refs(draft, id_map):
+        for msg in _remap_draft_refs(draft, id_map, report.closed):
             report.errors.append(f"{draft.task_id}: {msg}")
             report.warnings.append(f"{draft.task_id}: {msg}")
 
@@ -483,6 +498,8 @@ def format_report(report: ImportReport) -> str:
     ]
     if report.closed:
         lines.append(f"  skipped: closed in Orbit ({len(report.closed)})")
+    if report.closed_edge_count:
+        lines.append(f"  closed edges noted in body: {report.closed_edge_count}")
     for path in report.would_write:
         lines.append(f"  + {path}")
     for w in report.warnings:
