@@ -91,3 +91,10 @@ def invalid_agent_merge_message(value: object) -> str:
         "REFUSED. merge-policy: agent_merge must be "
         f"'allowed' or 'forbidden', got {value!r}. See {DOC}."
     )
+
+
+def missing_git_email_message() -> str:
+    return (
+        "REFUSED. merge-policy: human_authorship.enabled but git user.email "
+        f"is missing — cannot fill human_participants. See {DOC}."
+    )

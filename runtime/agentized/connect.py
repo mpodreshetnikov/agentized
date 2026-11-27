@@ -13,6 +13,7 @@ from .managed import (
     managed_write_text,
     save_managed,
 )
+from .merge_policy_io import ensure_process_control_authorship
 from .paths import (
     CONNECT_MARKER_BEGIN,
     CONNECT_MARKER_END,
@@ -716,6 +717,7 @@ def install_codex(
 
 
 QUALITY_MARKER = "AGENTIZED:QUALITY"
+EXECUTABLE_HOOKS = ("pre-push", "commit-msg")
 
 
 def _safe_install_template(src: Path, dst: Path) -> str:
@@ -726,14 +728,14 @@ def _safe_install_template(src: Path, dst: Path) -> str:
     body = src.read_text(encoding="utf-8")
     if not dst.exists():
         dst.write_text(body, encoding="utf-8")
-        if src.name == "pre-push":
+        if src.name in EXECUTABLE_HOOKS:
             dst.chmod(dst.stat().st_mode | 0o111)
         return "created"
     existing = dst.read_text(encoding="utf-8")
     if QUALITY_MARKER in existing:
         if existing != body:
             dst.write_text(body, encoding="utf-8")
-            if src.name == "pre-push":
+            if src.name in EXECUTABLE_HOOKS:
                 dst.chmod(dst.stat().st_mode | 0o111)
             return "updated"
         return "unchanged"
@@ -773,13 +775,16 @@ def ensure_githooks_path(root: Path) -> str:
 
 
 def pin_quality_templates(root: Path) -> dict:
-    """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
+    """Pin pre-push / commit-msg / CI from templates/quality (no clobber of unmarked user files).
 
     External repos without `templates/quality` use the installed Agentized root.
     """
     templates = _quality_templates_dir(root)
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
+        "commit_msg": _safe_install_template(
+            templates / "commit-msg", root / ".githooks" / "commit-msg"
+        ),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
@@ -790,21 +795,6 @@ def pin_quality_templates(root: Path) -> dict:
     if (root / ".git").exists() or (root / ".git").is_file():
         result["hooks_path"] = ensure_githooks_path(root)
     return result
-
-
-def ensure_process_control_config(root: Path, context_rel: str) -> dict:
-    """Pin default process-control.json without clobbering edits."""
-    from .process_control import PROCESS_FILENAME, default_process_config
-
-    path = root / context_rel / PROCESS_FILENAME
-    created = not path.exists()
-    if created:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(default_process_config(), indent=2) + "\n",
-            encoding="utf-8",
-        )
-    return {"path": str(path.relative_to(root)), "created": created}
 
 
 def ensure_quality_config(
@@ -962,6 +952,7 @@ def connect(
     coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
+    process = ensure_process_control_authorship(root, context_rel)
     skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
@@ -991,7 +982,6 @@ def connect(
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
-    process = ensure_process_control_config(root, context_rel)
     from .reporting import ensure_reporting_config
 
     reporting = ensure_reporting_config(root, context_rel)

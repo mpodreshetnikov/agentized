@@ -29,6 +29,7 @@ from agentized.context_layout import (
     require_registry_ready,
     resolve_layout,
 )
+from agentized.merge_policy_io import plan_process_control_authorship
 from agentized.paths import DEFAULT_CONTEXT, find_repo_root, load_state
 from agentized.quality import load_quality, set_coverage_threshold
 from agentized.status_gates import run_tasks_validate
@@ -87,6 +88,12 @@ def cmd_connect(args: argparse.Namespace) -> int:
         harnesses = ["cursor", "claude", "codex"]
     bridged: list[str] = []
     layout = None
+    try:
+        # Authorship preflight: refuse before the layout seed writes anything.
+        plan_process_control_authorship(root, args.context)
+    except (RuntimeError, TypeError, ValueError) as exc:
+        print(f"connect error: {exc}", file=sys.stderr)
+        return 1
     try:
         # Preflight → seed → bridges before connect (skeleton no-ops on NAV bridge).
         # On connect() failure, roll back bridges we just created.

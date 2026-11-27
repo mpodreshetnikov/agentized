@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,8 @@ import pytest
 pytest.importorskip("agentized_cli")
 
 import agentized_cli as cli
+
+BIN_DIR = Path(cli.__file__).resolve().parents[1] / "bin"
 
 
 def _git_init(path: Path) -> None:
@@ -347,6 +350,7 @@ def test_local_to_external_migration_documented_procedure(
     )
     assert (ctx / "tasks" / f"{task_id}.md").is_file()
     assert not (ctx / "tasks").is_symlink()
+    monkeypatch.setenv("PATH", f"{BIN_DIR}{os.pathsep}{os.environ.get('PATH', '')}")
     subprocess.run(["git", "add", "context"], cwd=code, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "nested context + task"],

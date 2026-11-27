@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -11,14 +12,17 @@ from agentized.merge_policy import authorship_check as authorship_check_fn
 from agentized.merge_policy_io import (
     GitCommandError,
     _git_output,
+    _write_json,
     agent_merge_check,
     apply_commit_msg,
     authorship_range_check,
     commits_to_push,
+    ensure_process_control_authorship,
     git_user_email,
     head_sha,
     is_merge_commit,
     load_merge_policy,
+    plan_process_control_authorship,
 )
 
 _PC = (
@@ -280,3 +284,107 @@ def test_authorship_range_check(tmp_path: Path, monkeypatch):
     fail = bad["failures"][-1]
     assert fail["author"] == "Eve <eve@evil.test>" and fail["sha"]
     assert all(len(p.split(":", 1)[0]) == 12 for p in bad["message"].split("; "))
+
+
+def _no_global_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+
+def test_ensure_process_control_authorship_creates_and_fills(tmp_path: Path):
+    _init_repo(tmp_path)
+    (tmp_path / "context").mkdir()
+    filled = ensure_process_control_authorship(tmp_path)
+    assert filled == {
+        "path": "context/process-control.json",
+        "created": True,
+        "participants_filled": True,
+        "human_participants": ["alice@example.com"],
+    }
+    assert ensure_process_control_authorship(tmp_path)["participants_filled"] is False
+    nested = ensure_process_control_authorship(tmp_path, context_rel="deep/ctx")
+    assert nested["path"] == "deep/ctx/process-control.json" and nested["created"]
+    assert nested["human_participants"] == ["alice@example.com"]
+
+
+def test_ensure_process_control_authorship_keeps_and_refills(tmp_path: Path):
+    _init_repo(tmp_path)
+    ctx = tmp_path / "context"
+    path = _write_pc(tmp_path, _PC_EMAIL.replace("alice@example.com", "bob@x"))
+    keep = ensure_process_control_authorship(tmp_path)
+    assert keep["participants_filled"] is False and keep["human_participants"] == ["bob@x"]
+    assert "bob@x" in path.read_text(encoding="utf-8")
+    path.write_text(
+        '{"merge_policy": {"human_authorship": {"enabled": true}, '
+        '"human_participants": ["  ", ""]}}\n',
+        encoding="utf-8",
+    )
+    ws = ensure_process_control_authorship(tmp_path)
+    assert ws["participants_filled"] is True
+    body = (ctx / "process-control.json").read_text(encoding="utf-8")
+    assert "alice@example.com" in body and "\n  " in body
+    assert json.loads(body)["version"] == 1
+    path.write_text(
+        '{"merge_policy": {"human_authorship": {"enabled": false}, "human_participants": []}}\n',
+        encoding="utf-8",
+    )
+    assert ensure_process_control_authorship(tmp_path)["participants_filled"] is False
+
+
+def test_ensure_process_control_authorship_rejects_bad_files(tmp_path: Path):
+    _init_repo(tmp_path)
+    path = _write_pc(tmp_path, "{bad")
+    with pytest.raises(json.JSONDecodeError):
+        ensure_process_control_authorship(tmp_path)
+    path.write_text("[]\n", encoding="utf-8")
+    with pytest.raises(TypeError, match="process-control.json: expected a JSON object"):
+        ensure_process_control_authorship(tmp_path)
+
+
+def test_ensure_process_control_authorship_missing_email_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _no_global_git(monkeypatch)
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.name", "NoEmail")
+    with pytest.raises(RuntimeError, match="user.email"):
+        ensure_process_control_authorship(tmp_path)
+    assert [p.name for p in tmp_path.iterdir()] == [".git"]
+    path = _write_pc(tmp_path, '{"version": 1}\n')
+    with pytest.raises(RuntimeError, match="user.email"):
+        ensure_process_control_authorship(tmp_path)
+    assert path.read_text(encoding="utf-8") == '{"version": 1}\n'
+
+
+def test_plan_process_control_authorship_is_read_only(tmp_path: Path):
+    _init_repo(tmp_path)
+    plan = plan_process_control_authorship(tmp_path)
+    assert plan["created"] is True and plan["filled"] is True
+    assert plan["path"] == tmp_path / "context" / "process-control.json"
+    assert plan["data"]["merge_policy"]["human_participants"] == ["alice@example.com"]
+    assert not (tmp_path / "context").exists()
+
+
+def test_write_json_pretty_utf8(tmp_path: Path, monkeypatch):
+    dump_kw: list[dict] = []
+    real_dumps = json.dumps
+    monkeypatch.setattr(
+        "agentized.merge_policy_io.json.dumps",
+        lambda *a, **k: dump_kw.append(dict(k)) or real_dumps(*a, **k),
+    )
+    seen: list[dict] = []
+    orig = Path.write_text
+    monkeypatch.setattr(
+        Path,
+        "write_text",
+        lambda self, data, encoding=None, errors=None, newline=None: (
+            seen.append({"data": data, "encoding": encoding})
+            or orig(self, data, encoding=encoding, errors=errors, newline=newline)
+        ),
+    )
+    obj = {"n": "café", "k": 1}
+    _write_json(tmp_path / "o.json", obj)
+    expected = real_dumps(obj, indent=2, ensure_ascii=False) + "\n"
+    assert dump_kw == [{"indent": 2, "ensure_ascii": False}]
+    assert seen == [{"data": expected, "encoding": "utf-8"}]
+    assert "café" in expected and expected.startswith("{\n  ")

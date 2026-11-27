@@ -150,3 +150,15 @@ lease acquire|release|list|check | sync-status | digest
 ```
 
 Подробный утренний сценарий: [`morning-runbook.ru.md`](./morning-runbook.ru.md).
+
+---
+
+## 5. Authorship wiring (AGE-95)
+
+`agentized connect` wires the human-authorship gate from AGE-27 ([`process-control.md`](./process-control.md#merge--authorship-age-27)) into the target repo.
+
+- **Preflight first.** Before any other write (skeleton, `AGENTS.md`, hooks, configs) connect resolves `{context}/process-control.json`. With `human_authorship.enabled` and an empty `human_participants`, it fills the allowlist with git `user.email`. A missing `user.email` **refuses** the whole connect (`REFUSED. merge-policy: …`, exit 1) and nothing is written. An existing non-empty allowlist is kept as is and needs no git email. The `agentized connect` CLI runs the same read-only check before it seeds the layout.
+- **Hooks.** `.githooks/commit-msg` (template `templates/quality/commit-msg`) is pinned and made executable next to `.githooks/pre-push`; `core.hooksPath` rules are unchanged. An unmarked user-owned `commit-msg` is never overwritten (`skipped-user-file`), so the gate is then not installed. The hook runs `process commit-msg` and fails closed when the Agentized CLI is not found (`./bin/agentized`, `runtime/agentized_cli.py`, or `agentized` on `PATH`).
+- **Pre-push.** The pinned `pre-push` reads git's ref list from stdin first, then runs `process agent-merge` for each pushed ref (no-op while `agent_merge=allowed`).
+- **CI.** The pinned `ci.yml` runs `process authorship --base <PR base> --head <PR head>` over every non-merge commit of the PR.
+- **Result.** `connect` returns `process_control` (`path`, `created`, `participants_filled`, `human_participants`) and `quality_templates.commit_msg`.
