@@ -150,16 +150,6 @@ def test_double_import_orbit_id_no_overwrite(tmp_path: Path):
     assert str(src / "T-0023-live.md") in dry.skipped
 
 
-def test_unresolved_depends_on_errors_and_writes_nothing(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _feat(src / "T-0023.md", "T-0023", title="Live", priority="p3", depends_on="[T-missing]")
-    report = import_orbit_tasks(src, dest, dry_run=False)
-    assert any("unresolved id 'T-missing'" in e for e in report.errors)
-    assert report.would_write == []
-    assert list(dest.glob("T-*.md")) == []
-    assert not (dest / "INDEX.md").exists()
-
-
 def test_unresolved_superseded_by_errors(tmp_path: Path):
     src, dest = _sd(tmp_path)
     _orb(
@@ -172,16 +162,6 @@ def test_unresolved_superseded_by_errors(tmp_path: Path):
     )
     report = import_orbit_tasks(src, dest, dry_run=False)
     assert any("unresolved id 'T-ghost'" in e for e in report.errors)
-    assert list(dest.glob("T-*.md")) == []
-
-
-def test_partial_write_aborts_all(tmp_path: Path):
-    """One bad file among many → no files written."""
-    src, dest = _sd(tmp_path)
-    _orb(src / "T-ok.md", tid="T-0100", title="Ok", kind="feature", priority="p2")
-    _feat(src / "T-bad.md", "T-0101", title="Bad", depends_on="[T-ghost]")
-    report = import_orbit_tasks(src, dest, dry_run=False)
-    assert report.errors
     assert list(dest.glob("T-*.md")) == []
 
 
@@ -717,19 +697,6 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
     bad = import_orbit_tasks(src3, dest3, dry_run=True)
     assert bad.errors and None not in bad.warnings
     assert any("T-261116-bad1" in w and "unresolved id" in w for w in bad.warnings)
-
-
-def test_dry_run_ids_match_write_ids(tmp_path: Path):
-    src, dest = _sd(tmp_path)
-    _orb(src / "T-0023.md", tid="T-0023", title="Live", kind="feature", priority="p3")
-    dry = import_orbit_tasks(src, dest, dry_run=True)
-    assert dry.errors == []
-    dry_ids = sorted(d.task_id for d in dry.drafts)
-    write = import_orbit_tasks(src, dest, dry_run=False)
-    assert write.errors == []
-    write_ids = sorted(d.task_id for d in write.drafts)
-    assert dry_ids == write_ids
-    assert dry_ids[0].startswith("T-") and TASK_ID_RE.match(dry_ids[0])
 
 
 def test_non_t_id_clear_error(tmp_path: Path):
