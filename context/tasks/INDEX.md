@@ -12,7 +12,7 @@
 
 ## in-progress
 
-_(пусто)_
+- [T-261127-c97a](T-261127-c97a.md) — AGE-86 follow-up: branch-history Progress/Decision Log prefix gate (родитель: T-261121-1200) · claim: cursor-age96
 
 ## blocked
 
