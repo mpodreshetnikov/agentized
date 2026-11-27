@@ -7,6 +7,7 @@ Tests-only; no runtime change. Target survivors on
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -316,7 +317,8 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     hooks_dir = tmp_path / ".claude" / "hooks"
 
     def wrap(self: Path, *args, **kwargs):
-        if self == hooks_dir:
+        caller = sys._getframe(1).f_code.co_filename
+        if self == hooks_dir and caller == connect_mod.__file__:
             seen.append(dict(kwargs))
         return real(self, *args, **kwargs)
 
@@ -324,7 +326,6 @@ def test_hooks_dir_mkdir_parents_exist_ok(tmp_path: Path, monkeypatch: pytest.Mo
     install_claude(tmp_path, "context")
     assert seen == [
         {"parents": True, "exist_ok": True},
-        {"parents": False, "exist_ok": True},
         {"parents": True, "exist_ok": True},
     ]
 
