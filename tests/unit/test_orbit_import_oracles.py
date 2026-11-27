@@ -706,8 +706,17 @@ def test_import_report_as_dict_format_continue(tmp_path: Path, monkeypatch):
         dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[]
     )
     oi_mod._skip(skip_rep, Path("/tmp/skip-me.md"), "msg")
-    assert skip_rep.skipped == ["/tmp/skip-me.md"]
-    assert skip_rep.errors == ["msg"]
+    assert (skip_rep.skipped, skip_rep.warnings, skip_rep.errors) == (
+        ["/tmp/skip-me.md"],
+        ["msg"],
+        [],
+    )
+    oi_mod._fail(skip_rep, Path("/tmp/f.md"), "bad")
+    assert (skip_rep.skipped[1], skip_rep.warnings[1], skip_rep.errors) == (
+        "/tmp/f.md",
+        "bad",
+        ["bad"],
+    )
 
 
 def test_non_orbit_md_warned_and_zero_sources_errors(tmp_path: Path):

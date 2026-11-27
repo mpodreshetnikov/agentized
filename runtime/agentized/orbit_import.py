@@ -85,11 +85,14 @@ class ImportReport:
         }
 
 
-def _skip(report: ImportReport, path: Path, msg: str, *, err: bool = True) -> None:
+def _skip(report: ImportReport, path: Path, msg: str) -> None:
     report.skipped.append(str(path))
     report.warnings.append(msg)
-    if err:
-        report.errors.append(msg)
+
+
+def _fail(report: ImportReport, path: Path, msg: str) -> None:
+    _skip(report, path, msg)
+    report.errors.append(msg)
 
 
 def _strip_quotes(value: str) -> str:
@@ -372,26 +375,26 @@ def import_orbit_tasks(
         try:
             draft = draft_from_orbit_file(path)
         except (UnicodeDecodeError, OSError) as exc:
-            _skip(report, path, f"skip (read error): {path}: {exc}")
+            _fail(report, path, f"skip (read error): {path}: {exc}")
             continue
         if not draft or not draft.task_id:
-            _skip(report, path, f"skip ({MSG_NO_FM}): {path}")
+            _fail(report, path, f"skip ({MSG_NO_FM}): {path}")
             continue
         if draft.error:
-            _skip(report, path, f"skip ({draft.error}): {path}")
+            _fail(report, path, f"skip ({draft.error}): {path}")
             continue
         if draft.status in ORBIT_CLOSED:
             report.closed.append(draft.task_id)
             continue
         if not draft.task_id.startswith("T-"):
-            _skip(report, path, f"skip ({MSG_BAD_ID.format(raw=draft.task_id)}): {path}")
+            _fail(report, path, f"skip ({MSG_BAD_ID.format(raw=draft.task_id)}): {path}")
             continue
         if not is_safe_task_id(draft.task_id):
-            _skip(report, path, f"skip (unsafe id {draft.task_id!r}): {path}")
+            _fail(report, path, f"skip (unsafe id {draft.task_id!r}): {path}")
             continue
         kp = validate_kind_priority(str(draft.kind), str(draft.priority))
         if kp:
-            _skip(report, path, f"skip ({'; '.join(kp)}): {path}")
+            _fail(report, path, f"skip ({'; '.join(kp)}): {path}")
             continue
 
         source_id = draft.task_id
@@ -405,7 +408,6 @@ def import_orbit_tasks(
                     report,
                     path,
                     f"skip ({MSG_EXISTS_ORBIT.format(oid=orbit_id)}): {existing}",
-                    err=False,
                 )
                 continue
             draft.task_id = _stable_task_id(dest_tasks, orbit_id, reserved)
@@ -418,18 +420,18 @@ def import_orbit_tasks(
                 this_run_map[draft.orbit_id] = draft.task_id
 
         if not draft.value:
-            _skip(report, path, f"skip ({MSG_NO_VALUE}): {path}")
+            _fail(report, path, f"skip ({MSG_NO_VALUE}): {path}")
             continue
 
         dest = resolve_dest_path(dest_tasks, draft.task_id)
         if dest is None:
-            _skip(report, path, f"skip (path escape {draft.task_id!r}): {path}")
+            _fail(report, path, f"skip (path escape {draft.task_id!r}): {path}")
             continue
         if draft.task_id in seen_ids:
-            _skip(report, path, f"skip (duplicate id {draft.task_id}): {path}")
+            _fail(report, path, f"skip (duplicate id {draft.task_id}): {path}")
             continue
         if dest.exists():
-            _skip(report, path, f"skip (exists, no overwrite): {dest}", err=False)
+            _skip(report, path, f"skip (exists, no overwrite): {dest}")
             continue
         seen_ids.add(draft.task_id)
         pending.append((draft, dest))
