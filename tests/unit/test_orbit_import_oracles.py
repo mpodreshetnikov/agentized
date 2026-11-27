@@ -68,6 +68,10 @@ def _sd(tmp: Path, src_n: str = "src", dest_n: str = "dest") -> tuple[Path, Path
     return src, dest
 
 
+def _dr(tmp: Path, name: str, **kw):
+    return draft_from_orbit_file(_orb(tmp / name, **kw))
+
+
 def _draft(**kw):
     base = dict(source=Path("x.md"), task_id="T-x", title="T", status="open", value="V", body="B\n")
     base.update(kw)
@@ -453,9 +457,7 @@ def test_draft_encoding_spy_and_field_matrix(tmp_path: Path, monkeypatch):
         return real_read(self, encoding=encoding, errors=errors)
 
     monkeypatch.setattr(Path, "read_text", fake_read)
-    draft = draft_from_orbit_file(
-        _orb(tmp_path / "T-0042-only.md", tid="T-0042", title="Only", body="Z\n")
-    )
+    draft = _dr(tmp_path, "T-0042-only.md", tid="T-0042", title="Only", body="Z\n")
     assert enc == ["utf-8"]
     assert draft is not None
     assert (draft.task_id, draft.title, draft.status, draft.error) == ("T-0042", "Only", "open", "")
@@ -469,27 +471,21 @@ def test_draft_encoding_spy_and_field_matrix(tmp_path: Path, monkeypatch):
         draft.depends_on,
         draft.tags,
     ) == ("", "", "", "", "", "", [], "")
-    assert (
-        draft_from_orbit_file(
-            _orb(tmp_path / "T-0043-miss.md", tid="T-0043", title=None, body="Z\n")
-        ).title
-        == "T-0043"
-    )
-    assert draft_from_orbit_file(_orb(tmp_path / "other.md", tid=None, title="Z")).task_id == ""
-    d2 = draft_from_orbit_file(
-        _orb(
-            tmp_path / "T-9.md",
-            tid="T-9",
-            tags="[a, b]",
-            depends_on="T-1, T-2",
-            kind="feature",
-            priority="p2",
-            owner="a",
-            blocked_by="w",
-            exit="e",
-            superseded_by="T-3",
-            body="Body\n",
-        )
+    assert _dr(tmp_path, "T-0043-miss.md", tid="T-0043", title=None, body="Z\n").title == "T-0043"
+    assert _dr(tmp_path, "other.md", tid=None, title="Z").task_id == ""
+    d2 = _dr(
+        tmp_path,
+        "T-9.md",
+        tid="T-9",
+        tags="[a, b]",
+        depends_on="T-1, T-2",
+        kind="feature",
+        priority="p2",
+        owner="a",
+        blocked_by="w",
+        exit="e",
+        superseded_by="T-3",
+        body="Body\n",
     )
     assert (d2.tags, d2.depends_on, d2.kind, d2.priority, d2.owner) == (
         "a, b",
@@ -525,9 +521,7 @@ def test_draft_encoding_spy_and_field_matrix(tmp_path: Path, monkeypatch):
         ).task_id
         == "T-0055"
     )
-    d3d = draft_from_orbit_file(
-        _orb(tmp_path / "T-0056-xxxx.md", tid="XXXX", title="E", status="XXXX", body="Body\n")
-    )
+    d3d = _dr(tmp_path, "T-0056-xxxx.md", tid="XXXX", title="E", status="XXXX", body="Body\n")
     assert d3d.task_id == "XXXX"
     assert d3d.status == "" and "unknown" in d3d.error
     real_parse2 = parse_yaml_front_matter
@@ -539,40 +533,30 @@ def test_draft_encoding_spy_and_field_matrix(tmp_path: Path, monkeypatch):
         return meta, body
 
     monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", none_status)
-    d3e = draft_from_orbit_file(_orb(tmp_path / "T-0057.md", tid="T-0057", title="N"))
+    d3e = _dr(tmp_path, "T-0057.md", tid="T-0057", title="N")
     assert d3e.status == "" and d3e.error == MSG_NO_STATUS
     monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", real_parse2)
     assert (
-        draft_from_orbit_file(
-            _orb(tmp_path / "T-0024-shell.md", tid=None, title="Shell", body="\n# Shell\n")
-        ).task_id
+        _dr(tmp_path, "T-0024-shell.md", tid=None, title="Shell", body="\n# Shell\n").task_id
         == "T-0024"
     )
-    d5 = draft_from_orbit_file(
-        _orb(
-            tmp_path / "T-9999-mismatch.md",
-            tid="T-0017",
-            title="Exact Title",
-            body="Body\n",
-        )
-    )
+    d5 = _dr(tmp_path, "T-9999-mismatch.md", tid="T-0017", title="Exact Title", body="Body\n")
     assert d5.task_id == "T-0017" and d5.title == "Exact Title"
-    d6 = draft_from_orbit_file(_orb(tmp_path / "T-rev.md", tid="T-rev", title="R", status="review"))
+    d6 = _dr(tmp_path, "T-rev.md", tid="T-rev", title="R", status="review")
     assert d6.status == "for-review"
     assert d6.warnings == ["T-rev: Orbit status review → for-review (human)"]
-    d7 = draft_from_orbit_file(
-        _orb(
-            tmp_path / "T-blk.md",
-            tid="T-blk",
-            title="B",
-            status="blocked",
-            blocked_by="x",
-            blocked_reason="why",
-            blocked_deadline="2026-11-21",
-            review_note="rn",
-            pr="#26",
-            value="Ценность Orbit",
-        )
+    d7 = _dr(
+        tmp_path,
+        "T-blk.md",
+        tid="T-blk",
+        title="B",
+        status="blocked",
+        blocked_by="x",
+        blocked_reason="why",
+        blocked_deadline="2026-11-21",
+        review_note="rn",
+        pr="#26",
+        value="Ценность Orbit",
     )
     assert d7.blocked_reason == "why" and d7.blocked_deadline == "2026-11-21"
     assert d7.review_note == "rn" and d7.pr == "#26" and d7.error == ""
