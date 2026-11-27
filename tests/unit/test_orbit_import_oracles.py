@@ -27,6 +27,7 @@ from agentized.orbit_import import (
 )
 from agentized.status_gates import run_tasks_validate
 from agentized.task_schema import TASK_ID_RE, rebuild_task_index
+from agentized.tip_hygiene import ENV_PR_KEYS
 
 
 def _fm(path: Path, body: str) -> Path:
@@ -818,7 +819,9 @@ def test_orbit_open_aliases_and_closed_skipped(tmp_path: Path):
     assert any("unknown Orbit status 'wip'" in e for e in again.errors)
 
 
-def test_e2e_import_commit_tasks_validate(tmp_path: Path):
+def test_e2e_import_commit_tasks_validate(tmp_path: Path, monkeypatch):
+    for key in ("GITHUB_REF", "GITHUB_EVENT_NAME", *ENV_PR_KEYS):
+        monkeypatch.delenv(key, raising=False)
     repo = tmp_path / "repo"
     tasks = repo / "context" / "tasks"
     tasks.mkdir(parents=True)
