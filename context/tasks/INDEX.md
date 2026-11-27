@@ -9,11 +9,10 @@
 ## open
 
 - [T-261127-1acf](T-261127-1acf.md) — AGE-68 A-final: connect.py mut 100% + ship gates to templates (родитель: T-261115-918b)
-- [T-261127-d924](T-261127-d924.md) — AGE-86 follow-up: branch-history Progress/Decision Log prefix gate (родитель: T-261121-1200)
 
 ## in-progress
 
-_(пусто)_
+- [T-261127-d924](T-261127-d924.md) — AGE-86 follow-up: branch-history Progress/Decision Log prefix gate (родитель: T-261121-1200) · claim: cursor-age96
 
 ## blocked
 
