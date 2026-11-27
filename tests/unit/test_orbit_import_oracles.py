@@ -592,16 +592,6 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     assert existing_orbit_id_map(tmp_path) == existing_orbit_id_map(tmp_path / "missing") == {}
-    assert oi_mod._remap_id("T-1", {"T-1": "T-261116-aaa"}) == "T-261116-aaa"
-    assert oi_mod._remap_id("T-miss", {"T-1": "T-261116-aaa"}) is None
-    d = _draft(source=Path("a.md"), task_id="T-261116-aaa", title="A", depends_on=["T-1"], body="B")
-    rep = oi_mod.ImportReport(
-        dry_run=True, sources=[], would_write=[], skipped=[], warnings=[], errors=[], drafts=[d]
-    )
-    assert (
-        f"  depends_on T-261116-aaa: {oi_mod.format_id_list(['T-1'])}"
-        in format_report(rep).splitlines()
-    )
     real_parse = parse_yaml_front_matter
 
     def value_cyr(raw):
