@@ -167,8 +167,10 @@ def test_pin_quality_templates_result_paths_and_flags(tmp_path: Path):
     ]
     assert res["hooks_path"] == "skipped-no-git"
     templates = REPO / "templates" / "quality"
-    assert res["templates_from"] == str(templates)
-    assert res["js_guidance"] is (templates / "stryker.config.mjs.example").exists() is True
+    from_dir = Path(res["templates_from"])
+    assert from_dir.is_absolute() and from_dir.parts[-2:] == ("templates", "quality")
+    assert (from_dir / "pre-push").read_bytes() == (templates / "pre-push").read_bytes()
+    assert res["js_guidance"] is True and (from_dir / "stryker.config.mjs.example").is_file()
     for src, dst in (
         ("pre-push", ".githooks/pre-push"),
         ("commit-msg", ".githooks/commit-msg"),
