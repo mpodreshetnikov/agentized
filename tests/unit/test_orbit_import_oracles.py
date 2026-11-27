@@ -121,8 +121,8 @@ def test_id_filename_collect_files(tmp_path: Path):
 
 
 def test_draft_requires_status(tmp_path: Path):
-    draft = draft_from_orbit_file(
-        _orb(tmp_path / "T-0042.md", tid="T-0042", title="Only", status=None, value="V", body="Z\n")
+    draft = _dr(
+        tmp_path, "T-0042.md", tid="T-0042", title="Only", status=None, value="V", body="Z\n"
     )
     assert draft is not None
     assert draft.error == MSG_NO_STATUS
@@ -312,15 +312,14 @@ def test_superseded_by_remapped_via_existing_orbit_id(tmp_path: Path):
 
 
 def test_unknown_status_and_id_from_stem(tmp_path: Path):
-    d = draft_from_orbit_file(
-        _orb(
-            tmp_path / "T-0042-slug.md",
-            tid=None,
-            title="NoId",
-            status="wip",
-            kind="feature",
-            priority="p2",
-        )
+    d = _dr(
+        tmp_path,
+        "T-0042-slug.md",
+        tid=None,
+        title="NoId",
+        status="wip",
+        kind="feature",
+        priority="p2",
     )
     assert d is not None
     assert d.task_id == "T-0042"
@@ -339,9 +338,7 @@ def test_tags_deps_variants(tmp_path: Path, monkeypatch):
     )
     assert d2 is not None
     assert "T-0024" in d2.depends_on
-    d3 = draft_from_orbit_file(
-        _orb(tmp_path / "T-z.md", tid="T-0302", title="V", kind="feature", priority="p2")
-    )
+    d3 = _dr(tmp_path, "T-z.md", tid="T-0302", title="V", kind="feature", priority="p2")
     assert d3 is not None
     assert d3.depends_on == []
     real_parse = oi_mod.parse_yaml_front_matter
@@ -756,15 +753,8 @@ def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(oi_mod, "parse_yaml_front_matter", value_cyr)
     assert (
-        draft_from_orbit_file(
-            _orb(
-                tmp_path / "T-val.md",
-                tid="T-0700",
-                title="V",
-                kind="chore",
-                priority="p2",
-                value=None,
-            )
+        _dr(
+            tmp_path, "T-val.md", tid="T-0700", title="V", kind="chore", priority="p2", value=None
         ).value
         == "Only Cyrillic"
     )
