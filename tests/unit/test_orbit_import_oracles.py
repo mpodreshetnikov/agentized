@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
-
-import pytest
 
 import agentized.orbit_import as oi_mod
 import agentized.task_schema as _ts
+import pytest
 from agentized.orbit_import import (
     MSG_NO_FM,
     MSG_NO_STATUS,
@@ -27,7 +27,8 @@ from agentized.orbit_import import (
     parse_yaml_front_matter,
     resolve_dest_path,
 )
-from agentized.task_schema import TASK_ID_RE
+from agentized.status_gates import run_tasks_validate
+from agentized.task_schema import TASK_ID_RE, rebuild_task_index
 
 
 def _fm(path: Path, body: str) -> Path:
@@ -73,9 +74,8 @@ def _dr(tmp: Path, name: str, **kw):
 
 
 def _draft(**kw):
-    base = dict(source=Path("x.md"), task_id="T-x", title="T", status="open", value="V", body="B\n")
-    base.update(kw)
-    return OrbitTaskDraft(**base)
+    base = {"source": Path("x.md"), "task_id": "T-x", "title": "T", "status": "open"}
+    return OrbitTaskDraft(**(base | {"value": "V", "body": "B\n"} | kw))
 
 
 def test_parse_scalar_and_yaml_continue():
@@ -147,11 +147,11 @@ def test_draft_fields_and_review_map(tmp_path: Path):
         )
     )
     assert d is not None
-    assert d.status == "for-review"
+    assert (d.status, d.orbit_status) == ("open", "review")
     assert d.value == "From Orbit"
     assert d.depends_on == ["T-0024"]
     assert d.superseded_by == "T-3"
-    assert any("review → for-review" in w for w in d.warnings)
+    assert any("review → open" in w for w in d.warnings)
 
 
 def test_no_front_matter_is_error(tmp_path: Path):
@@ -308,7 +308,7 @@ def test_superseded_by_remapped_via_existing_orbit_id(tmp_path: Path):
     assert report.errors == []
     draft = report.drafts[0]
     assert draft.superseded_by == "T-261116-oldx"
-    assert draft.status == "for-review"
+    assert draft.status == "open"
 
 
 def test_unknown_status_and_id_from_stem(tmp_path: Path):
@@ -380,6 +380,7 @@ def test_import_read_error_unsafe_kind_dup_exists(tmp_path: Path, monkeypatch):
 def test_reserved_collision_stable_id(tmp_path: Path, monkeypatch):
     """First digest slot occupied → _stable_task_id advances to next suffix."""
     import hashlib
+
     import agentized.orbit_import as mod
     from agentized.task_schema import utc_now_stamp
 
@@ -540,8 +541,8 @@ def test_draft_encoding_spy_and_field_matrix(tmp_path: Path, monkeypatch):
     d5 = _dr(tmp_path, "T-9999-mismatch.md", tid="T-0017", title="Exact Title", body="Body\n")
     assert d5.task_id == "T-0017" and d5.title == "Exact Title"
     d6 = _dr(tmp_path, "T-rev.md", tid="T-rev", title="R", status="review")
-    assert d6.status == "for-review"
-    assert d6.warnings == ["T-rev: Orbit status review → for-review (human)"]
+    assert d6.status == "open"
+    assert d6.warnings == ["T-rev: Orbit status review → open (kept in body)"]
     d7 = _dr(
         tmp_path,
         "T-blk.md",
@@ -637,6 +638,7 @@ def test_import_report_as_dict_format_continue(tmp_path: Path, monkeypatch):
         "skipped",
         "warnings",
         "errors",
+        "closed_in_orbit",
         "count",
     }
     assert d["dry_run"] is True
@@ -720,12 +722,6 @@ def test_non_orbit_md_warned_and_zero_sources_errors(tmp_path: Path):
 
 
 def test_kill_survivors_pack(tmp_path: Path, monkeypatch):
-    assert (
-        "acceptance_note: shipped"
-        in agentized_markdown(
-            _draft(source=Path("T-d.md"), task_id="T-d", title="D", status="done", exit="shipped")
-        ).splitlines()
-    )
     assert "acceptance_note:" not in agentized_markdown(
         _draft(source=Path("T-o.md"), task_id="T-o", title="O", exit="x")
     )
@@ -899,6 +895,7 @@ def test_reserved_tracks_converted_ids(tmp_path: Path, monkeypatch):
 
 def test_stable_id_exhausted_raises(tmp_path: Path):
     import hashlib
+
     from agentized.orbit_import import _stable_task_id
     from agentized.task_schema import utc_now_stamp
 
@@ -911,3 +908,59 @@ def test_stable_id_exhausted_raises(tmp_path: Path):
     with pytest.raises(RuntimeError) as ei:
         _stable_task_id(dest, "T-EXHAUST", set())
     assert str(ei.value) == "no free stable id for orbit_id 'T-EXHAUST'"
+
+
+def test_orbit_open_aliases_and_closed_skipped(tmp_path: Path):
+    src, dest = _sd(tmp_path)
+    for tid, st in (("T-0101", "in-review"), ("T-0102", "blocked"), ("T-0103", "Review")):
+        _feat(src / f"{tid}.md", tid, status=st, blocked_by="ext")
+    _feat(src / "T-0104.md", "T-0104", status="done")
+    _feat(src / "T-0105.md", "T-0105", status="dropped", depends_on="[T-0104]")
+    _feat(src / "T-0106.md", "T-0106", status="open", depends_on="[T-0104, T-0101]")
+    rep = import_orbit_tasks(src, dest, dry_run=False)
+    assert rep.errors == [] and rep.closed == ["T-0104", "T-0105"]
+    assert sorted(d.orbit_status for d in rep.drafts) == ["", "Review", "blocked", "in-review"]
+    assert {d.status for d in rep.drafts} == {"open"}
+    assert "  skipped: closed in Orbit (2)\n" in format_report(rep)
+    assert rep.as_dict()["closed_in_orbit"] == 2
+    texts = {d.orbit_id: (dest / f"{d.task_id}.md").read_text(encoding="utf-8") for d in rep.drafts}
+    assert "Orbit status: in-review\n\nB\n" in texts["T-0101"]
+    assert "Orbit status:" not in texts["T-0106"]
+    last = next(d for d in rep.drafts if d.orbit_id == "T-0106")
+    assert last.depends_on == [next(d.task_id for d in rep.drafts if d.orbit_id == "T-0101")]
+    assert any("dropped depends_on closed in Orbit: ['T-0104']" in w for w in rep.warnings)
+    assert len(list(dest.glob("T-*.md"))) == 4
+    odd = _feat(src / "T-0107.md", "T-0107", status="wip")
+    assert odd.exists()
+    again = import_orbit_tasks(src, dest, dry_run=True)
+    assert any("unknown Orbit status 'wip'" in e for e in again.errors)
+
+
+def test_e2e_import_commit_tasks_validate(tmp_path: Path):
+    repo = tmp_path / "repo"
+    tasks = repo / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    git = ["git", "-c", "user.email=t@e.c", "-c", "user.name=t"]
+    (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
+        subprocess.run([*git, *args], cwd=repo, check=True, capture_output=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    src = tmp_path / "orbit"
+    src.mkdir()
+    for tid, st in (("T-0201", "open"), ("T-0202", "review"), ("T-0203", "blocked")):
+        _feat(src / f"{tid}.md", tid, status=st, depends_on="[T-0201]" if tid != "T-0201" else "[]")
+    _feat(src / "T-0204.md", "T-0204", status="done")
+    rep = import_orbit_tasks(src, tasks, dry_run=False)
+    assert rep.errors == [] and len(rep.would_write) == 3 and rep.closed == ["T-0204"]
+    subprocess.run([*git, "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [*git, "commit", "-q", "-m", "import"], cwd=repo, check=True, capture_output=True
+    )
+    ref, result = run_tasks_validate(tasks, repo_root=repo, base_ref=base)
+    assert (ref, result.errors) == (base, ())
+    index = (tasks / "INDEX.md").read_text(encoding="utf-8")
+    for d in rep.drafts:
+        assert f"[{d.task_id}]({d.task_id}.md)" in index and f"orbit: {d.orbit_id}" in index
+    assert "T-0204" not in index

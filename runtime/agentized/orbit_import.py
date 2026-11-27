@@ -29,6 +29,9 @@ MSG_NO_FM = "no front matter / id"
 MSG_NO_VALUE = "missing Orbit value/Ценность (refusing placeholder)"
 MSG_EXISTS_ORBIT = "exists, no overwrite (orbit_id {oid})"
 MSG_UNRESOLVED = "unresolved id {raw!r} (depends_on/superseded_by)"
+# Orbit states Agentized cannot start a new task in: imported as open, original kept in body.
+ORBIT_AS_OPEN = frozenset({"review", "in-review", "blocked"})
+ORBIT_CLOSED = frozenset({"done", "canceled"})
 MSG_BAD_ID = "id {raw!r} must be T-* (convert Orbit T-NNNN) or Agentized T-YYMMDD-xxxx"
 
 
@@ -51,6 +54,7 @@ class OrbitTaskDraft:
     pr: str = ""
     orbit_id: str = ""
     superseded_by: str = ""
+    orbit_status: str = ""
     value: str = ""
     body: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -66,6 +70,7 @@ class ImportReport:
     warnings: list[str]
     errors: list[str]
     drafts: list[OrbitTaskDraft] = field(default_factory=list)
+    closed: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -76,13 +81,14 @@ class ImportReport:
             "warnings": list(self.warnings),
             "errors": list(self.errors),
             "count": len(self.drafts),
+            "closed_in_orbit": len(self.closed),
         }
 
 
 def _skip(report: ImportReport, path: Path, msg: str, *, err: bool = True) -> None:
     report.skipped.append(str(path))
     report.warnings.append(msg)
-    if err is not False:
+    if err:
         report.errors.append(msg)
 
 
@@ -191,6 +197,7 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
     title = task_id if raw_title is None else (str(raw_title).strip() or task_id)
     warnings: list[str] = []
     error = ""
+    orbit_status = ""
     if "status" not in meta:
         status = ""
         error = MSG_NO_STATUS
@@ -201,14 +208,15 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
             status = ""
             error = MSG_NO_STATUS
         else:
-            mapped = map_orbit_status(cleaned)
+            mapped = "open" if cleaned.lower() in ORBIT_AS_OPEN else map_orbit_status(cleaned)
             if mapped is None:
                 status = ""
                 error = f"unknown Orbit status {cleaned!r}"
             else:
                 status = mapped
-                if cleaned.lower() == "review":
-                    warnings.append(f"{task_id}: Orbit status review → for-review (human)")
+                if cleaned.lower() in ORBIT_AS_OPEN:
+                    orbit_status = cleaned
+                    warnings.append(f"{task_id}: Orbit status {cleaned} → open (kept in body)")
     tags_val = meta.get("tags") or []
     if isinstance(tags_val, list):
         tags = ", ".join(str(t) for t in tags_val)
@@ -240,6 +248,7 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
         pr=_meta_str(meta, "pr"),
         orbit_id=_meta_str(meta, "orbit_id"),
         superseded_by=_meta_str(meta, "superseded_by"),
+        orbit_status=orbit_status,
         value=value,
         body=body,
         warnings=warnings,
@@ -263,8 +272,6 @@ def _stable_task_id(dest_tasks: Path, orbit_id: str, reserved: set[str]) -> str:
 
 
 def agentized_markdown(draft: OrbitTaskDraft) -> str:
-    acceptance = draft.exit if draft.status == "done" else ""
-    value = draft.value
     header = render_task_file(
         draft.task_id,
         draft.title,
@@ -280,19 +287,19 @@ def agentized_markdown(draft: OrbitTaskDraft) -> str:
         blocked_reason=draft.blocked_reason,
         blocked_deadline=draft.blocked_deadline,
         exit=draft.exit,
-        acceptance_note=acceptance,
         review_note=draft.review_note,
         pr=draft.pr,
         orbit_id=draft.orbit_id,
         superseded_by=draft.superseded_by,
         goal="Imported from orbit-tasks fixture (see preserved body below).",
-        value=value,
+        value=draft.value,
     )
     preserved = draft.body.strip()
+    kept = f"Orbit status: {draft.orbit_status}\n\n" if draft.orbit_status else ""
     history = (
         "\n## Imported body (preserved ids / history links)\n\n"
         f"_source: `{draft.source.name}`_\n\n"
-        f"{preserved}\n"
+        f"{kept}{preserved}\n"
     )
     return header.rstrip() + "\n" + history
 
@@ -373,6 +380,9 @@ def import_orbit_tasks(
         if draft.error:
             _skip(report, path, f"skip ({draft.error}): {path}")
             continue
+        if draft.status in ORBIT_CLOSED:
+            report.closed.append(draft.task_id)
+            continue
         if not draft.task_id.startswith("T-"):
             _skip(report, path, f"skip ({MSG_BAD_ID.format(raw=draft.task_id)}): {path}")
             continue
@@ -436,6 +446,10 @@ def import_orbit_tasks(
     for tid in this_run_map.values():
         id_map[tid] = tid
     for draft, _dest in pending:
+        gone = [d for d in draft.depends_on if d in report.closed]
+        if gone:
+            draft.depends_on = [d for d in draft.depends_on if d not in gone]
+            report.warnings.append(f"{draft.task_id}: dropped depends_on closed in Orbit: {gone}")
         for msg in _remap_draft_refs(draft, id_map):
             report.errors.append(f"{draft.task_id}: {msg}")
             report.warnings.append(f"{draft.task_id}: {msg}")
@@ -464,6 +478,8 @@ def format_report(report: ImportReport) -> str:
         f"  skipped: {len(report.skipped)}",
         f"  errors: {len(report.errors)}",
     ]
+    if report.closed:
+        lines.append(f"  skipped: closed in Orbit ({len(report.closed)})")
     for path in report.would_write:
         lines.append(f"  + {path}")
     for w in report.warnings:
