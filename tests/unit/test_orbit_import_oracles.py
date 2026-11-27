@@ -761,38 +761,53 @@ def test_stable_id_exhausted_raises(tmp_path: Path):
     assert str(ei.value) == "no free stable id for orbit_id 'T-EXHAUST'"
 
 
-def test_orbit_open_aliases_and_closed_skipped(tmp_path: Path):
+_OPEN_BODY = (
+    "# {tid} — T\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\nclaim: _(пусто)_\n"
+    "kind: feature\npriority: p2\nblocked_by: ext\nblocked_reason: ext\norbit_id: {oid}\n\n"
+    "Ценность: V\n\n## Цель\n\nImported from orbit-tasks fixture (see preserved body below).\n\n"
+    "## Progress\n\n_(append-only)_\n\n## Decision Log\n\n_(append-only)_\n\n"
+    "## Imported body (preserved ids / history links)\n\n_source: `{oid}.md`_\n\n"
+    "Orbit status: {st}\n\nB\n"
+)
+
+
+def test_orbit_review_blocked_open_dropped_skipped(tmp_path: Path):
     src, dest = _sd(tmp_path)
-    for tid, st in (("T-0101", "in-review"), ("T-0102", "blocked"), ("T-0103", "Review")):
+    for tid, st in (("T-0101", "review"), ("T-0102", "blocked"), ("T-0103", "Review")):
         _feat(src / f"{tid}.md", tid, status=st, blocked_by="ext")
     _feat(src / "T-0104.md", "T-0104", status="done")
-    _feat(src / "T-0105.md", "T-0105", status="canceled")
+    _feat(src / "T-0105.md", "T-0105", status="dropped")
     _feat(src / "T-0106.md", "T-0106", status="open", depends_on="[T-0101]")
     rep = import_orbit_tasks(src, dest, dry_run=False)
     assert rep.errors == [] and rep.closed == ["T-0104", "T-0105"]
-    assert sorted(d.orbit_status for d in rep.drafts) == ["", "Review", "blocked", "in-review"]
+    assert sorted(d.orbit_status for d in rep.drafts) == ["", "Review", "blocked", "review"]
     assert {d.status for d in rep.drafts} == {"open"}
     assert "  skipped: closed in Orbit (2)\n" in format_report(rep)
     assert rep.as_dict()["closed_in_orbit"] == 2
-    texts = {d.orbit_id: (dest / f"{d.task_id}.md").read_text(encoding="utf-8") for d in rep.drafts}
-    assert "Orbit status: in-review\n\nB\n" in texts["T-0101"]
-    assert "Orbit status:" not in texts["T-0106"]
-    last = next(d for d in rep.drafts if d.orbit_id == "T-0106")
-    assert last.depends_on == [next(d.task_id for d in rep.drafts if d.orbit_id == "T-0101")]
+    by_oid = {d.orbit_id: d for d in rep.drafts}
+    for oid, st in (("T-0101", "review"), ("T-0102", "blocked"), ("T-0103", "Review")):
+        text = (dest / f"{by_oid[oid].task_id}.md").read_text(encoding="utf-8")
+        assert text == _OPEN_BODY.format(tid=by_oid[oid].task_id, oid=oid, st=st)
+    last = (dest / f"{by_oid['T-0106'].task_id}.md").read_text(encoding="utf-8")
+    assert "Orbit status:" not in last
+    assert by_oid["T-0106"].depends_on == [by_oid["T-0101"].task_id]
     assert len(list(dest.glob("T-*.md"))) == 4
 
 
-def test_unknown_and_alias_status_fail_closed_dep_on_closed_fails(tmp_path: Path):
+def test_unknown_status_fail_closed_dep_on_closed_fails(tmp_path: Path):
     src, dest = _sd(tmp_path)
-    _feat(src / "T-0301.md", "T-0301", status="wip")
-    _feat(src / "T-0302.md", "T-0302", status="dropped")
-    _feat(src / "T-0303.md", "T-0303", status="done")
-    _feat(src / "T-0304.md", "T-0304", depends_on="[T-0303]")
+    for tid, st in (("T-0301", "wip"), ("T-0302", "canceled"), ("T-0303", "in-review")):
+        _feat(src / f"{tid}.md", tid, status=st)
+    _feat(src / "T-0304.md", "T-0304", status="dropped")
+    _feat(src / "T-0305.md", "T-0305", depends_on="[T-0304]")
     rep = import_orbit_tasks(src, dest, dry_run=False)
-    assert rep.closed == ["T-0303"] and rep.would_write == [] and not list(dest.glob("T-*.md"))
-    assert any("unknown Orbit status 'wip'" in e for e in rep.errors)
-    assert any("unknown Orbit status 'dropped'" in e for e in rep.errors)
-    assert any(e.endswith(MSG_UNRESOLVED.format(raw="T-0303")) for e in rep.errors)
+    assert rep.closed == ["T-0304"] and rep.would_write == [] and not list(dest.glob("T-*.md"))
+    bad = (("T-0301", "wip"), ("T-0302", "canceled"), ("T-0303", "in-review"))
+    assert rep.errors[:3] == [
+        f"skip (unknown Orbit status {st!r}): {src / f'{t}.md'}" for t, st in bad
+    ]
+    assert len(rep.errors) == 4
+    assert rep.errors[3].endswith(": " + MSG_UNRESOLVED.format(raw="T-0304"))
 
 
 def test_e2e_import_commit_tasks_validate(tmp_path: Path, monkeypatch):

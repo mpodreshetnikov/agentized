@@ -14,7 +14,6 @@ from .task_schema import (
     TASK_ID_RE,
     format_id_list,
     list_tasks,
-    map_orbit_status,
     parse_id_list,
     rebuild_task_index,
     validate_kind_priority,
@@ -32,8 +31,9 @@ MSG_UNRESOLVED = (
     "unresolved id {raw!r} (depends_on/superseded_by; not imported, e.g. closed in Orbit)"
 )
 # Orbit states Agentized cannot start a new task in: imported as open, original kept in body.
-ORBIT_AS_OPEN = frozenset({"review", "in-review", "blocked"})
-ORBIT_CLOSED = frozenset({"done", "canceled"})
+ORBIT_AS_OPEN = frozenset({"review", "blocked"})
+ORBIT_CLOSED = frozenset({"done", "dropped"})
+ORBIT_SAME = frozenset({"idea", "open", "in-progress"})
 MSG_BAD_ID = "id {raw!r} must be T-* (convert Orbit T-NNNN) or Agentized T-YYMMDD-xxxx"
 
 
@@ -214,8 +214,8 @@ def draft_from_orbit_file(path: Path) -> OrbitTaskDraft | None:
             error = MSG_NO_STATUS
         else:
             key = cleaned.lower()
-            mapped = "open" if key in ORBIT_AS_OPEN else map_orbit_status(cleaned)
-            if mapped in ORBIT_CLOSED and key not in ORBIT_CLOSED:
+            mapped = "open" if key in ORBIT_AS_OPEN else key
+            if key not in ORBIT_AS_OPEN | ORBIT_CLOSED | ORBIT_SAME:
                 mapped = None
             if mapped is None:
                 status = ""
