@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import coverage_check, format_disable_gate, mutation, mutation_ast
@@ -78,7 +78,7 @@ def run_mutation_gate(root: Path, *, context: str = DEFAULT_CONTEXT) -> int:
             "schemaVersion": 1,
             "mode": "incremental-skip",
             "base": base,
-            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "generatedAt": datetime.now(UTC).isoformat(),
             "gate": "hard",
             "passed": True,
             "note": note,

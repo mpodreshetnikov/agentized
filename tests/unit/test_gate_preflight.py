@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-
 from agentized import coverage_check, format_disable_gate, gate_preflight, mutation_ast
 from agentized.gate_preflight import (
     module_layout_error,
@@ -164,7 +163,7 @@ def _assert_skip(root: Path, base: str, out: str) -> None:
     data = _summary(root)
     generated = datetime.fromisoformat(data.pop("generatedAt"))
     assert generated.utcoffset() == timedelta(0)
-    assert abs(datetime.now(timezone.utc) - generated) < timedelta(minutes=1)
+    assert abs(datetime.now(UTC) - generated) < timedelta(minutes=1)
     assert data == {
         "schemaVersion": 1,
         "mode": "incremental-skip",

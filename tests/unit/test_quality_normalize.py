@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from agentized.quality import (
     DEFAULT_COVERAGE_PCT,
     SCHEMA_VERSION,

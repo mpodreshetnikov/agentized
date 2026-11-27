@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from agentized.connect import connect
 from agentized.quality import load_quality
 

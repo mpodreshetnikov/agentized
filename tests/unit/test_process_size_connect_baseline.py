@@ -6,10 +6,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from agentized.process_size import (
     EMPTY_TREE,
     diff_insertions_excluding_bootstrap,
+    head_has_connect_managed,
     is_connect_bootstrap_path,
     parse_numstat_excluding_bootstrap,
     ref_exists,
@@ -213,3 +213,49 @@ def test_ref_exists(tmp_path: Path):
     _commit(root, {"a": "a\n"})
     got = [ref_exists(root, r) for r in ("HEAD", "origin/main", "HEAD..HEAD")]
     assert got == [True, False, False]
+
+
+def test_untracked_managed_json_grants_no_exemption(tmp_path: Path):
+    root = _repo(tmp_path, {"README": "base\n"})
+    _commit(root, {"context/process-control.json": PC, "context/skills/big.md": "x\n" * 2000})
+    (root / "context" / ".agentized").mkdir()
+    (root / "context" / ".agentized" / "managed.json").write_text("{}\n", encoding="utf-8")
+    result = size_check(root, base_ref="origin/main")
+    assert result == {
+        "ok": False,
+        "level": "over",
+        "insertions": 2001,
+        "limit": 1500,
+        "warn_at": 1125,
+        "base": "origin/main",
+        "message": (
+            "process-control: PR size 2001 insertions vs origin/main "
+            "(warn ≥1125 = 75.0% of 1500; over >1500; ≤1500 OK). "
+            "See docs/process-control.md."
+        ),
+    }
+
+
+def test_untracked_managed_json_first_push_fails_closed(tmp_path: Path):
+    root = _repo(tmp_path, None)
+    _commit(root, {"context/process-control.json": PC, "src/a.py": "a\n"})
+    (root / "context" / ".agentized").mkdir()
+    (root / "context" / ".agentized" / "managed.json").write_text("{}\n", encoding="utf-8")
+    result = size_check(root)
+    assert (result["ok"], result["level"]) == (False, "error")
+    assert result["message"].startswith("process-control: origin/main unavailable")
+
+
+def test_head_has_connect_managed_reads_committed_tree(tmp_path: Path):
+    root = _repo(tmp_path, None)
+    _commit(root, {"README": "r\n"})
+    managed = root / "context" / ".agentized" / "managed.json"
+    managed.parent.mkdir(parents=True)
+    managed.write_text("{}\n", encoding="utf-8")
+    untracked = head_has_connect_managed(root)
+    _git(root, "add", "context/.agentized/managed.json")
+    staged = head_has_connect_managed(root)
+    _git(root, "commit", "-qm", "managed")
+    committed = head_has_connect_managed(root)
+    assert (untracked, staged, committed) == (False, False, True)
+    assert head_has_connect_managed(root, "other") is False

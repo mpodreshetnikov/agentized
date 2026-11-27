@@ -85,8 +85,7 @@ def is_connect_bootstrap_path(path: str, context_rel: str = DEFAULT_CONTEXT) -> 
     # Do NOT use str.lstrip("./") — that strips every leading '.'/'/' char
     # (".githooks/x" → "githooks/x"). Only drop an optional "./" prefix.
     rel = path.replace("\\", "/")
-    if rel.startswith("./"):
-        rel = rel[2:]
+    rel = rel.removeprefix("./")
     if rel == "AGENTS.md":
         return True
     prefixes = (
@@ -131,7 +130,7 @@ def _managed_rel(context_rel: str) -> str:
 
 
 def head_has_connect_managed(root: Path, context_rel: str = DEFAULT_CONTEXT) -> bool:
-    return (root / _managed_rel(context_rel)).is_file()
+    return _ref_has_path(root, "HEAD", _managed_rel(context_rel))
 
 
 def _ref_has_path(root: Path, ref: str, rel: str) -> bool:
