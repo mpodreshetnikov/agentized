@@ -8,7 +8,7 @@
 
 ## open
 
-_(пусто)_
+- [T-261121-9c1d](T-261121-9c1d.md) — Connect bootstrap size and quality for consumers (AGE-85) (родитель: T-261115-918b)
 
 ## in-progress
 
