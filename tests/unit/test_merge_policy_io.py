@@ -388,3 +388,20 @@ def test_write_json_pretty_utf8(tmp_path: Path, monkeypatch):
     assert dump_kw == [{"indent": 2, "ensure_ascii": False}]
     assert seen == [{"data": expected, "encoding": "utf-8"}]
     assert "café" in expected and expected.startswith("{\n  ")
+
+
+def test_plan_process_control_authorship_reads_utf8(tmp_path: Path, monkeypatch):
+    _init_repo(tmp_path)
+    path = _write_pc(tmp_path, _PC_EMAIL)
+    seen: list[object] = []
+    orig = Path.read_text
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding=None, errors=None: (
+            seen.append(encoding) if self == path else None,
+            orig(self, encoding=encoding, errors=errors),
+        )[1],
+    )
+    plan_process_control_authorship(tmp_path)
+    assert seen == ["utf-8"]
