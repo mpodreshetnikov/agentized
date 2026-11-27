@@ -12,7 +12,6 @@ from typing import Any
 from unittest import mock
 
 import pytest
-
 from agentized import connect as connect_mod
 from agentized.connect import install_claude
 from agentized.managed import load_managed
