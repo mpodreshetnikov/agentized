@@ -13,7 +13,7 @@
 
 ## in-progress
 
-- [T-261127-7f4a](T-261127-7f4a.md) — AGE-94: document Progress stamp UTC rule · claim: age94-docs
+_(пусто)_
 
 ## blocked
 
