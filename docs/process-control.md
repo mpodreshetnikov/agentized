@@ -103,3 +103,7 @@ Create with `agentized adr --title "…" [--status proposed|accepted|superseded|
 ## Connect
 
 `agentized connect` pins `process-control.json` (no clobber) and wires `process_guard.py` into Cursor / Claude / Codex hooks. Keep Cursor `failClosed: true` when editing hooks. External repos without local `packages/` or `templates/quality` use the **installed Agentized root**.
+
+## Progress stamps (UTC)
+
+Every Progress line uses the real current UTC time from `date -u +'%Y-%m-%d %H:%M'`, taken at write time. Never a predicted or rounded-up time. A future stamp is a defect: fix it by appending a correction line, never by editing an existing line.
