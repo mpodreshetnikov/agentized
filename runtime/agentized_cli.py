@@ -266,6 +266,7 @@ def cmd_reporting(args: argparse.Namespace) -> int:
 
 
 def cmd_process(args: argparse.Namespace) -> int:
+    from agentized.format_disable_gate import format_disable_check
     from agentized.process_control import claim_check
     from agentized.process_size import size_check
 
@@ -273,6 +274,13 @@ def cmd_process(args: argparse.Namespace) -> int:
     ctx_rel = getattr(args, "context", None) or load_state(root).get("context") or DEFAULT_CONTEXT
     if args.process_cmd == "size":
         result = size_check(root, context_rel=ctx_rel, base_ref=args.base)
+        stream = sys.stdout if result["ok"] else sys.stderr
+        stream.write(result["message"] + "\n")
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    if args.process_cmd == "format-disables":
+        result = format_disable_check(root, base_ref=args.base)
         stream = sys.stdout if result["ok"] else sys.stderr
         stream.write(result["message"] + "\n")
         if args.json:
@@ -287,7 +295,7 @@ def cmd_process(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
-    print("usage: agentized process size|claim", file=sys.stderr)
+    print("usage: agentized process size|format-disables|claim", file=sys.stderr)
     return 2
 
 
@@ -973,6 +981,12 @@ def build_parser() -> argparse.ArgumentParser:
     pcs.add_argument("--base", default=None, help="git base ref (default origin/main)")
     pcs.add_argument("--context", default=None)
     pcs.add_argument("--json", action="store_true")
+    pcf = pc_sub.add_parser(
+        "format-disables",
+        help="Fail if PR diff adds fmt/noqa-style disable comments in *.py (no allowlist)",
+    )
+    pcf.add_argument("--base", default=None, help="git base ref (default origin/main)")
+    pcf.add_argument("--json", action="store_true")
     pcc = pc_sub.add_parser("claim", help="Require in-progress claim before watched paths")
     pcc.add_argument("paths", nargs="*", help="paths that would be edited")
     pcc.add_argument("--context", default=None)

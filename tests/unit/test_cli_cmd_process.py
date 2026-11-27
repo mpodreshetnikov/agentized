@@ -61,3 +61,45 @@ def test_cmd_process_bad_json_non_object_git(tmp_path: Path, monkeypatch, capsys
     (tmp_path / "context" / "process-control.json").write_text("[]\n", encoding="utf-8")
     assert cmd_process(args) == 1
     assert "JSON object" in capsys.readouterr().err
+
+
+def test_cmd_process_format_disables_streams(tmp_path: Path, monkeypatch, capsys):
+    """format-disables: stderr on fail, stdout on ok; exit matches ok."""
+    from agentized_cli import cmd_process
+
+    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        "agentized_cli.load_state",
+        lambda root: {"context": "context"},
+    )
+
+    def fake_fail(*_a, **_k):
+        return {
+            "ok": False,
+            "level": "fail",
+            "base": "origin/main",
+            "findings": [{"path": "x.py", "line": 1, "text": "bad"}],
+            "message": "format-disable-gate: PR adds 1",
+        }
+
+    monkeypatch.setattr("agentized.format_disable_gate.format_disable_check", fake_fail)
+    args = argparse.Namespace(process_cmd="format-disables", base=None, json=False)
+    assert cmd_process(args) == 1
+    captured = capsys.readouterr()
+    assert "format-disable-gate: PR adds 1" in captured.err
+    assert captured.out == ""
+
+    def fake_ok(*_a, **_k):
+        return {
+            "ok": True,
+            "level": "ok",
+            "base": "origin/main",
+            "findings": [],
+            "message": "format-disable-gate: no new",
+        }
+
+    monkeypatch.setattr("agentized.format_disable_gate.format_disable_check", fake_ok)
+    assert cmd_process(args) == 0
+    captured = capsys.readouterr()
+    assert "no new" in captured.out
+    assert captured.err == ""
