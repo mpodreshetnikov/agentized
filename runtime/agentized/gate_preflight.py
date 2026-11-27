@@ -6,8 +6,8 @@ stay untouched (whole-file mutation would otherwise re-open their full surface).
 - No modules configured (valid empty consumer quality.json) → coverage skip, said
   out loud.
 - Module source/test paths missing on disk → fail closed with a clear message.
-- Mutation base ref missing (first push before ``origin/main`` exists) → skip
-  with a summary; the gate resumes once the remote baseline is fetched.
+- True first push (base is ``origin/main`` and it does not exist yet) → mutation
+  skip with a summary; any other unresolvable base goes to the gate (fail closed).
 - Format-disable gate on that first push → scan the whole HEAD tree vs the empty
   tree (every disable counts as new); only the ancestry check is dropped.
 """
@@ -46,6 +46,10 @@ def module_layout_error(root: Path, module: dict) -> str | None:
     return None
 
 
+def _first_push(root: Path, base: str) -> bool:
+    return base == "origin/main" and not ref_exists(root, base)
+
+
 def run_coverage_gate(root: Path, *, context: str = DEFAULT_CONTEXT) -> int:
     modules = load_quality(root, context)["modules"]
     if not modules:
@@ -65,7 +69,7 @@ def run_coverage_gate(root: Path, *, context: str = DEFAULT_CONTEXT) -> int:
 def run_mutation_gate(root: Path, *, context: str = DEFAULT_CONTEXT) -> int:
     cfg = load_quality(root, context)
     base = os.environ.get("MUTATION_BASE") or cfg["mutation"].get("base_ref") or "origin/main"
-    if ref_exists(root, base):
+    if not _first_push(root, base):
         return mutation_ast.run_mutation(root, context=context)
     note = f"mutation base {base!r} unavailable — skip until remote baseline exists"
     path = mutation._write_summary(
@@ -90,7 +94,7 @@ def _no_ancestry_check(root: Path, base_ref: str) -> None:
 
 def run_format_disable_check(root: Path, *, base_ref: str | None = None) -> dict:
     base = base_ref or os.environ.get("PROCESS_BASE") or format_disable_gate.DEFAULT_BASE
-    if base != "origin/main" or ref_exists(root, base):
+    if not _first_push(root, base):
         return format_disable_gate.format_disable_check(root, base_ref=base_ref)
     orig = format_disable_gate.validate_process_base
     format_disable_gate.validate_process_base = _no_ancestry_check

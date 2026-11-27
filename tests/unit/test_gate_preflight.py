@@ -176,25 +176,15 @@ def _assert_skip(root: Path, base: str, out: str) -> None:
     assert out == f"[mutation] skip — {note}; wrote reports/mutation/mutation-summary.json\n"
 
 
-def test_mutation_gate_env_base_missing_skips(tmp_path: Path, monkeypatch, capsys):
-    root = _repo(tmp_path / "r")
-    _write_quality(root, {"mutation": {"base_ref": "cfgbase"}})
-    monkeypatch.setenv("MUTATION_BASE", "nope")
-    monkeypatch.setattr(mutation_ast, "run_mutation", _forbid)
-    assert run_mutation_gate(root, context="ctx") == 0
-    _assert_skip(root, "nope", capsys.readouterr().out)
+def _spy_mutation(seen: list):
+    def spy(root_, *, context):
+        seen.append((root_, context))
+        return 5
+
+    return spy
 
 
-def test_mutation_gate_cfg_base_when_env_unset(tmp_path: Path, monkeypatch, capsys):
-    root = _repo(tmp_path / "r")
-    _write_quality(root, {"mutation": {"base_ref": "cfgbase"}})
-    monkeypatch.delenv("MUTATION_BASE", raising=False)
-    monkeypatch.setattr(mutation_ast, "run_mutation", _forbid)
-    assert run_mutation_gate(root, context="ctx") == 0
-    _assert_skip(root, "cfgbase", capsys.readouterr().out)
-
-
-def test_mutation_gate_defaults_to_origin_main(tmp_path: Path, monkeypatch, capsys):
+def test_mutation_gate_first_push_skips(tmp_path: Path, monkeypatch, capsys):
     root = _repo(tmp_path / "r")
     _write_quality(root, {"mutation": {"base_ref": None}})
     monkeypatch.setenv("MUTATION_BASE", "")
@@ -203,19 +193,26 @@ def test_mutation_gate_defaults_to_origin_main(tmp_path: Path, monkeypatch, caps
     _assert_skip(root, "origin/main", capsys.readouterr().out)
 
 
-def test_mutation_gate_existing_base_delegates(tmp_path: Path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    ("env", "cfg_base"),
+    [("nope", None), (None, "cfgbase"), (None, "origin/main")],
+    ids=["env-unresolvable", "cfg-unresolvable", "origin-main-present"],
+)
+def test_mutation_gate_delegates_unless_true_first_push(
+    tmp_path: Path, monkeypatch, capsys, env, cfg_base
+):
     root = _repo(tmp_path / "r")
     (root / "f").write_text("x\n", encoding="utf-8")
-    sha = _commit_all(root)
-    _write_quality(root, {"mutation": {"base_ref": "nope"}})
-    monkeypatch.setenv("MUTATION_BASE", sha)
-    seen: list[tuple] = []
-
-    def spy(root_, *, context):
-        seen.append((root_, context))
-        return 5
-
-    monkeypatch.setattr(mutation_ast, "run_mutation", spy)
+    _git(root, "update-ref", "refs/remotes/origin/main", _commit_all(root))
+    if cfg_base != "origin/main":
+        _git(root, "update-ref", "-d", "refs/remotes/origin/main")
+    _write_quality(root, {"mutation": {"base_ref": cfg_base}})
+    if env is None:
+        monkeypatch.delenv("MUTATION_BASE", raising=False)
+    else:
+        monkeypatch.setenv("MUTATION_BASE", env)
+    seen: list = []
+    monkeypatch.setattr(mutation_ast, "run_mutation", _spy_mutation(seen))
     assert run_mutation_gate(root, context="ctx") == 5
     assert seen == [(root, "ctx")]
     assert not (root / "reports").exists()
@@ -298,3 +295,53 @@ def test_format_disable_restores_ancestry_check_on_error(tmp_path: Path, monkeyp
     with pytest.raises(KeyError):
         run_format_disable_check(root)
     assert format_disable_gate.validate_process_base == orig
+
+
+def test_format_disable_non_first_push_scans_diff_only(tmp_path: Path, monkeypatch):
+    root = _repo(tmp_path / "r")
+    (root / "old.py").write_text(f"a = 1  {_NOQA}\n", encoding="utf-8")
+    _git(root, "update-ref", "refs/remotes/origin/main", _commit_all(root))
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    (root / "new.py").write_text("b = 2\n", encoding="utf-8")
+    _commit_all(root)
+    clean = run_format_disable_check(root)
+    assert (clean["ok"], clean["base"], clean["findings"]) == (True, "origin/main", [])
+    (root / "new.py").write_text(f"b = 2\nc = 3  {_NOQA}\n", encoding="utf-8")
+    _commit_all(root)
+    dirty = run_format_disable_check(root)
+    assert (dirty["ok"], dirty["base"]) == (False, "origin/main")
+    assert dirty["findings"] == [{"path": "new.py", "line": 2, "text": _NOQA}]
+
+
+def test_format_disable_first_push_equals_diff_vs_empty_root(tmp_path: Path, monkeypatch):
+    files = {"a.py": f"x = 1  {_NOQA}\n", "pkg/b.py": f"y = 2\nz = 3  {_NOQA}\n"}
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    first = _repo(tmp_path / "first")
+    seeded = _repo(tmp_path / "seeded")
+    _git(seeded, "commit", "--allow-empty", "-m", "root")
+    _git(seeded, "update-ref", "refs/remotes/origin/main", _git(seeded, "rev-parse", "HEAD"))
+    for root in (first, seeded):
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text, encoding="utf-8")
+        _commit_all(root)
+    got = run_format_disable_check(first)
+    want = run_format_disable_check(seeded)
+    assert (got["ok"], got["base"], want["base"]) == (False, EMPTY_TREE, "origin/main")
+    assert got["findings"] == want["findings"]
+    assert len(got["findings"]) == 2
+
+
+@pytest.mark.parametrize("env", [None, "deadbeef"], ids=["not-a-repo", "explicit-missing-base"])
+def test_format_disable_unreadable_base_fails_closed(tmp_path: Path, monkeypatch, env):
+    if env is None:
+        root = tmp_path / "plain"
+        root.mkdir()
+        monkeypatch.delenv("PROCESS_BASE", raising=False)
+    else:
+        root = _repo(tmp_path / "r")
+        (root / "b.py").write_text("y = 2\n", encoding="utf-8")
+        _commit_all(root)
+        monkeypatch.setenv("PROCESS_BASE", env)
+    result = run_format_disable_check(root)
+    assert (result["ok"], result["level"], result["findings"]) == (False, "error", [])
