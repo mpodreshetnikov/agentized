@@ -118,8 +118,7 @@ def test_refresh_local_plugin_writes_skills_and_scripts_dirs(tmp_path: Path):
     plugin = _seed_local_plugin(tmp_path)
     result = _refresh_local_plugin(tmp_path, "agentized-demo", tmp_path / "context" / "skills")
     assert result == str(plugin)
-    tree = sorted(p.relative_to(plugin).as_posix() for p in plugin.rglob("*") if p.is_file())
-    assert tree == ["scripts/guard.py", "skills/s/SKILL.md"]
+    assert len([p for p in plugin.rglob("*") if p.is_file()]) == 2
     assert (plugin / "skills" / "s" / "SKILL.md").read_text(encoding="utf-8") == "# s\n"
     assert (plugin / "scripts" / "guard.py").read_text(encoding="utf-8") == "print('guard')\n"
 
