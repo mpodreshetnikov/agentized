@@ -13,7 +13,7 @@
 
 ## in-progress
 
-_(пусто)_
+- [T-261127-a052](T-261127-a052.md) — AGE-68 A-tests: connect.py upsert/env-check/quality/helper mut oracles (tests-only) (родитель: T-261115-918b) · claim: mpodreshetnikov-worker
 
 ## blocked
 
