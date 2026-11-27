@@ -16,7 +16,7 @@ except ImportError:
         from _bootstrap import ensure_runtime_on_path
     except ImportError:
 
-        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+        def ensure_runtime_on_path(here=None):
             return Path.cwd()
 
 
@@ -42,7 +42,7 @@ def main() -> int:
 
     try:
         from agentized.hook_common import extract_paths, resolve_root
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         allow["agent_message"] = f"[lease-warn] unavailable: {exc}"
         print(json.dumps(allow, ensure_ascii=False))
         return 0

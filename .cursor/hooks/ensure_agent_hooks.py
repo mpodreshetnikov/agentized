@@ -28,7 +28,7 @@ except ImportError:
         from _bootstrap import ensure_runtime_on_path
     except ImportError:
 
-        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+        def ensure_runtime_on_path(here=None):
             return Path.cwd()
 
 
@@ -79,7 +79,7 @@ def main() -> int:
         )
         from agentized.env_check import is_cursor_cloud
         from agentized.hook_common import resolve_root
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         allow["agent_message"] = f"[ensure-agent-hooks] unavailable: {exc}"
         print(json.dumps(allow, ensure_ascii=False))
         return 0
@@ -92,7 +92,7 @@ def main() -> int:
         path_status = ensure_githooks_path(root)
         if path_status == "set":
             notes.append("core.hooksPath=.githooks")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         notes.append(f"hooksPath-skip:{exc}")
 
     # Cursor Cloud: chain agent-hooks → tracked .githooks when dispatcher exists.

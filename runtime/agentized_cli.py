@@ -266,7 +266,7 @@ def cmd_reporting(args: argparse.Namespace) -> int:
 
 
 def cmd_process(args: argparse.Namespace) -> int:
-    from agentized.format_disable_gate import format_disable_check
+    from agentized.gate_preflight import run_format_disable_check as format_disable_check
     from agentized.process_control import claim_check
     from agentized.process_size import size_check
 
@@ -315,8 +315,8 @@ def cmd_quality(args: argparse.Namespace) -> int:
         return 0
     if args.quality_cmd == "check":
         from agentized.architecture_gate import run_architecture_gate
-        from agentized.coverage_check import run_coverage_check
-        from agentized.mutation_ast import run_mutation
+        from agentized.gate_preflight import run_coverage_gate as run_coverage_check
+        from agentized.gate_preflight import run_mutation_gate as run_mutation
         from agentized.test_smells import run_test_smells
 
         # load_quality is imported at module scope; a local import here would

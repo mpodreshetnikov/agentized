@@ -14,6 +14,8 @@ DOC = "docs/process-control.md"
 HARD_CAP = 1500
 # Exact lowercase codec — avoid utf-8/UTF-8 lexeme mutants surviving decode.
 _CONFIG_ENCODING = "utf-8"
+# Git empty-tree OID — first-push baseline when origin/main is not fetched yet.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 def validate_size_fields(cfg: dict[str, Any], *, path: Path | None = None) -> tuple[int, float]:
@@ -78,6 +80,37 @@ def parse_numstat(stdout: str) -> int:
     return total
 
 
+def is_connect_bootstrap_path(path: str, context_rel: str = DEFAULT_CONTEXT) -> bool:
+    """True for paths Agentized connect installs (AGE-85 baseline exemption only)."""
+    # Do NOT use str.lstrip("./") — that strips every leading '.'/'/' char
+    # (".githooks/x" → "githooks/x"). Only drop an optional "./" prefix.
+    rel = path.replace("\\", "/")
+    rel = rel.removeprefix("./")
+    if rel == "AGENTS.md":
+        return True
+    prefixes = (
+        ".githooks/",
+        ".github/workflows/",
+        ".cursor/",
+        ".claude/",
+        ".codex/",
+        ".agents/",
+        ".agentized/",
+        f"{context_rel}/",
+    )
+    return rel.startswith(prefixes)
+
+
+def parse_numstat_excluding_bootstrap(stdout: str, context_rel: str = DEFAULT_CONTEXT) -> int:
+    """Sum insertions excluding connect bootstrap paths (AGE-85)."""
+    kept = [
+        line
+        for line in stdout.splitlines()
+        if not is_connect_bootstrap_path(line.split("\t")[-1], context_rel)
+    ]
+    return parse_numstat("\n".join(kept))
+
+
 def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -92,8 +125,23 @@ def _run_numstat(root: Path, spec: str) -> subprocess.CompletedProcess[str]:
     return _run_git(root, ["git", "diff", "--numstat", spec])
 
 
-def diff_insertions(root: Path, base_ref: str) -> int:
-    """Count insertions vs base_ref. Git errors raise (fail closed)."""
+def _managed_rel(context_rel: str) -> str:
+    return f"{context_rel}/.agentized/managed.json"
+
+
+def head_has_connect_managed(root: Path, context_rel: str = DEFAULT_CONTEXT) -> bool:
+    return _ref_has_path(root, "HEAD", _managed_rel(context_rel))
+
+
+def _ref_has_path(root: Path, ref: str, rel: str) -> bool:
+    return _run_git(root, ["git", "cat-file", "-e", f"{ref}:{rel}"]).returncode == 0
+
+
+def ref_exists(root: Path, ref: str) -> bool:
+    return _run_git(root, ["git", "rev-parse", "--verify", ref]).returncode == 0
+
+
+def _numstat_stdout(root: Path, base_ref: str) -> str:
     triple = f"{base_ref}...HEAD"
     proc = _run_numstat(root, triple)
     if proc.returncode != 0:
@@ -103,7 +151,19 @@ def diff_insertions(root: Path, base_ref: str) -> int:
         raise RuntimeError(
             f"process-control: git diff failed for {base_ref!r}: {detail}. See {DOC}."
         )
-    return parse_numstat(proc.stdout)
+    return proc.stdout
+
+
+def diff_insertions(root: Path, base_ref: str) -> int:
+    """Count insertions vs base_ref. Git errors raise (fail closed)."""
+    return parse_numstat(_numstat_stdout(root, base_ref))
+
+
+def diff_insertions_excluding_bootstrap(
+    root: Path, base_ref: str, context_rel: str = DEFAULT_CONTEXT
+) -> int:
+    """Insertions vs base, ignoring connect-installed bootstrap paths."""
+    return parse_numstat_excluding_bootstrap(_numstat_stdout(root, base_ref), context_rel)
 
 
 def validate_process_base(root: Path, base_ref: str) -> None:
@@ -163,19 +223,37 @@ def size_check(
     context_rel: str = DEFAULT_CONTEXT,
     base_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Canonical PR size gate (AGE-40): base ancestry, field validation, base-limit cap."""
+    """Canonical PR size gate (AGE-40): base ancestry, field validation, base-limit cap.
+
+    AGE-85: when establishing a connect baseline (HEAD has
+    ``{context}/.agentized/managed.json`` but the size base does not), count only
+    non-bootstrap insertions. Not a generic bypass — user paths still gate.
+    """
     # Lazy import: process_control imports helpers from this module.
     from .process_control import load_process_config
 
     base = base_ref or os.environ.get("PROCESS_BASE") or "origin/main"
+    baseline_note = ""
     try:
-        validate_process_base(root, base)
         cfg = load_process_config(root, context_rel)
         limit, warn_pct = validate_size_fields(cfg)
-        base_limit = limit_from_base_ref(root, base, context_rel)
-        if base_limit is not None:
-            limit = min(limit, base_limit)
-        insertions = diff_insertions(root, base)
+        managed_rel = _managed_rel(context_rel)
+        head_managed = head_has_connect_managed(root, context_rel)
+        # First push to empty remote: origin/main missing, connect just installed.
+        if base == "origin/main" and head_managed and not ref_exists(root, base):
+            insertions = diff_insertions_excluding_bootstrap(root, EMPTY_TREE, context_rel)
+            baseline_note = " connect-baseline (no origin/main; bootstrap paths excluded)"
+        else:
+            validate_process_base(root, base)
+            base_limit = limit_from_base_ref(root, base, context_rel)
+            if base_limit is not None:
+                limit = min(limit, base_limit)
+            base_has_managed = _ref_has_path(root, base, managed_rel)
+            if head_managed and not base_has_managed:
+                insertions = diff_insertions_excluding_bootstrap(root, base, context_rel)
+                baseline_note = " connect-baseline (bootstrap paths excluded)"
+            else:
+                insertions = diff_insertions(root, base)
     except (RuntimeError, ValueError) as exc:
         return {
             "ok": False,
@@ -195,7 +273,8 @@ def size_check(
         "warn_at": warn_at,
         "base": base,
         "message": (
-            f"process-control: PR size {insertions} insertions vs {base} "
+            f"process-control: PR size {insertions} insertions vs {base}"
+            f"{baseline_note} "
             f"(warn ≥{warn_at} = {warn_pct}% of {limit}; over >{limit}; ≤{limit} OK). See {DOC}."
         ),
     }
