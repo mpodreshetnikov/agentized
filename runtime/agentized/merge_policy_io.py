@@ -79,7 +79,7 @@ def ensure_process_control_authorship(
 
 
 def _git_output(root: Path, args: list[str]) -> str:
-    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise GitCommandError(proc.stderr.strip())
     return proc.stdout

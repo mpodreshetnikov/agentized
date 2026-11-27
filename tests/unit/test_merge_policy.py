@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from agentized.merge_policy import (
     agent_merge_decision,
     authorship_check,

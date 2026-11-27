@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from agentized.merge_policy import authorship_check as authorship_check_fn
 from agentized.merge_policy_io import (
     GitCommandError,
@@ -131,8 +130,12 @@ def test_ensure_process_control_authorship(tmp_path: Path, monkeypatch):
 
 def test_git_output_fail_closed(tmp_path: Path, monkeypatch):
     _init_repo(tmp_path)
+    kw: dict = {}
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: kw.update(k) or real(*a, **k))
     with pytest.raises(GitCommandError) as ei:
         _git_output(tmp_path, ["rev-parse", "does-not-exist"])
+    assert kw["check"] is False
     assert "does-not-exist" in str(ei.value)
     assert git_user_email(tmp_path) == "alice@example.com"
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")

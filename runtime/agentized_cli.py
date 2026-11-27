@@ -314,7 +314,11 @@ def cmd_process(args: argparse.Namespace) -> int:
         local = args.local
         if not local:
             proc = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             local = proc.stdout.strip() if proc.returncode == 0 else ""
         r = agent_merge_check(root, remote_sha=remote, local_sha=local, context_rel=ctx_rel)
