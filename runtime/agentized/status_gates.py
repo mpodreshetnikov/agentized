@@ -339,7 +339,7 @@ def _trailing_newlines(body: str) -> int:
 def _append_starts_new_line(old: str, new: str) -> bool:
     """Last base line is frozen: whatever follows it must begin on a new line."""
     tail = new[len(old) :]
-    return old[-1:] in {"", "\n"} or tail == "" or tail.startswith("\n")
+    return old.endswith("\n") or tail == "" or tail.startswith("\n")
 
 
 def section_is_prefix(old_text: str, new_text: str, marker: str) -> bool:

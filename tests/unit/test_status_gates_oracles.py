@@ -22,6 +22,7 @@ from agentized.status_gates import (
     PROGRESS_SECTION,
     STATUS_ALIASES,
     GateResult,
+    _cmd_detail,
     append_only_section_errors,
     is_known_status,
     normalize_status,
@@ -309,6 +310,12 @@ def test_last_line_is_frozen_exact_oracles():
     assert section_is_prefix(base, head.format(x=""), PROGRESS_SECTION) is True
     assert section_is_prefix(base, head.format(x="b"), PROGRESS_SECTION) is False
     assert section_is_prefix(base, head.format(x=" "), PROGRESS_SECTION) is False
+    assert section_is_prefix(base, head.format(x="X"), PROGRESS_SECTION) is False
+    assert section_is_prefix(base, head.format(x="XX\nXX"), PROGRESS_SECTION) is False
+    xbase = base.replace("- a", "- aX")
+    assert section_is_prefix(xbase, xbase.replace("aX", "aX\n- b"), PROGRESS_SECTION) is True
+    assert section_is_prefix(xbase, xbase, PROGRESS_SECTION) is True
+    assert section_is_prefix(xbase, xbase.replace("aX", "a"), PROGRESS_SECTION) is False
     assert section_is_prefix(base, head.format(x="  \t"), PROGRESS_SECTION) is False
     assert section_is_prefix(base, head.format(x="\n- b"), PROGRESS_SECTION) is True
     assert section_is_prefix(base, head.format(x="\n\n- b"), PROGRESS_SECTION) is True
@@ -390,12 +397,19 @@ def test_resolve_ignores_env_and_guards_head_base(tmp_path: Path, monkeypatch):
     with pytest.raises(RuntimeError) as exc2:
         require_base_before_head(root, later)
     assert str(exc2.value) == MSG_BASE_NOT_BEFORE_HEAD.format(ref=later)
+    probe = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "HEAD", "no-such-ref"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode not in {0, 1}
     with pytest.raises(RuntimeError) as exc3:
         require_base_before_head(root, "no-such-ref")
-    assert str(exc3.value).startswith(
-        MSG_BASE_UNRESOLVED.format(ref="no-such-ref", detail="").rstrip()
-    )
-    assert "no-such-ref" in str(exc3.value)
+    detail = _cmd_detail(probe)
+    assert detail
+    assert str(exc3.value) == MSG_BASE_UNRESOLVED.format(ref="no-such-ref", detail=detail)
 
 
 def test_main_push_uses_first_parent_not_head(tmp_path: Path):
