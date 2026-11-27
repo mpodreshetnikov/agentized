@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### AGE-96 — branch-history Progress/Decision Log prefix gate
+
+- `tasks-validate` (hard, CI + pre-push) also checks every non-merge commit pair in `base..HEAD`: each touched `context/tasks/T-*.md` must keep Progress and Decision Log as an exact prefix of its parent version, so a mid-branch deletion cannot be hidden by later appends (task files that are not on `main` included).
+- A file deleted and re-added is compared with its last existing version. Merge commits are not pair endpoints (conflict resolution may reorder concurrent appends); the next commit is compared with the merge.
+- Unreadable blobs (git error, non-UTF-8) fail closed. A force-push rewrite to a clean history passes: only the final branch history is judged.
+
 ### AGE-76 — PR tip hygiene gate
 
 - Hard `tasks-validate` tip hygiene: INDEX freshness; PR-linked tasks must be `self-review`/`done` with claim `_(пусто)_` or empty; template `родитель` placeholder held; every PR needs a matching `pr:` task.
