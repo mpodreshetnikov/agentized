@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from agentized.connect import (
     _upsert_marked_block,
     ensure_env_check_config,
@@ -58,7 +57,10 @@ def test_upsert_missing_file_with_create_writes_rstripped_body_once(tmp_path: Pa
     path = tmp_path / "AGENTS.md"
     body = f"{BEGIN}\nпривет\n{END}  \n\n\n"
     assert _upsert_marked_block(path, BEGIN, END, body, create=True) is True
-    assert path.read_bytes() == f"{BEGIN}\nпривет\n{END}\n".encode("utf-8")
+    assert (
+        path.read_bytes()
+        == b"<!-- B -->\n\xd0\xbf\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82\n<!-- E -->\n"
+    )
 
 
 def test_upsert_create_does_not_strip_leading_whitespace(tmp_path: Path):
