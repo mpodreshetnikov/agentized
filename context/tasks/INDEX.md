@@ -13,7 +13,7 @@
 
 ## in-progress
 
-_(пусто)_
+- [T-261127-c549](T-261127-c549.md) — connect.py mut oracles A5 install_codex (AGE-68) (родитель: T-261115-918b) · claim: cursor-agent bc-3382badd
 
 ## blocked
 
