@@ -463,6 +463,79 @@ def test_pin_reviewer_reads_quality_for_given_context(tmp_path: Path):
     }
 
 
+def test_pin_reviewer_renders_cursor_and_claude_with_exact_harness_and_effort(tmp_path: Path):
+    _agents_src(tmp_path)
+    src = tmp_path / "packages" / "shared" / "agents" / "reviewer.md"
+    cfg = {
+        "reviewer": {
+            "harnesses": {
+                "cursor": {"model": "cm", "effort": "ce"},
+                "claude": {"model": "lm", "effort": "le"},
+            }
+        }
+    }
+    with (
+        _load_quality_returning(cfg),
+        mock.patch.object(
+            connect_mod, "_render_reviewer_agent", wraps=connect_mod._render_reviewer_agent
+        ) as render,
+    ):
+        result = pin_reviewer_agents(tmp_path, "context")
+    p = _paths(tmp_path)
+    assert render.call_args_list == [
+        mock.call(src, "cm", harness="cursor", effort="ce"),
+        mock.call(src, "lm", harness="claude", effort="le"),
+    ]
+    assert result == {
+        "installed": [str(p["ctx"]), str(p["cursor"]), str(p["claude"]), str(p["toml"])],
+        "models": {"cursor": "cm", "claude": "lm", "codex": "gpt-6-astra"},
+        "model": "cm",
+    }
+
+
+def test_pin_reviewer_writes_every_pin_with_exact_context_rel_and_manifest(tmp_path: Path):
+    _agents_src(tmp_path)
+    man: dict[str, Any] = {"version": 1, "files": {}}
+    with (
+        _load_quality_returning({"reviewer": {}}),
+        mock.patch.object(
+            connect_mod, "managed_write_text", wraps=connect_mod.managed_write_text
+        ) as write,
+    ):
+        result = pin_reviewer_agents(tmp_path, "ctx/deep", force=True, manifest=man)
+    p = _paths(tmp_path, "ctx/deep")
+    cursor_text = _cursor_md(DEFAULT_MODEL)
+    assert write.call_args_list == [
+        mock.call(tmp_path, "ctx/deep", p["ctx"], cursor_text, force=True, manifest=man),
+        mock.call(tmp_path, "ctx/deep", p["cursor"], cursor_text, force=True, manifest=man),
+        mock.call(
+            tmp_path,
+            "ctx/deep",
+            p["claude"],
+            _claude_md("claude-fable-5-2", "medium"),
+            force=True,
+            manifest=man,
+        ),
+        mock.call(
+            tmp_path,
+            "ctx/deep",
+            p["toml"],
+            _toml("gpt-6-astra", "medium", BODY.rstrip()),
+            force=True,
+            manifest=man,
+        ),
+    ]
+    assert result == {
+        "installed": [str(p["ctx"]), str(p["cursor"]), str(p["claude"]), str(p["toml"])],
+        "models": {
+            "cursor": DEFAULT_MODEL,
+            "claude": "claude-fable-5-2",
+            "codex": "gpt-6-astra",
+        },
+        "model": DEFAULT_MODEL,
+    }
+
+
 def test_pin_reviewer_real_quality_json_roundtrip(tmp_path: Path):
     _agents_src(tmp_path)
     (tmp_path / "context").mkdir()
@@ -472,7 +545,11 @@ def test_pin_reviewer_real_quality_json_roundtrip(tmp_path: Path):
         encoding="utf-8",
     )
     result = pin_reviewer_agents(tmp_path, "context")
-    assert result["models"]["codex"] == "q-codex"
+    assert result["models"] == {
+        "cursor": DEFAULT_MODEL,
+        "claude": "claude-fable-5-2",
+        "codex": "q-codex",
+    }
     assert _paths(tmp_path)["toml"].read_text(encoding="utf-8") == _toml(
         "q-codex", "medium", BODY.rstrip()
     )
@@ -518,15 +595,13 @@ def test_pin_reviewer_loads_existing_manifest_from_context(tmp_path: Path):
     save_managed(tmp_path, "context", {"version": 1, "files": {"keep/me.txt": "abc"}})
     with _load_quality_returning({"reviewer": {}}):
         pin_reviewer_agents(tmp_path, "context")
-    files = load_managed(tmp_path, "context")["files"]
-    assert files["keep/me.txt"] == "abc"
-    assert sorted(files) == [
-        ".claude/agents/reviewer.md",
-        ".codex/agents/reviewer.toml",
-        ".cursor/agents/reviewer.md",
-        "context/agents/reviewer.md",
-        "keep/me.txt",
-    ]
+    assert load_managed(tmp_path, "context")["files"] == {
+        ".claude/agents/reviewer.md": _sha(_claude_md("claude-fable-5-2", "medium")),
+        ".codex/agents/reviewer.toml": _sha(_toml("gpt-6-astra", "medium", BODY.rstrip())),
+        ".cursor/agents/reviewer.md": _sha(_cursor_md(DEFAULT_MODEL)),
+        "context/agents/reviewer.md": _sha(_cursor_md(DEFAULT_MODEL)),
+        "keep/me.txt": "abc",
+    }
 
 
 def test_pin_reviewer_nested_context_rel_creates_parents(tmp_path: Path):
@@ -534,7 +609,12 @@ def test_pin_reviewer_nested_context_rel_creates_parents(tmp_path: Path):
     with _load_quality_returning({"reviewer": {}}):
         result = pin_reviewer_agents(tmp_path, "ctx/deep")
     p = _paths(tmp_path, "ctx/deep")
-    assert result["installed"][0] == str(p["ctx"])
+    assert result["installed"] == [
+        str(p["ctx"]),
+        str(p["cursor"]),
+        str(p["claude"]),
+        str(p["toml"]),
+    ]
     assert p["ctx"].read_text(encoding="utf-8") == _cursor_md(DEFAULT_MODEL)
     assert (tmp_path / "ctx" / "deep" / ".agentized" / "managed.json").is_file()
 
@@ -627,9 +707,12 @@ def test_pin_reviewer_bootstraps_legacy_files_without_manifest(tmp_path: Path):
     }
     assert p["cursor"].read_text(encoding="utf-8") == "legacy cursor\n"
     assert p["claude"].read_text(encoding="utf-8") == "legacy claude\n"
-    files = load_managed(tmp_path, "context")["files"]
-    assert files[".cursor/agents/reviewer.md"] == _sha("legacy cursor\n")
-    assert files[".claude/agents/reviewer.md"] == _sha("legacy claude\n")
+    assert load_managed(tmp_path, "context")["files"] == {
+        ".claude/agents/reviewer.md": _sha("legacy claude\n"),
+        ".codex/agents/reviewer.toml": _sha(_toml("gpt-6-astra", "medium", BODY.rstrip())),
+        ".cursor/agents/reviewer.md": _sha("legacy cursor\n"),
+        "context/agents/reviewer.md": _sha(_cursor_md(DEFAULT_MODEL)),
+    }
 
 
 def test_pin_reviewer_skipped_and_bootstrapped_together(tmp_path: Path):
@@ -691,7 +774,12 @@ def test_pin_reviewer_uses_installed_agents_when_target_has_no_packages(tmp_path
         _load_quality_returning({"reviewer": {}}),
     ):
         result = pin_reviewer_agents(target, "context")
-    assert result["installed"][1] == str(target / ".cursor" / "agents" / "reviewer.md")
+    assert result["installed"] == [
+        str(target / "context" / "agents" / "reviewer.md"),
+        str(target / ".cursor" / "agents" / "reviewer.md"),
+        str(target / ".claude" / "agents" / "reviewer.md"),
+        str(target / ".codex" / "agents" / "reviewer.toml"),
+    ]
     assert (target / ".cursor" / "agents" / "reviewer.md").read_text(
         encoding="utf-8"
     ) == _cursor_md(DEFAULT_MODEL)
