@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -103,3 +104,38 @@ def test_cmd_process_format_disables_streams(tmp_path: Path, monkeypatch, capsys
     captured = capsys.readouterr()
     assert "no new" in captured.out
     assert captured.err == ""
+
+
+def _agent_merge_repo(tmp_path: Path, monkeypatch) -> argparse.Namespace:
+    monkeypatch.setattr("agentized_cli.find_repo_root", lambda: tmp_path)
+    monkeypatch.setattr("agentized_cli.load_state", lambda root: {"context": "context"})
+    monkeypatch.setenv("CURSOR_AGENT", "1")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "context").mkdir()
+    (tmp_path / "context" / "process-control.json").write_text(
+        '{"merge_policy": {"agent_merge": "forbidden"}}\n', encoding="utf-8"
+    )
+    return argparse.Namespace(process_cmd="agent-merge", remote=None, local=None, json=False)
+
+
+def test_cmd_process_agent_merge_unresolvable_head_refuses(tmp_path: Path, monkeypatch, capsys):
+    """No commits -> HEAD unresolvable: refuse (exit 1), never an empty-push ok."""
+    from agentized_cli import cmd_process
+
+    args = _agent_merge_repo(tmp_path, monkeypatch)
+    assert cmd_process(args) == 1
+    captured = capsys.readouterr()
+    assert "agent-merge: REFUSED. git failed" in captured.err
+    assert captured.out == ""
+
+
+def test_cmd_process_agent_merge_unknown_remote_refuses(tmp_path: Path, monkeypatch, capsys):
+    """Explicit --local with a remote sha git cannot resolve: refuse, no traceback."""
+    from agentized_cli import cmd_process
+
+    args = _agent_merge_repo(tmp_path, monkeypatch)
+    args.local, args.remote = "f" * 40, "e" * 40
+    assert cmd_process(args) == 1
+    err = capsys.readouterr().err
+    assert "agent-merge: REFUSED. git failed" in err
+    assert "Traceback" not in err

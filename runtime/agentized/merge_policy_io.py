@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -17,72 +16,29 @@ from .merge_policy_defaults import (
     MODE_DISABLED,
     MODE_OK,
     MODE_REFUSE,
-    missing_git_email_message,
 )
 from .paths import DEFAULT_CONTEXT, find_repo_root
-from .process_control import (
-    PROCESS_FILENAME,
-    default_process_config,
-    is_agent_session,
-    load_process_config,
-)
+from .process_control import is_agent_session, load_process_config
 
 
 class GitCommandError(RuntimeError):
     """Non-zero git exit — fail closed."""
 
 
-def _write_json(path: Path, obj: object) -> None:
-    path.write_text(
-        json.dumps(obj, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
 def load_merge_policy(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     return merge_policy_from_config(load_process_config(root, context_rel))
 
 
-def ensure_process_control_authorship(
-    root: Path, context_rel: str = DEFAULT_CONTEXT
-) -> dict[str, Any]:
-    path = root / context_rel / PROCESS_FILENAME
-    created = not path.exists()
-    defaults = default_process_config()
-    if created:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(path, defaults)
-    loaded = json.loads(path.read_text())
-    if not isinstance(loaded, dict):
-        raise TypeError
-    data = dict(defaults)
-    data.update(loaded)
-    mp = merge_policy_from_config(data)
-    data["merge_policy"] = mp
-    filled = False
-    participants = list(mp.get("human_participants") or [])
-    enabled = bool((mp.get("human_authorship") or {}).get("enabled"))
-    if enabled and len(participants) == 0:
-        email = git_user_email(root)
-        if not email:
-            raise RuntimeError(missing_git_email_message())
-        mp["human_participants"] = [email]
-        filled = True
-    if filled or created:
-        _write_json(path, data)
-    return {
-        "path": str(path.relative_to(root)),
-        "created": created,
-        "participants_filled": filled,
-        "human_participants": list(mp.get("human_participants") or []),
-    }
-
-
 def _git_output(root: Path, args: list[str]) -> str:
-    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise GitCommandError(proc.stderr.strip())
+    try:
+        proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise GitCommandError(exc.stderr.strip()) from exc
     return proc.stdout
+
+
+def head_sha(root: Path) -> str:
+    return _git_output(root, ["rev-parse", "HEAD"]).strip()
 
 
 def git_user_email(root: Path) -> str:

@@ -277,9 +277,11 @@ def _emit_process(result: dict, *, as_json: bool, to_stderr: bool) -> int:
 def cmd_process(args: argparse.Namespace) -> int:
     from agentized.gate_preflight import run_format_disable_check as format_disable_check
     from agentized.merge_policy_io import (
+        GitCommandError,
         agent_merge_check,
         apply_commit_msg,
         authorship_range_check,
+        head_sha,
     )
     from agentized.process_control import claim_check
     from agentized.process_size import size_check
@@ -308,20 +310,16 @@ def cmd_process(args: argparse.Namespace) -> int:
         r = apply_commit_msg(Path(args.path), root=root, context_rel=ctx_rel)
         return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
     if args.process_cmd == "agent-merge":
-        import subprocess
-
         remote = args.remote or ("0" * 40)
-        local = args.local
-        if not local:
-            proc = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=root,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            local = proc.stdout.strip() if proc.returncode == 0 else ""
-        r = agent_merge_check(root, remote_sha=remote, local_sha=local, context_rel=ctx_rel)
+        try:
+            local = args.local or head_sha(root)
+            r = agent_merge_check(root, remote_sha=remote, local_sha=local, context_rel=ctx_rel)
+        except GitCommandError as exc:
+            r = {
+                "ok": False,
+                "mode": "refuse",
+                "message": f"agent-merge: REFUSED. git failed: {exc}",
+            }
         return _emit_process(r, as_json=args.json, to_stderr=not r["ok"])
     if args.process_cmd == "authorship":
         r = authorship_range_check(

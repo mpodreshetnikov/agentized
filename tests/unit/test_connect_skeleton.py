@@ -35,8 +35,6 @@ def test_ensure_skeleton_does_not_overwrite_existing_nav(tmp_path: Path):
 def test_connect_clean_git_init_creates_skeleton(tmp_path: Path, monkeypatch):
     """Regression: clean git init with no context/ — connect succeeds + skeleton."""
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    for k, v in (("user.email", "a@a"), ("user.name", "A")):
-        subprocess.run(["git", "config", k, v], cwd=tmp_path, check=True, capture_output=True)
     monkeypatch.chdir(tmp_path)
 
     assert not (tmp_path / "context").exists()

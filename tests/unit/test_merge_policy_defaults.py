@@ -31,7 +31,6 @@ from agentized.merge_policy_defaults import (
     default_merge_policy,
     empty_allowlist_message,
     invalid_agent_merge_message,
-    missing_git_email_message,
 )
 
 
@@ -121,8 +120,4 @@ def test_message_builders():
     assert invalid_agent_merge_message("maybe") == (
         "REFUSED. merge-policy: agent_merge must be "
         "'allowed' or 'forbidden', got 'maybe'. See docs/process-control.md."
-    )
-    assert missing_git_email_message() == (
-        "REFUSED. merge-policy: human_authorship.enabled but git user.email "
-        "is missing — cannot fill human_participants. See docs/process-control.md."
     )
