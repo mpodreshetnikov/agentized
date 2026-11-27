@@ -7,6 +7,7 @@ from pathlib import Path
 
 import agentized.orbit_import as oi_mod
 import agentized.task_schema as _ts
+import agentized_cli as cli
 import pytest
 from agentized.orbit_import import (
     MSG_NO_FM,
@@ -494,10 +495,12 @@ def test_import_report_as_dict_format_continue(tmp_path: Path, monkeypatch):
         "warnings",
         "errors",
         "closed_in_orbit",
+        "closed_edges",
         "count",
     }
     assert d["dry_run"] is True
     assert d["count"] == 0
+    assert d["closed_edges"] == 0
     assert d["would_write"] == []
     assert d["errors"] == report.errors
     assert d["warnings"] == report.warnings
@@ -768,12 +771,12 @@ def test_orbit_review_blocked_open_dropped_skipped(tmp_path: Path):
     assert len(list(dest.glob("T-*.md"))) == 4
 
 
-def test_unknown_status_fail_closed_dep_on_closed_fails(tmp_path: Path):
+def test_unknown_status_and_unknown_edge_fail_closed(tmp_path: Path):
     src, dest = _sd(tmp_path)
     for tid, st in (("T-0301", "wip"), ("T-0302", "canceled"), ("T-0303", "in-review")):
         _feat(src / f"{tid}.md", tid, status=st)
     _feat(src / "T-0304.md", "T-0304", status="dropped")
-    _feat(src / "T-0305.md", "T-0305", depends_on="[T-0304]")
+    _feat(src / "T-0305.md", "T-0305", depends_on="[T-0304, T-0399]")
     rep = import_orbit_tasks(src, dest, dry_run=False)
     assert rep.closed == ["T-0304"] and rep.would_write == [] and not list(dest.glob("T-*.md"))
     bad = (("T-0301", "wip"), ("T-0302", "canceled"), ("T-0303", "in-review"))
@@ -781,7 +784,7 @@ def test_unknown_status_fail_closed_dep_on_closed_fails(tmp_path: Path):
         f"skip (unknown Orbit status {st!r}): {src / f'{t}.md'}" for t, st in bad
     ]
     assert len(rep.errors) == 4
-    assert rep.errors[3].endswith(": " + MSG_UNRESOLVED.format(raw="T-0304"))
+    assert rep.errors[3].endswith(": " + MSG_UNRESOLVED.format(raw="T-0399"))
 
 
 def test_e2e_import_commit_tasks_validate(tmp_path: Path, monkeypatch):
@@ -814,3 +817,175 @@ def test_e2e_import_commit_tasks_validate(tmp_path: Path, monkeypatch):
     for d in rep.drafts:
         assert f"[{d.task_id}]({d.task_id}.md)" in index and f"orbit: {d.orbit_id}" in index
     assert "T-0204" not in index
+
+
+_EDGE_BODY = (
+    "# {tid} — T\n\nстатус: open\nтеги: _(нет)_\nродитель: _(пусто)_\nclaim: _(пусто)_\n"
+    "kind: feature\npriority: p2\n{deps}orbit_id: {oid}\n{sup}\n"
+    "Ценность: V\n\n## Цель\n\nImported from orbit-tasks fixture (see preserved body below).\n\n"
+    "## Progress\n\n_(append-only)_\n\n## Decision Log\n\n_(append-only)_\n\n"
+    "## Imported body (preserved ids / history links)\n\n_source: `{oid}.md`_\n\n{notes}B\n"
+)
+_CLOSED_NOTE = "{field} Orbit {oid}: closed in Orbit, not imported\n\n"
+
+
+def _closed_edge_src(src: Path) -> None:
+    _feat(src / "T-0401.md", "T-0401")
+    _feat(
+        src / "T-0402.md",
+        "T-0402",
+        status="review",
+        depends_on="[T-0401, T-0404, T-0405]",
+        superseded_by="T-0406",
+    )
+    _feat(src / "T-0403.md", "T-0403", superseded_by="T-0401")
+    for tid, st in (("T-0404", "done"), ("T-0405", "dropped"), ("T-0406", "dropped")):
+        _feat(src / f"{tid}.md", tid, status=st)
+
+
+def test_closed_edges_become_body_notes(tmp_path: Path):
+    src, dest = _sd(tmp_path)
+    _closed_edge_src(src)
+    dry = import_orbit_tasks(src, dest, dry_run=True)
+    rep = import_orbit_tasks(src, dest, dry_run=False)
+    assert rep.errors == dry.errors == [] and rep.closed == ["T-0404", "T-0405", "T-0406"]
+    ids = {d.orbit_id: d.task_id for d in rep.drafts}
+    assert [d.task_id for d in dry.drafts] == [d.task_id for d in rep.drafts]
+    notes = "".join(
+        _CLOSED_NOTE.format(field=f, oid=o)
+        for f, o in (
+            ("depends_on", "T-0404"),
+            ("depends_on", "T-0405"),
+            ("superseded_by", "T-0406"),
+        )
+    )
+    texts = {oid: (dest / f"{tid}.md").read_text(encoding="utf-8") for oid, tid in ids.items()}
+    assert texts == {
+        "T-0401": _EDGE_BODY.format(tid=ids["T-0401"], oid="T-0401", deps="", sup="", notes=""),
+        "T-0402": _EDGE_BODY.format(
+            tid=ids["T-0402"],
+            oid="T-0402",
+            deps=f"depends_on: [{ids['T-0401']}]\n",
+            sup="",
+            notes="Orbit status: review\n\n" + notes,
+        ),
+        "T-0403": _EDGE_BODY.format(
+            tid=ids["T-0403"],
+            oid="T-0403",
+            deps="",
+            sup=f"superseded_by: {ids['T-0401']}\n",
+            notes="",
+        ),
+    }
+    assert sorted(len(d.closed_edges) for d in rep.drafts) == [0, 0, 3]
+    assert rep.closed_edge_count == 3 and rep.as_dict()["closed_edges"] == 3
+    assert format_report(rep).splitlines()[:8] == [
+        "orbit-import WRITE",
+        "  sources: 6",
+        "  would_write: 3",
+        "  skipped: 0",
+        "  errors: 0",
+        "  skipped: closed in Orbit (3)",
+        "  closed edges noted in body: 3",
+        f"  + {dest / (ids['T-0401'] + '.md')}",
+    ]
+    plain, plain_dest = _sd(tmp_path, "plain", "plain_dest")
+    _feat(plain / "T-0701.md", "T-0701")
+    assert "closed edges" not in format_report(import_orbit_tasks(plain, plain_dest))
+
+
+_E2E_IDS = {"T-0501": "T-261127-4acf", "T-0502": "T-261127-24e5", "T-0503": "T-261127-7cc3"}
+
+
+def test_e2e_cli_closed_edges_exit_zero_validate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    for key in ("GITHUB_REF", "GITHUB_EVENT_NAME", *ENV_PR_KEYS):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(_ts, "utc_now_stamp", lambda: "261127")
+    repo = tmp_path / "repo"
+    tasks = repo / "context" / "tasks"
+    tasks.mkdir(parents=True)
+    git = ["git", "-c", "user.email=t@e.c", "-c", "user.name=t"]
+    (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
+        subprocess.run([*git, *args], cwd=repo, check=True, capture_output=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    src = tmp_path / "orbit"
+    src.mkdir()
+    _feat(src / "T-0501.md", "T-0501", owner="ann@example.com")
+    _feat(
+        src / "T-0502.md",
+        "T-0502",
+        status="blocked",
+        depends_on="[T-0501, T-0504]",
+        superseded_by="T-0505",
+    )
+    _feat(src / "T-0503.md", "T-0503", depends_on="[T-0504]")
+    _feat(src / "T-0504.md", "T-0504", status="done")
+    _feat(src / "T-0505.md", "T-0505", status="dropped")
+    monkeypatch.chdir(repo)
+    paths = {oid: tasks / f"{tid}.md" for oid, tid in _E2E_IDS.items()}
+    listing = "".join(f"  + {paths[oid]}\n" for oid in _E2E_IDS)
+    warns = (
+        "  WARN: T-0501: converted → T-261127-4acf (orbit_id preserved)\n"
+        "  WARN: T-0502: converted → T-261127-24e5 (orbit_id preserved)\n"
+        "  WARN: T-0502: Orbit status blocked → open (kept in body)\n"
+        "  WARN: T-0503: converted → T-261127-7cc3 (orbit_id preserved)\n"
+        "  depends_on T-261127-24e5: [T-261127-4acf]\n"
+    )
+
+    def expected(mode: str) -> str:
+        return (
+            f"orbit-import {mode}\n  sources: 5\n  would_write: 3\n  skipped: 0\n  errors: 0\n"
+            f"  skipped: closed in Orbit (2)\n  closed edges noted in body: 3\n{listing}{warns}"
+        )
+
+    assert cli.main(["import-orbit", "--source", str(src)]) == 0
+    assert capsys.readouterr().out == expected("DRY-RUN")
+    assert sorted(p.name for p in tasks.iterdir()) == ["INDEX.md"]
+    assert cli.main(["import-orbit", "--source", str(src), "--write"]) == 0
+    assert capsys.readouterr().out == expected("WRITE")
+    note = _CLOSED_NOTE.format
+    assert paths["T-0501"].read_text(encoding="utf-8") == _EDGE_BODY.format(
+        tid="T-261127-4acf", oid="T-0501", deps="", sup="", notes=""
+    ).replace("priority: p2\n", "priority: p2\nowner: ann@example.com\n", 1)
+    assert paths["T-0502"].read_text(encoding="utf-8") == _EDGE_BODY.format(
+        tid="T-261127-24e5",
+        oid="T-0502",
+        deps="depends_on: [T-261127-4acf]\n",
+        sup="",
+        notes="Orbit status: blocked\n\n"
+        + note(field="depends_on", oid="T-0504")
+        + note(field="superseded_by", oid="T-0505"),
+    )
+    assert paths["T-0503"].read_text(encoding="utf-8") == _EDGE_BODY.format(
+        tid="T-261127-7cc3",
+        oid="T-0503",
+        deps="",
+        sup="",
+        notes=note(field="depends_on", oid="T-0504"),
+    )
+    subprocess.run([*git, "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [*git, "commit", "-q", "-m", "import"], cwd=repo, check=True, capture_output=True
+    )
+    ref, result = run_tasks_validate(tasks, repo_root=repo, base_ref=base)
+    assert (ref, result.errors) == (base, ())
+    bad = tmp_path / "orbit-bad"
+    bad.mkdir()
+    _feat(bad / "T-0601.md", "T-0601", depends_on="[T-ghost]")
+    before = (tasks / "INDEX.md").read_text(encoding="utf-8")
+    assert cli.main(["import-orbit", "--source", str(bad), "--write"]) == 1
+    unresolved = "T-261127-381c: " + MSG_UNRESOLVED.format(raw="T-ghost")
+    assert capsys.readouterr().out == (
+        "orbit-import WRITE\n  sources: 1\n  would_write: 0\n  skipped: 0\n  errors: 1\n"
+        f"  WARN: T-0601: converted → T-261127-381c (orbit_id preserved)\n"
+        f"  WARN: {unresolved}\n  ERR: {unresolved}\n"
+    )
+    assert sorted(p.name for p in tasks.iterdir()) == sorted(
+        ["INDEX.md", *(f"{t}.md" for t in _E2E_IDS.values())]
+    )
+    assert (tasks / "INDEX.md").read_text(encoding="utf-8") == before
