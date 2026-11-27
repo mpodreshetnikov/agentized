@@ -42,7 +42,7 @@ Policy lives under `merge_policy` in `context/process-control.json`. Defaults: `
 - `process authorship --base <ref> --head <ref>`: the same author check over every non-merge commit in `base..head` (CI passes the PR base and head).
 - `process agent-merge [--remote <sha>] [--local <sha>]`: with `agent_merge=forbidden`, an agent session may not push merge commits. Fails closed: when git cannot resolve a commit (including `HEAD` when `--local` is omitted) the command refuses with a non-zero exit instead of treating the push as empty.
 
-Scope: `agentized connect` does **not** install `commit-msg`, fill `human_participants` or run these checks in connected repos yet; that wiring ships in a follow-up PR. This repo's `.githooks/pre-push`, `.githooks/commit-msg` and CI run them directly.
+Scope: `agentized connect` installs `commit-msg`, fills `human_participants` from git `user.email` (a missing email is refused) and its pinned `ci.yml` runs these checks in connected repos. This repo's `.githooks/pre-push`, `.githooks/commit-msg` and CI run them directly.
 
 ## Tip hygiene (AGE-76)
 

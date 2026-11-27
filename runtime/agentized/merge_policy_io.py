@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -16,17 +17,76 @@ from .merge_policy_defaults import (
     MODE_DISABLED,
     MODE_OK,
     MODE_REFUSE,
+    missing_git_email_message,
 )
 from .paths import DEFAULT_CONTEXT, find_repo_root
-from .process_control import is_agent_session, load_process_config
+from .process_control import (
+    PROCESS_FILENAME,
+    default_process_config,
+    is_agent_session,
+    load_process_config,
+)
 
 
 class GitCommandError(RuntimeError):
     """Non-zero git exit — fail closed."""
 
 
+def _write_json(path: Path, obj: object) -> None:
+    path.write_text(
+        json.dumps(obj, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def load_merge_policy(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, Any]:
     return merge_policy_from_config(load_process_config(root, context_rel))
+
+
+def plan_process_control_authorship(
+    root: Path, context_rel: str = DEFAULT_CONTEXT
+) -> dict[str, Any]:
+    """Read-only: the process-control.json that connect must hold, or raise.
+
+    Fail closed: with authorship enabled and an empty allowlist, a missing git
+    email raises. Nothing is written here.
+    """
+    path = root / context_rel / PROCESS_FILENAME
+    created = not path.exists()
+    data = default_process_config()
+    if not created:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise TypeError(f"{path}: expected a JSON object")
+        data.update(loaded)
+    mp = merge_policy_from_config(data)
+    data["merge_policy"] = mp
+    filled = False
+    enabled = bool((mp.get("human_authorship") or {}).get("enabled"))
+    if enabled and not mp.get("human_participants"):
+        email = git_user_email(root)
+        if not email:
+            raise RuntimeError(missing_git_email_message())
+        mp["human_participants"] = [email]
+        filled = True
+    return {"path": path, "data": data, "created": created, "filled": filled}
+
+
+def ensure_process_control_authorship(
+    root: Path, context_rel: str = DEFAULT_CONTEXT
+) -> dict[str, Any]:
+    """Write process-control.json when new or when the allowlist was filled."""
+    plan = plan_process_control_authorship(root, context_rel)
+    path: Path = plan["path"]
+    if plan["filled"] or plan["created"]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(path, plan["data"])
+    return {
+        "path": str(path.relative_to(root)),
+        "created": plan["created"],
+        "participants_filled": plan["filled"],
+        "human_participants": list(plan["data"]["merge_policy"]["human_participants"]),
+    }
 
 
 def _git_output(root: Path, args: list[str]) -> str:

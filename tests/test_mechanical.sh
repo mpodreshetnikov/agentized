@@ -44,10 +44,9 @@ if [[ -f "$ROOT/context/quality.json" ]]; then
 fi
 printf '%s\n' '# Agentized' '' '## Existing notes' '' '- keep me' > "$TMP/repo/AGENTS.md"
 printf '%s\n' '# Claude notes' '' 'Keep existing CLAUDE.md' > "$TMP/repo/CLAUDE.md"
-# minimal git marker so find_repo_root stabilizes
-mkdir -p "$TMP/repo/.git"
 
 cd "$TMP/repo"
+git init -q; git config user.email "alice@example.com"; git config user.name "Alice"
 
 echo "-- connect --"
 "${CLI[@]}" connect >/tmp/agentized-connect-out.txt
@@ -71,6 +70,10 @@ echo "-- connect coverage threshold --"
 "${CLI[@]}" connect --coverage 82 >/tmp/agentized-connect-cov.txt
 assert "coverage threshold applied" grep -Eq '"lines": 82(\.0)?' context/quality.json
 assert "pre-push template pinned" test -f .githooks/pre-push
+assert "commit-msg template pinned executable" test -x .githooks/commit-msg
+assert "authorship allowlist filled from git email" grep -q 'alice@example.com' context/process-control.json
+printf '%s\n' 'feat: mechanical authorship' > /tmp/agentized-cm-msg.txt
+assert "commit-msg allows allowlisted author" .githooks/commit-msg /tmp/agentized-cm-msg.txt
 assert "ci workflow pinned" test -f .github/workflows/ci.yml
 
 echo "-- connect idempotency --"

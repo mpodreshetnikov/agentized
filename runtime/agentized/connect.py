@@ -13,6 +13,7 @@ from .managed import (
     managed_write_text,
     save_managed,
 )
+from .merge_policy_io import ensure_process_control_authorship
 from .paths import (
     CONNECT_MARKER_BEGIN,
     CONNECT_MARKER_END,
@@ -69,8 +70,8 @@ def _upsert_marked_block(path: Path, begin: str, end: str, body: str, *, create:
         return True
     text = path.read_text(encoding="utf-8")
     if begin in text and end in text:
-        pre = text.split(begin, 1)[0]
-        post = text.split(end, 1)[1]
+        pre = text.partition(begin)[0]
+        post = text.partition(end)[2]
         new_text = pre.rstrip() + "\n\n" + body.rstrip() + "\n" + post.lstrip("\n")
         if not new_text.endswith("\n"):
             new_text += "\n"
@@ -89,7 +90,7 @@ def _copy_tree(src: Path, dst: Path) -> list[str]:
     copied: list[str] = []
     if not src.exists():
         return copied
-    for item in src.rglob("*"):
+    for item in sorted(src.rglob("*")):
         if item.is_dir():
             continue
         rel = item.relative_to(src)
@@ -119,7 +120,7 @@ def _managed_copy_tree(
     }
     if not src.exists():
         return result
-    for item in src.rglob("*"):
+    for item in sorted(src.rglob("*")):
         if item.is_dir():
             continue
         rel = item.relative_to(src)
@@ -132,7 +133,7 @@ def _managed_copy_tree(
 def _local_packages(root: Path) -> Path | None:
     """In-repo packages/ only (writable). None when the target has no packages tree."""
     local = root / "packages"
-    if local.is_dir() and (local / "shared").is_dir():
+    if (local / "shared").is_dir():
         return local
     return None
 
@@ -179,6 +180,8 @@ DEFAULT_HARNESS_REVIEWERS = {
     },
 }
 
+_TEXT_ENCODING = "utf-8"
+
 REVIEWER_BODY_EXTRA = """
 ## Caveman / ultracave — **exception**
 
@@ -213,7 +216,7 @@ def harness_reviewer_opts(reviewer_cfg: dict, harness: str) -> dict[str, str]:
 
 
 def _reviewer_body(src: Path) -> str:
-    text = src.read_text(encoding="utf-8")
+    text = src.read_text(encoding=_TEXT_ENCODING)
     lines = text.splitlines()
     if lines and lines[0].strip() == "---":
         end = None
@@ -228,9 +231,7 @@ def _reviewer_body(src: Path) -> str:
     return text
 
 
-def _render_reviewer_agent(
-    src: Path, model: str, *, harness: str = "cursor", effort: str = "medium"
-) -> str:
+def _render_reviewer_agent(src: Path, model: str, *, harness: str, effort: str = "medium") -> str:
     """Render markdown agent for Cursor/Claude (Codex uses TOML separately)."""
     body = _reviewer_body(src)
     if harness == "claude":
@@ -420,18 +421,18 @@ def pin_context_skills_hooks(
     for d in (skills_dst, hooks_dst):
         gk = d / ".gitkeep"
         if gk.exists() and any(p for p in d.rglob("*") if p != gk and p.is_file()):
-            gk.unlink(missing_ok=True)
+            gk.unlink()
     written = (
-        skills_result.get("created", [])
-        + skills_result.get("updated", [])
-        + skills_result.get("unchanged", [])
-        + skills_result.get("bootstrapped", [])
+        skills_result["created"]
+        + skills_result["updated"]
+        + skills_result["unchanged"]
+        + skills_result["bootstrapped"]
     )
     return {
         "skills": written,
         "skills_managed": skills_result,
         "hooks": copied_hooks,
-        "skipped_user": list(skills_result.get("skipped_user", [])),
+        "skipped_user": list(skills_result["skipped_user"]),
     }
 
 
@@ -716,6 +717,7 @@ def install_codex(
 
 
 QUALITY_MARKER = "AGENTIZED:QUALITY"
+EXECUTABLE_HOOKS = ("pre-push", "commit-msg")
 
 
 def _safe_install_template(src: Path, dst: Path) -> str:
@@ -726,14 +728,14 @@ def _safe_install_template(src: Path, dst: Path) -> str:
     body = src.read_text(encoding="utf-8")
     if not dst.exists():
         dst.write_text(body, encoding="utf-8")
-        if src.name == "pre-push":
+        if src.name in EXECUTABLE_HOOKS:
             dst.chmod(dst.stat().st_mode | 0o111)
         return "created"
     existing = dst.read_text(encoding="utf-8")
     if QUALITY_MARKER in existing:
         if existing != body:
             dst.write_text(body, encoding="utf-8")
-            if src.name == "pre-push":
+            if src.name in EXECUTABLE_HOOKS:
                 dst.chmod(dst.stat().st_mode | 0o111)
             return "updated"
         return "unchanged"
@@ -773,13 +775,16 @@ def ensure_githooks_path(root: Path) -> str:
 
 
 def pin_quality_templates(root: Path) -> dict:
-    """Pin pre-push / CI from templates/quality (no clobber of unmarked user files).
+    """Pin pre-push / commit-msg / CI from templates/quality (no clobber of unmarked user files).
 
     External repos without `templates/quality` use the installed Agentized root.
     """
     templates = _quality_templates_dir(root)
     result = {
         "pre_push": _safe_install_template(templates / "pre-push", root / ".githooks" / "pre-push"),
+        "commit_msg": _safe_install_template(
+            templates / "commit-msg", root / ".githooks" / "commit-msg"
+        ),
         "ci_workflow": _safe_install_template(
             templates / "ci.yml", root / ".github" / "workflows" / "ci.yml"
         ),
@@ -790,21 +795,6 @@ def pin_quality_templates(root: Path) -> dict:
     if (root / ".git").exists() or (root / ".git").is_file():
         result["hooks_path"] = ensure_githooks_path(root)
     return result
-
-
-def ensure_process_control_config(root: Path, context_rel: str) -> dict:
-    """Pin default process-control.json without clobbering edits."""
-    from .process_control import PROCESS_FILENAME, default_process_config
-
-    path = root / context_rel / PROCESS_FILENAME
-    created = not path.exists()
-    if created:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(default_process_config(), indent=2) + "\n",
-            encoding="utf-8",
-        )
-    return {"path": str(path.relative_to(root)), "created": created}
 
 
 def ensure_quality_config(
@@ -821,16 +811,12 @@ def ensure_quality_config(
         # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
         data = load_quality(root, context_rel)
-        dirty = False
         for section_name in ("test_smells", "architecture"):
             section = data.get(section_name)
-            if not isinstance(section, dict):
-                continue
-            if str(section.get("mode") or "").lower() == "warn":
+            if isinstance(section, dict) and str(section.get("mode")).lower() == "warn":
                 section["mode"] = "hard"
                 upgraded_modes.append(section_name)
-                dirty = True
-        if dirty:
+        if upgraded_modes:
             save_quality(root, data, context_rel)
     if coverage_pct is not None:
         set_coverage_threshold(root, coverage_pct, context_rel=context_rel)
@@ -962,6 +948,7 @@ def connect(
     coverage_pct: float | int | None = None,
 ) -> dict:
     harnesses = harnesses or ["cursor", "claude", "codex"]
+    process = ensure_process_control_authorship(root, context_rel)
     skeleton = ensure_context_skeleton(root, context_rel)
 
     agents_body = AGENTS_BLOCK_TEMPLATE.format(
@@ -991,7 +978,6 @@ def connect(
     quality = ensure_quality_config(root, context_rel, coverage_pct=coverage_pct)
     quality_templates = pin_quality_templates(root)
     env_check = ensure_env_check_config(root, context_rel)
-    process = ensure_process_control_config(root, context_rel)
     from .reporting import ensure_reporting_config
 
     reporting = ensure_reporting_config(root, context_rel)

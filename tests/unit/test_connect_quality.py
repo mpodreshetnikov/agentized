@@ -40,6 +40,9 @@ def _skeleton(root: Path) -> None:
     (root / "templates" / "quality" / "pre-push").write_text(
         f"#!/bin/sh\n# {QUALITY_MARKER}\necho hi\n", encoding="utf-8"
     )
+    (root / "templates" / "quality" / "commit-msg").write_text(
+        f"#!/bin/sh\n# {QUALITY_MARKER}\necho cm\n", encoding="utf-8"
+    )
     (root / "templates" / "quality" / "ci.yml").write_text(
         f"# {QUALITY_MARKER}\nname: CI\n", encoding="utf-8"
     )

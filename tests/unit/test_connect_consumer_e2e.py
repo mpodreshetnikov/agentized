@@ -17,18 +17,31 @@ AGENTIZED_ROOT = _TEST_ROOT.parent if _TEST_ROOT.name == "mutants" else _TEST_RO
 BIN = AGENTIZED_ROOT / "bin" / "agentized"
 
 
-def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(
+    cwd: Path, *args: str, check: bool = True, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
         cwd=cwd,
         check=check,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
 def _commit(cwd: Path, msg: str) -> None:
-    _git(cwd, "-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-m", msg)
+    _git(
+        cwd,
+        "-c",
+        "user.email=t@t.com",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-m",
+        msg,
+        env=_env_with_cli(),
+    )
 
 
 def _env_with_cli() -> dict[str, str]:

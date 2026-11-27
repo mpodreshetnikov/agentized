@@ -21,7 +21,8 @@ TEMPLATE_PRE_PUSH = ROOT / "templates" / "quality" / "pre-push"
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+    env = {**os.environ, "PATH": f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"}
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, env=env)
 
 
 def _cli(

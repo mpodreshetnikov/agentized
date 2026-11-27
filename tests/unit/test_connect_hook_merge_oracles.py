@@ -502,3 +502,24 @@ def test_githooks_preserved_user_literal(tmp_path: Path):
         capture_output=True,
     )
     assert ensure_githooks_path(tmp_path) == "preserved-user"
+
+
+def test_safe_create_commit_msg_chmod_execute_bits(tmp_path: Path):
+    """commit-msg is executable on create, like pre-push."""
+    src = tmp_path / "commit-msg"
+    src.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\n", encoding="utf-8")
+    dst = tmp_path / ".githooks" / "commit-msg"
+    assert _safe_install_template(src, dst) == "created"
+    assert dst.stat().st_mode & 0o111 == 0o111
+
+
+def test_safe_update_commit_msg_chmod_execute_bits(tmp_path: Path):
+    """commit-msg regains execute bits on a marked update."""
+    src = tmp_path / "commit-msg"
+    src.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\nNEW\n", encoding="utf-8")
+    dst = tmp_path / ".githooks" / "commit-msg"
+    dst.parent.mkdir(parents=True)
+    dst.write_text(f"#!/bin/sh\n# {QUALITY_MARKER}\nOLD\n", encoding="utf-8")
+    os.chmod(dst, 0o644)
+    assert _safe_install_template(src, dst) == "updated"
+    assert dst.stat().st_mode & 0o111 == 0o111
