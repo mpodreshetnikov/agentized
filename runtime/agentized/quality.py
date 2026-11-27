@@ -12,6 +12,7 @@ from .quality_defaults import (
     SCHEMA_VERSION,
     default_quality_config,
 )
+from .quality_detect import detect_quality_config
 from .quality_io import read_json_object, write_json_object
 
 QUALITY_FILENAME = "quality.json"
@@ -39,7 +40,7 @@ def load_quality(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, An
     rel = context_rel
     path = quality_path(root, rel)
     if not path.exists():
-        return default_quality_config()
+        return detect_quality_config(root)
     return _normalize(read_json_object(path))
 
 

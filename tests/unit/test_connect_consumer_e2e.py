@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -154,12 +153,7 @@ def test_e2e_small_repo_with_src_tests(tmp_path: Path):
     env = _env_with_cli()
     env["PROCESS_BASE"] = "origin/main"
     env["MUTATION_BASE"] = "origin/main"
-    # quality check needs pytest+cov for the small module.
-    pytest.importorskip("pytest")
-    try:
-        import pytest_cov  # noqa: F401
-    except ImportError:
-        pytest.skip("pytest-cov required for small-repo module tests")
+    pytest.importorskip("pytest_cov")
     qc = subprocess.run(
         [str(BIN), "quality", "check"],
         cwd=consumer,

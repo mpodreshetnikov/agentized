@@ -145,8 +145,8 @@ def _ref_has_path(root: Path, ref: str, rel: str) -> bool:
     return _run_git(root, ["git", "cat-file", "-e", f"{ref}:{rel}"]).returncode == 0
 
 
-def _origin_main_present(root: Path) -> bool:
-    return _run_git(root, ["git", "rev-parse", "--verify", "origin/main"]).returncode == 0
+def ref_exists(root: Path, ref: str) -> bool:
+    return _run_git(root, ["git", "rev-parse", "--verify", ref]).returncode == 0
 
 
 def _numstat_stdout(root: Path, base_ref: str) -> str:
@@ -248,12 +248,7 @@ def size_check(
         managed_rel = _managed_rel(context_rel)
         head_managed = head_has_connect_managed(root, context_rel)
         # First push to empty remote: origin/main missing, connect just installed.
-        if (
-            (base_ref is None and not os.environ.get("PROCESS_BASE"))
-            and base == "origin/main"
-            and not _origin_main_present(root)
-            and head_managed
-        ):
+        if base == "origin/main" and head_managed and not ref_exists(root, base):
             insertions = diff_insertions_excluding_bootstrap(root, EMPTY_TREE, context_rel)
             baseline_note = " connect-baseline (no origin/main; bootstrap paths excluded)"
         else:

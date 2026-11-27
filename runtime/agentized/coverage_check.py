@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,28 +10,6 @@ from pathlib import Path
 from .coverage_report import build_report, write_report
 from .paths import DEFAULT_CONTEXT, find_repo_root
 from .quality import load_quality, module_thresholds
-
-_TEST_PATH_TOKEN = re.compile(r"(?:^|[\s])(tests(?:/unit|/quality)?|test)(?:[\s]|$)")
-
-
-def _module_layout_error(root: Path, module: dict) -> str | None:
-    """Fail-closed message when module source/tests paths are missing (AGE-85)."""
-    mid = module.get("id") or "?"
-    for src in module.get("source") or []:
-        if not (root / str(src)).exists():
-            return (
-                f"[coverage-check] FAIL {mid}: source path {src!r} missing. "
-                "Fix context/quality.json modules (re-run connect on a detected "
-                "src/tests layout, or remove stale dogfood entries)."
-            )
-    cmd = str(module.get("test_command") or "")
-    mentioned = _TEST_PATH_TOKEN.findall(cmd)
-    if mentioned and not any((root / m).exists() for m in mentioned):
-        return (
-            f"[coverage-check] FAIL {mid}: test path(s) {sorted(set(mentioned))} "
-            "missing on disk. Add tests or edit context/quality.json modules."
-        )
-    return None
 
 
 def _check_module(cfg: dict, module: dict, summary_mod: dict) -> int:
@@ -75,22 +52,8 @@ def run_coverage_check(
 ) -> int:
     root = root or find_repo_root()
     cfg = load_quality(root, context)
-    modules = list(cfg.get("modules") or [])
-    if not modules:
-        print(
-            "[coverage-check] no modules configured — skip module tests and "
-            "coverage thresholds (valid empty consumer quality.json)"
-        )
-        summary = build_report(root, context)
-        write_report(root, summary)
-        return 0
-
     if not skip_tests:
-        for module in modules:
-            layout_err = _module_layout_error(root, module)
-            if layout_err:
-                print(layout_err, file=sys.stderr)
-                return 1
+        for module in cfg.get("modules") or []:
             cmd = module.get("test_command")
             if not cmd:
                 continue

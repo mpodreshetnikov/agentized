@@ -48,3 +48,12 @@ def test_detect_src_without_tests_still_writes_module(tmp_path: Path):
     cfg = detect_quality_config(tmp_path)
     assert cfg["modules"][0]["source"] == ["src"]
     assert "pytest tests" in cfg["modules"][0]["test_command"]
+
+
+def test_load_quality_without_file_detects_layout(tmp_path: Path):
+    from agentized.quality import load_quality
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "m.py").write_text("M=1\n", encoding="utf-8")
+    assert load_quality(tmp_path) == detect_quality_config(tmp_path)
+    assert load_quality(tmp_path)["modules"][0]["source"] == ["lib"]

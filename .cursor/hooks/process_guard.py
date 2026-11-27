@@ -16,7 +16,7 @@ except ImportError:  # copied next to hooks without package layout
         from _bootstrap import ensure_runtime_on_path
     except ImportError:
 
-        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+        def ensure_runtime_on_path(here=None):
             return Path.cwd()
 
 
@@ -65,7 +65,7 @@ def main() -> int:
     try:
         from agentized.hook_common import context_rel, extract_paths, resolve_root
         from agentized.process_control import claim_check
-    except Exception as exc:  # noqa: BLE001 — fail closed on runtime import failure
+    except Exception as exc:  # fail closed on runtime import failure
         return _deny(event, f"REFUSED. process-control: claim guard unavailable: {exc}")
 
     root = resolve_root(payload) if payload else workspace
@@ -83,7 +83,7 @@ def main() -> int:
     ctx = context_rel(root)
     try:
         result = claim_check(root, paths, context_rel=ctx)
-    except Exception as exc:  # noqa: BLE001 — broken process-control.json fail closed
+    except Exception as exc:  # broken process-control.json fail closed
         return _deny(event, f"REFUSED. process-control: claim check failed: {exc}")
 
     msg = result.get("message") or ""

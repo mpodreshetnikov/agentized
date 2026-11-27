@@ -10,6 +10,7 @@ from agentized.process_size import (
     diff_insertions_excluding_bootstrap,
     is_connect_bootstrap_path,
     parse_numstat_excluding_bootstrap,
+    ref_exists,
     size_check,
 )
 
@@ -121,3 +122,67 @@ def test_diff_excluding_vs_empty_tree(tmp_path: Path):
     _commit(root, "c")
     n = diff_insertions_excluding_bootstrap(root, EMPTY_TREE, "context")
     assert n == 1
+
+
+def _first_push_repo(tmp_path: Path, *, managed: bool) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    if managed:
+        (root / "context" / ".agentized").mkdir(parents=True)
+        (root / "context" / ".agentized" / "managed.json").write_text("{}\n", encoding="utf-8")
+        (root / "context" / "skills").mkdir(parents=True)
+        (root / "context" / "skills" / "big.md").write_text("x\n" * 2000, encoding="utf-8")
+    (root / "context").mkdir(exist_ok=True)
+    (root / "context" / "process-control.json").write_text(
+        '{"reviewable_lines": 1500, "warn_at_pct": 75}\n', encoding="utf-8"
+    )
+    (root / "src").mkdir()
+    (root / "src" / "a.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _commit(root, "connect")
+    return root
+
+
+def test_size_check_first_push_without_origin_main(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = _first_push_repo(tmp_path, managed=True)
+    result = size_check(root)
+    assert result == {
+        "ok": True,
+        "level": "ok",
+        "insertions": 2,
+        "limit": 1500,
+        "warn_at": 1125,
+        "base": "origin/main",
+        "message": (
+            "process-control: PR size 2 insertions vs origin/main connect-baseline "
+            "(no origin/main; bootstrap paths excluded) (warn ≥1125 = 75.0% of 1500; "
+            "over >1500; ≤1500 OK). See docs/process-control.md."
+        ),
+    }
+    assert size_check(root, base_ref="origin/main") == result
+
+
+def test_size_check_first_push_unmanaged_fails_closed(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = _first_push_repo(tmp_path, managed=False)
+    result = size_check(root)
+    assert result["ok"] is False
+    assert result["level"] == "error"
+    assert result["message"].startswith("process-control: origin/main unavailable")
+
+
+def test_size_check_other_missing_base_fails_closed(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = _first_push_repo(tmp_path, managed=True)
+    result = size_check(root, base_ref="feature")
+    assert result["ok"] is False
+    assert result["level"] == "error"
+    assert result["base"] == "feature"
+
+
+def test_ref_exists(tmp_path: Path):
+    root = _first_push_repo(tmp_path, managed=False)
+    assert ref_exists(root, "HEAD") is True
+    assert ref_exists(root, "origin/main") is False

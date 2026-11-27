@@ -275,20 +275,6 @@ def _gate_cfg():
     }
 
 
-def _stub_mutation_base_ok(monkeypatch, mut_mod) -> None:
-    """AGE-85: run_mutation skips when base ref missing — stub rev-parse for unit fixtures."""
-
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        class R:
-            returncode = 0
-            stdout = "deadbeef\n"
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr(mut_mod.subprocess, "run", fake_run)
-
-
 def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
     """(a via gate) all AST-noop → incremental-skip; excluded logged."""
     (tmp_path / "context").mkdir()
@@ -322,7 +308,6 @@ def test_run_mutation_a_all_ast_noop_skips(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setattr(mast, "exclude_ast_equivalent", spy_exclude)
     monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
     monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path / "WRONG")
-    _stub_mutation_base_ok(monkeypatch, mut)
     monkeypatch.chdir(tmp_path)
 
     orig_changed = mut._changed_py_files
@@ -357,7 +342,6 @@ def test_run_mutation_root_none_uses_find(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(mut, "_changed_py_files", lambda *a, **k: [rel])
     monkeypatch.setattr(mast, "git_show_blob", lambda *a, **k: BASE_SRC)
     monkeypatch.setattr(mut, "find_repo_root", lambda: tmp_path)
-    _stub_mutation_base_ok(monkeypatch, mut)
     monkeypatch.chdir(tmp_path)
     assert mast.run_mutation(None) == 0
     summary = json.loads((tmp_path / "reports/mutation/mutation-summary.json").read_text())

@@ -16,7 +16,7 @@ except ImportError:
         from _bootstrap import ensure_runtime_on_path
     except ImportError:
 
-        def ensure_runtime_on_path(here=None):  # type: ignore[misc]
+        def ensure_runtime_on_path(here=None):
             return Path.cwd()
 
 
@@ -65,9 +65,9 @@ def main() -> int:
 
             env_result = _apply_env(env_check(repo_root=root), root)
             text = text + "\n\n" + env_result["message"]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             text = text + f"\n\n[agent-env-check] unavailable: {exc}"
-    except Exception as exc:  # noqa: BLE001 — foreign repo without runtime
+    except Exception as exc:  # foreign repo without runtime
         text = (
             "Agentized session check: runtime unavailable "
             f"({exc}). Install Agentized on PATH or keep runtime/ in-repo."

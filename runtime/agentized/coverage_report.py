@@ -211,21 +211,17 @@ def build_report(root: Path, context_rel: str = DEFAULT_CONTEXT) -> dict[str, An
     g_lines = float((cfg.get("coverage") or {}).get("lines") or 80)
     g_branches = float((cfg.get("coverage") or {}).get("branches") or 80)
     any_artifact = any(m.get("artifact_ok") for m in modules_out.values())
-    if not modules_out:
-        combined_pass = True
-    else:
-        combined_pass = bool(
-            any_artifact
-            and combined["lines_pct"] + 1e-9 >= g_lines
-            and combined["branches_pct"] + 1e-9 >= g_branches
-        )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "context": context_rel,
         "coverage_thresholds": {"lines": g_lines, "branches": g_branches},
         "modules": modules_out,
         "combined": combined,
-        "combined_pass": combined_pass,
+        "combined_pass": bool(
+            any_artifact
+            and combined["lines_pct"] + 1e-9 >= g_lines
+            and combined["branches_pct"] + 1e-9 >= g_branches
+        ),
     }
 
 

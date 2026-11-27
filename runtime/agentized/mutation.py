@@ -169,43 +169,11 @@ def run_mutation(
 
     base = os.environ.get("MUTATION_BASE") or mut.get("base_ref") or "origin/main"
     min_score = float(mut.get("min_score_covered", 100))
-    modules = list(cfg.get("modules") or [])
     prefixes = [
-        str(src).replace("\\", "/") for module in modules for src in module.get("source") or []
-    ]
-    if not modules:
-        prefixes = []
-    elif not prefixes:
-        prefixes = ["runtime/agentized"]
-    # AGE-85: first push before origin/main exists — no incremental base → skip
-    # (not a score bypass; gate resumes once the remote baseline is fetched).
-    base_ok = subprocess.run(
-        ["git", "rev-parse", "--verify", base],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    if base_ok.returncode != 0:
-        path = _write_summary(
-            root,
-            {
-                "schemaVersion": 1,
-                "mode": "incremental-skip",
-                "base": base,
-                "generatedAt": datetime.now(timezone.utc).isoformat(),
-                "mutationScore": None,
-                "mutationScoreCovered": None,
-                "survived": 0,
-                "killed": 0,
-                "no_tests": 0,
-                "files": [],
-                "gate": "hard",
-                "passed": True,
-                "note": f"mutation base {base!r} unavailable — skip until remote baseline exists",
-            },
-        )
-        print(f"[mutation] skip — base {base!r} unavailable; wrote {path.relative_to(root)}")
-        return 0
+        str(src).replace("\\", "/")
+        for module in cfg.get("modules") or []
+        for src in module.get("source") or []
+    ] or ["runtime/agentized"]
     changed = _changed_py_files(root, base, prefixes)
     include_globs = list(mut.get("include_globs") or [])
     if include_globs:
