@@ -614,6 +614,7 @@ def test_git_helpers_and_shared_status_surface(tmp_path: Path, monkeypatch):
 
     (tasks / "INDEX.md").write_text(rebuild_task_index(tasks), encoding="utf-8")
     monkeypatch.setattr("agentized.status_gates.require_base_before_head", lambda *a: None)
+    monkeypatch.setattr("agentized.status_gates.branch_history_errors", lambda *a, **k: ())
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref == "deadbeef" and result.ok is True
 
@@ -698,6 +699,7 @@ def test_run_validate_kwargs(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(sg, "resolve_validate_base_ref", fake_resolve)
     monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
+    monkeypatch.setattr(sg, "branch_history_errors", lambda *a, **k: ())
     monkeypatch.setattr(sg, "previous_task_texts_from_git", fake_prev)
     monkeypatch.setattr(sg, "validate_tasks_dir", fake_validate)
     ref, result = run_tasks_validate(tasks, repo_root=tmp_path, base_ref="B")

@@ -421,6 +421,7 @@ def test_run_tasks_validate_merges_tip(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sg, "require_base_before_head", lambda *a: None)
     monkeypatch.setattr(sg, "previous_task_texts_from_git", lambda *a, **k: {})
     monkeypatch.setattr(sg, "validate_tasks_dir", lambda *a, **k: GateResult(True))
+    monkeypatch.setattr(sg, "branch_history_errors", lambda *a, **k: ())
 
     ref_i, idx_fail = run_tasks_validate(tasks, repo_root=tmp_path)
     assert ref_i == "BASE" and MSG_TIP_INDEX in idx_fail.errors

@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .tasks import (
     ALL_STATUSES,
@@ -87,6 +87,16 @@ MSG_BASE_NOT_BEFORE_HEAD = (
     "history base must be an earlier commit (env vars cannot choose it)"
 )
 MSG_BASE_UNRESOLVED = "append-only base {ref!r} cannot be resolved: {detail}"
+MSG_HISTORY_PAIR = "{name}: branch history {old}..{new}: {err}"
+MSG_GIT_FAILED = "git {cmd} failed: {detail}"
+MSG_HISTORY_BASE_DELETED = (
+    "task file present on base deleted in a branch commit; "
+    "set статус: canceled instead of deleting (fail closed)"
+)
+MSG_HISTORY_RENAME = (
+    "{old} -> {new}: branch history {parent}..{commit}: task file renamed or moved; "
+    "history identity is lost (fail closed)"
+)
 PROGRESS_SECTION = "## Progress"
 DECISION_SECTION = "## Decision Log"
 
@@ -502,6 +512,112 @@ def require_base_before_head(repo_root: Path, ref: str) -> None:
         raise RuntimeError(MSG_BASE_UNRESOLVED.format(ref=ref, detail=_cmd_detail(proc)))
 
 
+def _git_checked(root: Path, args: list[str]) -> str:
+    try:
+        proc = _run_git(root, args)
+    except OSError as exc:
+        raise RuntimeError(MSG_GIT_FAILED.format(cmd=args[0], detail=exc)) from exc
+    if proc.returncode != 0:
+        raise RuntimeError(MSG_GIT_FAILED.format(cmd=args[0], detail=_cmd_detail(proc)))
+    return proc.stdout
+
+
+def _git_task_blob(root: Path, commit: str, rel: str) -> str | None:
+    """Exact bytes of ``rel`` at ``commit`` as UTF-8; None when the path is absent there."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "show", f"{commit}:{rel}"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise _git_err(rel, commit, str(exc)) from exc
+    if proc.returncode != 0:
+        err = (proc.stderr.decode(TEXT_ENCODING, "replace").strip()) or f"exit {proc.returncode}"
+        if _git_missing_path(err):
+            return None
+        raise _git_err(rel, commit, err)
+    try:
+        return proc.stdout.decode(TEXT_ENCODING)
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"{rel}@{commit}: {MSG_UNREADABLE.format(detail=exc)}") from exc
+
+
+def _is_task_name(name: str) -> bool:
+    return name.startswith("T-") and name.endswith(".md")
+
+
+def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tuple[str, ...]:
+    """Progress/Decision Log must stay an exact prefix across every commit pair in ``ref..HEAD``.
+
+    Pairs are (parent, commit) for non-merge commits; a file that was deleted and re-added is
+    compared with its last existing version. Merge commits are not pair endpoints (conflict
+    resolution may reorder concurrent appends); their successors are still judged against them.
+    A task file renamed or moved (git rename detection) loses its identity, so it fails closed.
+    Deleting a task file that exists on ``ref`` in any branch commit is red; deleting a file that
+    is not on ``ref`` (branch-only) stays allowed.
+    Unreadable blobs and git failures raise ``RuntimeError`` (fail closed).
+    """
+    try:
+        rel_dir = tasks_dir.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError as exc:
+        raise _git_err(tasks_dir.name, ref, str(exc)) from exc
+    rows = _git_checked(
+        repo_root, ["rev-list", "--parents", "--topo-order", "--reverse", f"{ref}..HEAD"]
+    ).splitlines()
+    last: dict[str, str] = {}
+    errors: list[str] = []
+    for row in rows:
+        parts = row.split()
+        if len(parts) != 2:
+            continue
+        commit, parent = parts
+        diff = ["diff", "-z", "--name-status", "--find-renames", parent, commit, "--", rel_dir]
+        tokens = _git_checked(repo_root, diff).split("\0")[:-1]
+        changed: list[str] = []
+        i = 0
+        while i < len(tokens):
+            if tokens[i][0] == "R":
+                old_rel, new_rel = tokens[i + 1], tokens[i + 2]
+                if _is_task_name(PurePosixPath(old_rel).name) or _is_task_name(
+                    PurePosixPath(new_rel).name
+                ):
+                    errors.append(
+                        MSG_HISTORY_RENAME.format(
+                            old=old_rel, new=new_rel, parent=parent[:7], commit=commit[:7]
+                        )
+                    )
+                i += 3
+            else:
+                changed.append(tokens[i + 1])
+                i += 2
+        for rel in changed:
+            name = PurePosixPath(rel).name
+            if not _is_task_name(name):
+                continue
+            old = _git_task_blob(repo_root, parent, rel)
+            if old is not None:
+                last[name] = old
+            new = _git_task_blob(repo_root, commit, rel)
+            if new is None:
+                if _git_task_blob(repo_root, ref, rel) is not None:
+                    errors.append(
+                        MSG_HISTORY_PAIR.format(
+                            name=name,
+                            old=parent[:7],
+                            new=commit[:7],
+                            err=MSG_HISTORY_BASE_DELETED,
+                        )
+                    )
+                continue
+            if name in last:
+                for err in append_only_section_errors(last[name], new):
+                    errors.append(
+                        MSG_HISTORY_PAIR.format(name=name, old=parent[:7], new=commit[:7], err=err)
+                    )
+    return tuple(errors)
+
+
 def validate_tasks_dir(
     tasks_dir: Path,
     *,
@@ -560,8 +676,7 @@ def run_tasks_validate(
     require_base_before_head(repo_root, ref)
     previous = previous_task_texts_from_git(tasks_dir, repo_root=repo_root, ref=ref)
     result = validate_tasks_dir(tasks_dir, previous_by_name=previous)
+    history = branch_history_errors(tasks_dir, repo_root=repo_root, ref=ref)
     tip = validate_tip_hygiene(tasks_dir, pr=pr)
-    if tip.ok:
-        return (ref, result)
-    merged = tuple(result.errors) + tuple(tip.errors)
-    return (ref, GateResult(ok=False, errors=merged))
+    merged = tuple(result.errors) + history + tuple(tip.errors)
+    return (ref, GateResult(ok=not merged, errors=merged))
