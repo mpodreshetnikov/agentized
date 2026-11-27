@@ -13,7 +13,7 @@
 
 ## in-progress
 
-- [T-261127-8249](T-261127-8249.md) — connect.py reviewer pinning mutants (tests-only A-PR b2) (родитель: T-261127-1acf) · claim: cursor-agent
+_(пусто)_
 
 ## blocked
 
