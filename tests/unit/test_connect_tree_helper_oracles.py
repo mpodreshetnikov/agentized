@@ -46,13 +46,11 @@ def test_copy_tree_copies_files_past_directories_and_returns_exact_paths(
     dst = tmp_path / "dst"
     _seed_tree(src)
     copied = _copy_tree(src, dst)
-    assert sorted(copied) == sorted(
-        [
-            str(dst / "a" / "b" / "leaf.txt"),
-            str(dst / "a" / "mid.txt"),
-            str(dst / "top.txt"),
-        ]
-    )
+    assert copied == [
+        str(dst / "a" / "b" / "leaf.txt"),
+        str(dst / "a" / "mid.txt"),
+        str(dst / "top.txt"),
+    ]
     assert (dst / "a" / "b" / "leaf.txt").read_text(encoding="utf-8") == "leaf\n"
     assert (dst / "a" / "mid.txt").read_text(encoding="utf-8") == "mid\n"
     assert (dst / "top.txt").read_text(encoding="utf-8") == "top\n"
