@@ -103,8 +103,9 @@ def test_connect_claude_block_not_created_and_marked_with_context(tmp_path: Path
         return real(path, begin, end, body, create=create)
 
     monkeypatch.setattr(cm, "_upsert_marked_block", spy)
-    connect(root, context_rel="ctx", harnesses=["cursor"])
+    res = connect(root, context_rel="ctx", harnesses=["cursor"])
     assert [c[0] for c in calls] == ["AGENTS.md"] and calls[0][3] is True
+    assert res["state"]["claude_md_updated"] is False
     assert not (root / "CLAUDE.md").exists()
     (root / "CLAUDE.md").write_text("x\n", encoding="utf-8")
     calls.clear()
