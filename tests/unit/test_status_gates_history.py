@@ -396,19 +396,30 @@ def test_rename_to_or_from_non_task_name_is_red_but_non_task_rename_is_ignored(t
     )
 
 
-def test_entries_after_a_rename_in_the_same_commit_are_still_judged(tmp_path: Path):
-    third = "T-261127-zzzz"
+def test_entries_around_a_rename_in_the_same_commit_are_still_judged(tmp_path: Path):
+    first, last = "T-261127-aaaa", "T-261127-zzzz"
+    src = "context/tasks/T-261127-qqqq.md"
     root, tasks, base = _repo(
-        tmp_path, {REL: _doc(LONG), f"context/tasks/{third}.md": _doc(["A", "B"])}
+        tmp_path,
+        {
+            OTHER_REL: _doc(LONG),
+            src: _doc(LONG),
+            f"context/tasks/{first}.md": _doc(["A"]),
+            f"context/tasks/{last}.md": _doc(["A", "B"]),
+        },
     )
-    old = "context/tasks/T-261127-aaaa.md"
-    c1 = _commit(root, {old: _doc(LONG)}, "add aaaa")
+    c1 = _commit(root, {OTHER_REL: None}, "free the target name")
     c2 = _commit(
         root,
-        {old: None, OTHER_REL: _doc(LONG), f"context/tasks/{third}.md": _doc(["A"])},
-        "rename aaaa and shrink zzzz",
+        {
+            f"context/tasks/{first}.md": _doc(["A", "C"]),
+            src: None,
+            OTHER_REL: _doc(LONG[:2]),
+            f"context/tasks/{last}.md": _doc(["A"]),
+        },
+        "append aaaa, rename qqqq onto freed name, shrink zzzz",
     )
     assert branch_history_errors(tasks, repo_root=root, ref=base) == (
-        _rename_msg(old, OTHER_REL, c1, c2),
-        f"{third}.md: branch history {c1[:7]}..{c2[:7]}: {MSG_PROGRESS_PREFIX}",
+        _rename_msg(src, OTHER_REL, c1, c2),
+        f"{last}.md: branch history {c1[:7]}..{c2[:7]}: {MSG_PROGRESS_PREFIX}",
     )

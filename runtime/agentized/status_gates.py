@@ -566,7 +566,7 @@ def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tupl
         if len(parts) != 2:
             continue
         commit, parent = parts
-        diff = ["diff", "-z", "--name-status", "-M", parent, commit, "--", rel_dir]
+        diff = ["diff", "-z", "--name-status", "--find-renames", parent, commit, "--", rel_dir]
         tokens = _git_checked(repo_root, diff).split("\0")[:-1]
         changed: list[str] = []
         i = 0
