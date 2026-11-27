@@ -133,7 +133,7 @@ def _managed_copy_tree(
 def _local_packages(root: Path) -> Path | None:
     """In-repo packages/ only (writable). None when the target has no packages tree."""
     local = root / "packages"
-    if local.is_dir() and (local / "shared").is_dir():
+    if (local / "shared").is_dir():
         return local
     return None
 
@@ -814,9 +814,7 @@ def ensure_quality_config(
         dirty = False
         for section_name in ("test_smells", "architecture"):
             section = data.get(section_name)
-            if not isinstance(section, dict):
-                continue
-            if str(section.get("mode") or "").lower() == "warn":
+            if isinstance(section, dict) and str(section.get("mode") or "").lower() == "warn":
                 section["mode"] = "hard"
                 upgraded_modes.append(section_name)
                 dirty = True
