@@ -10,7 +10,9 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
+from agentized import connect as connect_mod
 from agentized.connect import pin_context_skills_hooks
 from agentized.managed import load_managed, save_managed
 
@@ -136,7 +138,7 @@ def test_pin_skills_every_managed_status_and_ordering(tmp_path: Path):
 
 
 def test_pin_skills_force_overwrites_user_edit(tmp_path: Path):
-    _shared(tmp_path, {"e/SKILL.md": "e-src\n"}, {})
+    _shared(tmp_path, {"e/SKILL.md": "e-src\n"}, {"hook_a.py": "a\n"})
     skill = tmp_path / "context" / "skills" / "e" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("e-user\n", encoding="utf-8")
@@ -144,22 +146,30 @@ def test_pin_skills_force_overwrites_user_edit(tmp_path: Path):
         tmp_path, "context", {"version": 1, "files": {"context/skills/e/SKILL.md": _sha("orig\n")}}
     )
     result = pin_context_skills_hooks(tmp_path, "context", force=True)
-    assert result["skills_managed"] == {**EMPTY_MANAGED, "updated": [str(skill)]}
-    assert result["skipped_user"] == []
+    assert result == {
+        "skills": [str(skill)],
+        "skills_managed": {**EMPTY_MANAGED, "updated": [str(skill)]},
+        "hooks": [str(tmp_path / "context" / "hooks" / "scripts" / "hook_a.py")],
+        "skipped_user": [],
+    }
     assert skill.read_text(encoding="utf-8") == "e-src\n"
 
 
-def test_pin_skills_hooks_always_overwritten_and_listed_sorted(tmp_path: Path):
+def test_pin_skills_hooks_always_overwritten_in_source_enumeration_order(tmp_path: Path):
     _shared(tmp_path, {}, {"b_hook.py": "b\n", "a_hook.py": "a-new\n"})
     scripts = tmp_path / "context" / "hooks" / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "a_hook.py").write_text("a-user\n", encoding="utf-8")
+    source_scripts = tmp_path / "packages" / "shared" / "hooks" / "scripts"
     result = pin_context_skills_hooks(tmp_path, "context")
-    assert sorted(result["hooks"]) == [str(scripts / "a_hook.py"), str(scripts / "b_hook.py")]
+    assert result == {
+        "skills": [],
+        "skills_managed": EMPTY_MANAGED,
+        "hooks": [str(scripts / p.name) for p in source_scripts.rglob("*")],
+        "skipped_user": [],
+    }
     assert (scripts / "a_hook.py").read_text(encoding="utf-8") == "a-new\n"
     assert (scripts / "b_hook.py").read_text(encoding="utf-8") == "b\n"
-    assert result["skills"] == []
-    assert result["skills_managed"] == EMPTY_MANAGED
 
 
 def test_pin_skills_second_run_is_idempotent_and_dirs_exist(tmp_path: Path):
@@ -179,10 +189,42 @@ def test_pin_skills_nested_context_creates_parents(tmp_path: Path):
     _shared(tmp_path, {"alpha/SKILL.md": "# alpha\n"}, {"hook_a.py": "a\n"})
     result = pin_context_skills_hooks(tmp_path, "ctx/deep")
     skill = tmp_path / "ctx" / "deep" / "skills" / "alpha" / "SKILL.md"
-    assert result["skills"] == [str(skill)]
+    hook = tmp_path / "ctx" / "deep" / "hooks" / "scripts" / "hook_a.py"
+    assert result == {
+        "skills": [str(skill)],
+        "skills_managed": {**EMPTY_MANAGED, "created": [str(skill)]},
+        "hooks": [str(hook)],
+        "skipped_user": [],
+    }
     assert skill.read_text(encoding="utf-8") == "# alpha\n"
-    assert (tmp_path / "ctx" / "deep" / "hooks" / "scripts" / "hook_a.py").is_file()
+    assert hook.read_text(encoding="utf-8") == "a\n"
     assert (tmp_path / "ctx" / "deep" / ".agentized" / "managed.json").is_file()
+
+
+def test_pin_skills_copies_skills_with_exact_context_rel_force_and_manifest(tmp_path: Path):
+    _shared(tmp_path, {"alpha/SKILL.md": "# alpha\n"}, {"hook_a.py": "a\n"})
+    man: dict[str, Any] = {"version": 1, "files": {}}
+    with mock.patch.object(
+        connect_mod, "_managed_copy_tree", wraps=connect_mod._managed_copy_tree
+    ) as copy_tree:
+        result = pin_context_skills_hooks(tmp_path, "ctx/deep", force=True, manifest=man)
+    skill = tmp_path / "ctx" / "deep" / "skills" / "alpha" / "SKILL.md"
+    assert copy_tree.call_args_list == [
+        mock.call(
+            tmp_path,
+            "ctx/deep",
+            tmp_path / "packages" / "shared" / "skills",
+            tmp_path / "ctx" / "deep" / "skills",
+            force=True,
+            manifest=man,
+        )
+    ]
+    assert result == {
+        "skills": [str(skill)],
+        "skills_managed": {**EMPTY_MANAGED, "created": [str(skill)]},
+        "hooks": [str(tmp_path / "ctx" / "deep" / "hooks" / "scripts" / "hook_a.py")],
+        "skipped_user": [],
+    }
 
 
 def test_pin_skills_creates_empty_dirs_with_no_sources(tmp_path: Path):
