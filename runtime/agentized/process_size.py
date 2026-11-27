@@ -87,8 +87,7 @@ def is_connect_bootstrap_path(path: str, context_rel: str = DEFAULT_CONTEXT) -> 
     rel = path.replace("\\", "/")
     if rel.startswith("./"):
         rel = rel[2:]
-    ctx = context_rel.replace("\\", "/").rstrip("/")
-    if rel in {"AGENTS.md", ".githooks/pre-push", ".github/workflows/ci.yml"}:
+    if rel == "AGENTS.md":
         return True
     prefixes = (
         ".githooks/",
@@ -98,25 +97,19 @@ def is_connect_bootstrap_path(path: str, context_rel: str = DEFAULT_CONTEXT) -> 
         ".codex/",
         ".agents/",
         ".agentized/",
-        f"{ctx}/",
+        f"{context_rel}/",
     )
-    return any(rel == p.rstrip("/") or rel.startswith(p) for p in prefixes)
+    return rel.startswith(prefixes)
 
 
 def parse_numstat_excluding_bootstrap(stdout: str, context_rel: str = DEFAULT_CONTEXT) -> int:
     """Sum insertions excluding connect bootstrap paths (AGE-85)."""
-    total = 0
-    for line in stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 3:
-            continue
-        if is_connect_bootstrap_path(parts[2], context_rel):
-            continue
-        try:
-            total += int(parts[0])
-        except ValueError:
-            continue
-    return total
+    kept = [
+        line
+        for line in stdout.splitlines()
+        if not is_connect_bootstrap_path(line.split("\t")[-1], context_rel)
+    ]
+    return parse_numstat("\n".join(kept))
 
 
 def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -134,11 +127,11 @@ def _run_numstat(root: Path, spec: str) -> subprocess.CompletedProcess[str]:
 
 
 def _managed_rel(context_rel: str) -> str:
-    return f"{context_rel.rstrip('/')}/.agentized/managed.json"
+    return f"{context_rel}/.agentized/managed.json"
 
 
 def head_has_connect_managed(root: Path, context_rel: str = DEFAULT_CONTEXT) -> bool:
-    return (root / context_rel / ".agentized" / "managed.json").is_file()
+    return (root / _managed_rel(context_rel)).is_file()
 
 
 def _ref_has_path(root: Path, ref: str, rel: str) -> bool:

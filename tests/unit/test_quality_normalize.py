@@ -193,3 +193,17 @@ def test_set_reviewer_harness_and_global(tmp_path: Path):
     recovered = load_quality(tmp_path)["reviewer"]
     assert recovered["helper_model"] == "keep"
     assert recovered["harnesses"]["recovered"] == {"model": "r1", "effort": "low"}
+
+
+def test_module_thresholds_fall_back_to_global_coverage():
+    cfg = {"coverage": {"lines": 61, "branches": 62}}
+    assert module_thresholds(cfg, {"thresholds": {}}) == (61.0, 62.0)
+    assert module_thresholds(cfg, {"thresholds": {"lines": 90}}) == (90.0, 62.0)
+    assert module_thresholds({}, {}) == (float(DEFAULT_COVERAGE_PCT), float(DEFAULT_COVERAGE_PCT))
+
+
+def test_normalize_merges_test_smells_section(tmp_path: Path):
+    save_quality(tmp_path, {"test_smells": {"mode": "warn", "extra": 1}})
+    data = load_quality(tmp_path)
+    assert data["test_smells"]["mode"] == "warn"
+    assert data["test_smells"]["extra"] == 1

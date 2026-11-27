@@ -32,7 +32,7 @@ PROCESS_BASE=<pr-base-sha> ./bin/agentized process size
 
 Warn at `warn_at_pct` of the effective limit. CLI streams stderr whenever `ok` is false (not only `level == over`).
 
-**Connect baseline (AGE-85):** when HEAD has `{context}/.agentized/managed.json` but the size base does not (first connect push, or no `origin/main` yet), insertions on connect-installed bootstrap paths (`AGENTS.md`, `{context}/**`, `.githooks/`, harness dirs, …) are excluded from the count. User/source paths still count — not a generic bypass. After `managed.json` exists on the base, the normal full diff applies.
+**Connect baseline (AGE-85):** when HEAD has `{context}/.agentized/managed.json` but the size base does not (first connect push, or no `origin/main` yet), insertions on connect-installed bootstrap paths (`AGENTS.md`, `{context}/**`, `.githooks/`, harness dirs, …) are excluded from the count. User/source paths still count — not a generic bypass. After `managed.json` exists on the base, the normal full diff applies. `process format-disables` on that first push (no `origin/main`) scans the whole HEAD tree vs the empty tree — every disable counts; only the ancestry check is dropped. Hook scripts that connect installs ship with no disable comments.
 
 ## Tip hygiene (AGE-76)
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import subprocess
+
+import pytest
 from pathlib import Path
 
 from agentized.process_size import (
@@ -186,3 +188,114 @@ def test_ref_exists(tmp_path: Path):
     root = _first_push_repo(tmp_path, managed=False)
     assert ref_exists(root, "HEAD") is True
     assert ref_exists(root, "origin/main") is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".githooks/pre-push",
+        ".githooks/other",
+        ".github/workflows/ci.yml",
+        ".github/workflows/x.yml",
+        ".cursor/a",
+        ".claude/a",
+        ".codex/a",
+        ".agents/a",
+        ".agentized/a",
+        "context\\quality.json",
+        ".githooks\\pre-push",
+        "./AGENTS.md",
+    ],
+)
+def test_bootstrap_path_positive(path: str):
+    assert is_connect_bootstrap_path(path) is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    [".github/ci.yml", "AGENTS.mdx", "docs/AGENTS.md", "contexts/x", ".githooks", "x/.cursor/a"],
+)
+def test_bootstrap_path_negative(path: str):
+    assert is_connect_bootstrap_path(path) is False
+
+
+def test_bootstrap_path_custom_context():
+    assert is_connect_bootstrap_path("a/b/x.md", "a/b") is True
+    assert is_connect_bootstrap_path("context/x.md", "a/b") is False
+
+
+def test_parse_numstat_excluding_bootstrap_exact():
+    stdout = (
+        "7\t0\tAGENTS.md copy.txt\n"
+        "100\t0\tctx/q.json\n"
+        "3\t1\tsrc/a.py\n"
+        "\n"
+        "short\n"
+        "40\t0\tcontext/k.md\n"
+    )
+    assert parse_numstat_excluding_bootstrap(stdout, "ctx") == 50
+    assert parse_numstat_excluding_bootstrap(stdout) == 110
+
+
+def _base_managed_repo(tmp_path: Path, context: str = "context") -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    (root / context / ".agentized").mkdir(parents=True)
+    (root / context / ".agentized" / "managed.json").write_text("{}\n", encoding="utf-8")
+    (root / context / "process-control.json").write_text(
+        '{"reviewable_lines": 1500, "warn_at_pct": 75}\n', encoding="utf-8"
+    )
+    _git(root, "add", "-A")
+    _commit(root, "base")
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _git(root, "update-ref", "refs/remotes/origin/main", sha)
+    return root
+
+
+def test_size_check_base_already_managed_counts_everything(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = _base_managed_repo(tmp_path)
+    (root / "context" / "skills").mkdir()
+    (root / "context" / "skills" / "s.md").write_text("x\n" * 30, encoding="utf-8")
+    _git(root, "add", "-A")
+    _commit(root, "skills")
+    result = size_check(root)
+    assert result["insertions"] == 30
+    assert result["message"] == (
+        "process-control: PR size 30 insertions vs origin/main "
+        "(warn ≥1125 = 75.0% of 1500; over >1500; ≤1500 OK). See docs/process-control.md."
+    )
+
+
+def test_size_check_custom_context_baseline(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PROCESS_BASE", raising=False)
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    (root / "README").write_text("r\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _commit(root, "base")
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _git(root, "update-ref", "refs/remotes/origin/main", sha)
+    (root / "ctx" / ".agentized").mkdir(parents=True)
+    (root / "ctx" / ".agentized" / "managed.json").write_text("{}\n", encoding="utf-8")
+    (root / "ctx" / "process-control.json").write_text(
+        '{"reviewable_lines": 1500, "warn_at_pct": 75}\n', encoding="utf-8"
+    )
+    (root / "ctx" / "big.md").write_text("x\n" * 40, encoding="utf-8")
+    (root / "context").mkdir()
+    (root / "context" / "user.md").write_text("u\n" * 5, encoding="utf-8")
+    _git(root, "add", "-A")
+    _commit(root, "connect")
+    result = size_check(root, context_rel="ctx")
+    assert result["insertions"] == 5
+    assert result["message"] == (
+        "process-control: PR size 5 insertions vs origin/main connect-baseline "
+        "(bootstrap paths excluded) (warn ≥1125 = 75.0% of 1500; over >1500; ≤1500 OK). "
+        "See docs/process-control.md."
+    )

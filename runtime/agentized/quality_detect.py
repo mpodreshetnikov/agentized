@@ -12,8 +12,6 @@ _TEST_CANDIDATES = ("tests", "test")
 
 
 def _has_python(dir_path: Path) -> bool:
-    if not dir_path.is_dir():
-        return False
     return next(dir_path.rglob("*.py"), None) is not None
 
 
@@ -32,22 +30,19 @@ def _empty_consumer_quality() -> dict[str, Any]:
 
 
 def _module_for_source(source: str, test_dirs: list[str]) -> dict[str, Any]:
-    mid = source.replace("/", "-")
-    # Convention when no tests dir yet: still reference tests/ (fail-closed at check).
-    targets = test_dirs or ["tests"]
-    test_args = " ".join(targets)
+    test_args = " ".join(test_dirs)
     return {
-        "id": mid,
+        "id": source,
         "source": [source],
         "test_command": (
             f"python3 -m pytest {test_args} -q --cov={source} --cov-branch "
             f"--cov-report=term-missing "
-            f"--cov-report=lcov:coverage/{mid}/lcov.info "
-            f"--cov-report=json:coverage/{mid}/coverage.json "
+            f"--cov-report=lcov:coverage/{source}/lcov.info "
+            f"--cov-report=json:coverage/{source}/coverage.json "
             f"--cov-fail-under=0"
         ),
-        "coverage_lcov": f"coverage/{mid}/lcov.info",
-        "coverage_json": f"coverage/{mid}/coverage.json",
+        "coverage_lcov": f"coverage/{source}/lcov.info",
+        "coverage_json": f"coverage/{source}/coverage.json",
         "thresholds": {},
     }
 
@@ -67,13 +62,12 @@ def detect_quality_config(root: Path) -> dict[str, Any]:
     if source is None:
         return _empty_consumer_quality()
 
-    test_dirs = [t for t in _TEST_CANDIDATES if (root / t).is_dir()]
+    # No tests dir yet: still reference tests/ so the coverage preflight fails closed.
+    test_dirs = [t for t in _TEST_CANDIDATES if (root / t).is_dir()] or ["tests"]
     cfg = default_quality_config()
     cfg["modules"] = [_module_for_source(source, test_dirs)]
     cfg["mutation"]["include_globs"] = [f"{source}/*.py"]
-    smell_globs = [f"{t}/**/*.py" for t in (test_dirs or ["tests"])]
-    smell_globs.append("tests/**/test_*.py")
-    cfg["test_smells"]["include_globs"] = smell_globs
+    cfg["test_smells"]["include_globs"] = [f"{t}/**/*.py" for t in test_dirs]
     cfg["architecture"]["source_roots"] = [source]
     cfg["architecture"]["tool"] = "builtin"
     return cfg
