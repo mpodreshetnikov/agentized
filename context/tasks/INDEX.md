@@ -12,7 +12,8 @@
 
 ## in-progress
 
-_(пусто)_
+- [T-261121-3ff5](T-261121-3ff5.md) — Connect bootstrap size and quality fix (AGE-90) (родитель: T-261121-9c1d) · claim: cloud-agent
+- [T-261121-9c1d](T-261121-9c1d.md) — Connect bootstrap size and quality for consumers (AGE-85) (родитель: T-261115-918b) · claim: cloud-agent
 
 ## blocked
 
