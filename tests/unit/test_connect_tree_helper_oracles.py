@@ -19,16 +19,6 @@ from agentized.connect import (
 )
 
 
-def _dirs_first_rglob(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``rglob`` yield directories before files so a ``break`` on a dir is observable."""
-    real = Path.rglob
-
-    def ordered(self: Path, pattern: str, **kwargs):
-        return iter(sorted(real(self, pattern, **kwargs), key=lambda p: (not p.is_dir(), str(p))))
-
-    monkeypatch.setattr(Path, "rglob", ordered)
-
-
 def _seed_tree(src: Path) -> None:
     (src / "empty_dir").mkdir(parents=True)
     (src / "a" / "b").mkdir(parents=True)
@@ -37,11 +27,8 @@ def _seed_tree(src: Path) -> None:
     (src / "a" / "b" / "leaf.txt").write_text("leaf\n", encoding="utf-8")
 
 
-def test_copy_tree_copies_files_past_directories_and_returns_exact_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_copy_tree_copies_files_past_directories_and_returns_exact_paths(tmp_path: Path):
     """Kill ``continue``→``break`` on dirs and ``append(None)`` / ``str(None)`` results."""
-    _dirs_first_rglob(monkeypatch)
     src = tmp_path / "src"
     dst = tmp_path / "dst"
     _seed_tree(src)

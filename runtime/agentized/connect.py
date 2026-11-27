@@ -70,8 +70,8 @@ def _upsert_marked_block(path: Path, begin: str, end: str, body: str, *, create:
         return True
     text = path.read_text(encoding="utf-8")
     if begin in text and end in text:
-        pre = text.split(begin, 1)[0]
-        post = text.split(end, 1)[1]
+        pre = text.partition(begin)[0]
+        post = text.partition(end)[2]
         new_text = pre.rstrip() + "\n\n" + body.rstrip() + "\n" + post.lstrip("\n")
         if not new_text.endswith("\n"):
             new_text += "\n"
@@ -90,7 +90,7 @@ def _copy_tree(src: Path, dst: Path) -> list[str]:
     copied: list[str] = []
     if not src.exists():
         return copied
-    for item in src.rglob("*"):
+    for item in sorted(src.rglob("*")):
         if item.is_dir():
             continue
         rel = item.relative_to(src)
@@ -120,7 +120,7 @@ def _managed_copy_tree(
     }
     if not src.exists():
         return result
-    for item in src.rglob("*"):
+    for item in sorted(src.rglob("*")):
         if item.is_dir():
             continue
         rel = item.relative_to(src)
@@ -180,6 +180,8 @@ DEFAULT_HARNESS_REVIEWERS = {
     },
 }
 
+_TEXT_ENCODING = "utf-8"
+
 REVIEWER_BODY_EXTRA = """
 ## Caveman / ultracave — **exception**
 
@@ -214,7 +216,7 @@ def harness_reviewer_opts(reviewer_cfg: dict, harness: str) -> dict[str, str]:
 
 
 def _reviewer_body(src: Path) -> str:
-    text = src.read_text(encoding="utf-8")
+    text = src.read_text(encoding=_TEXT_ENCODING)
     lines = text.splitlines()
     if lines and lines[0].strip() == "---":
         end = None
@@ -229,9 +231,7 @@ def _reviewer_body(src: Path) -> str:
     return text
 
 
-def _render_reviewer_agent(
-    src: Path, model: str, *, harness: str = "cursor", effort: str = "medium"
-) -> str:
+def _render_reviewer_agent(src: Path, model: str, *, harness: str, effort: str = "medium") -> str:
     """Render markdown agent for Cursor/Claude (Codex uses TOML separately)."""
     body = _reviewer_body(src)
     if harness == "claude":
@@ -421,18 +421,18 @@ def pin_context_skills_hooks(
     for d in (skills_dst, hooks_dst):
         gk = d / ".gitkeep"
         if gk.exists() and any(p for p in d.rglob("*") if p != gk and p.is_file()):
-            gk.unlink(missing_ok=True)
+            gk.unlink()
     written = (
-        skills_result.get("created", [])
-        + skills_result.get("updated", [])
-        + skills_result.get("unchanged", [])
-        + skills_result.get("bootstrapped", [])
+        skills_result["created"]
+        + skills_result["updated"]
+        + skills_result["unchanged"]
+        + skills_result["bootstrapped"]
     )
     return {
         "skills": written,
         "skills_managed": skills_result,
         "hooks": copied_hooks,
-        "skipped_user": list(skills_result.get("skipped_user", [])),
+        "skipped_user": list(skills_result["skipped_user"]),
     }
 
 
@@ -811,14 +811,12 @@ def ensure_quality_config(
         # AGE-19: warn→hard for smells/architecture on reconnect (policy flip).
         # Leaves intentional non-warn modes alone; does not touch other fields.
         data = load_quality(root, context_rel)
-        dirty = False
         for section_name in ("test_smells", "architecture"):
             section = data.get(section_name)
-            if isinstance(section, dict) and str(section.get("mode") or "").lower() == "warn":
+            if isinstance(section, dict) and str(section.get("mode")).lower() == "warn":
                 section["mode"] = "hard"
                 upgraded_modes.append(section_name)
-                dirty = True
-        if dirty:
+        if upgraded_modes:
             save_quality(root, data, context_rel)
     if coverage_pct is not None:
         set_coverage_threshold(root, coverage_pct, context_rel=context_rel)

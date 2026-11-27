@@ -262,9 +262,9 @@ def test_reviewer_body_extra_constant_is_exact():
 # ---------------------------------------------------------------- _render_reviewer_agent
 
 
-def test_render_agent_cursor_default_harness(tmp_path: Path):
+def test_render_agent_cursor_harness(tmp_path: Path):
     src = _src(tmp_path, SRC_MD)
-    assert connect_mod._render_reviewer_agent(src, "m-1") == _cursor_md("m-1")
+    assert connect_mod._render_reviewer_agent(src, "m-1", harness="cursor") == _cursor_md("m-1")
 
 
 def test_render_agent_cursor_ignores_effort(tmp_path: Path):
@@ -294,7 +294,7 @@ def test_render_agent_other_harness_takes_cursor_shape(tmp_path: Path):
 def test_render_agent_strips_leading_blank_lines_of_body(tmp_path: Path):
     src = _src(tmp_path, "\n\n\nPlain body.\n")
     body = "Plain body.\n" + EXTRA
-    assert connect_mod._render_reviewer_agent(src, "m") == _cursor_md("m", body)
+    assert connect_mod._render_reviewer_agent(src, "m", harness="cursor") == _cursor_md("m", body)
     assert connect_mod._render_reviewer_agent(src, "m", harness="claude") == _claude_md(
         "m", "medium", body
     )
@@ -303,7 +303,7 @@ def test_render_agent_strips_leading_blank_lines_of_body(tmp_path: Path):
 def test_render_agent_keeps_leading_spaces_and_x_of_body(tmp_path: Path):
     src = _src(tmp_path, "\n\n   Xindented first\n")
     body = "   Xindented first\n" + EXTRA
-    assert connect_mod._render_reviewer_agent(src, "m") == _cursor_md("m", body)
+    assert connect_mod._render_reviewer_agent(src, "m", harness="cursor") == _cursor_md("m", body)
     src2 = _src(tmp_path, "\nXray first\n", "src2.md")
     body2 = "Xray first\n" + EXTRA
     assert connect_mod._render_reviewer_agent(src2, "m", harness="claude") == _claude_md(
@@ -313,7 +313,7 @@ def test_render_agent_keeps_leading_spaces_and_x_of_body(tmp_path: Path):
 
 def test_render_agent_body_with_caveman_marker_kept_verbatim(tmp_path: Path):
     src = _src(tmp_path, "---\nname: r\n---\n\nCaveman / ultracave stays\n")
-    assert connect_mod._render_reviewer_agent(src, "m") == _cursor_md(
+    assert connect_mod._render_reviewer_agent(src, "m", harness="cursor") == _cursor_md(
         "m", "Caveman / ultracave stays"
     )
 

@@ -155,17 +155,16 @@ def test_pin_skills_force_overwrites_user_edit(tmp_path: Path):
     assert skill.read_text(encoding="utf-8") == "e-src\n"
 
 
-def test_pin_skills_hooks_always_overwritten_in_source_enumeration_order(tmp_path: Path):
+def test_pin_skills_hooks_always_overwritten_in_sorted_order(tmp_path: Path):
     _shared(tmp_path, {}, {"b_hook.py": "b\n", "a_hook.py": "a-new\n"})
     scripts = tmp_path / "context" / "hooks" / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "a_hook.py").write_text("a-user\n", encoding="utf-8")
-    source_scripts = tmp_path / "packages" / "shared" / "hooks" / "scripts"
     result = pin_context_skills_hooks(tmp_path, "context")
     assert result == {
         "skills": [],
         "skills_managed": EMPTY_MANAGED,
-        "hooks": [str(scripts / p.name) for p in source_scripts.rglob("*")],
+        "hooks": [str(scripts / "a_hook.py"), str(scripts / "b_hook.py")],
         "skipped_user": [],
     }
     assert (scripts / "a_hook.py").read_text(encoding="utf-8") == "a-new\n"

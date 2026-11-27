@@ -186,7 +186,7 @@ def test_disabled_and_cli(tmp_path: Path, monkeypatch):
     assert pin_reviewer_agents(tmp_path, "context").get("skipped") == "missing-src"
     bare = tmp_path / "bare.md"
     bare.write_text("plain body\n", encoding="utf-8")
-    rendered_bare = _render_reviewer_agent(bare, "x")
+    rendered_bare = _render_reviewer_agent(bare, "x", harness="cursor")
     assert "model: x" in rendered_bare
     assert "plain body" in rendered_bare
     set_reviewer_options(tmp_path, effort="max", helper_model="composer-2")
@@ -218,6 +218,7 @@ def test_render_and_pin_reviewer(tmp_path: Path, monkeypatch):
     rendered = _render_reviewer_agent(
         tmp_path / "packages" / "shared" / "agents" / "reviewer.md",
         "grok-4.7[reasoning_effort=medium]",
+        harness="cursor",
     )
     assert "model: grok-4.7[reasoning_effort=medium]" in rendered
     assert "model: old" not in rendered
