@@ -12,7 +12,7 @@
 
 ## in-progress
 
-- [T-261121-2d72](T-261121-2d72.md) — Configurable merge and authorship policy (AGE-27) · claim: bc-58365a47-1318-5cf4-82d7-5270da96ff9e
+_(пусто)_
 
 ## blocked
 
