@@ -140,6 +140,27 @@ def unknown_depends_on_ids(
     return missing
 
 
+# Orbit-only aliases; everything else goes through status_gates normalize/is_known.
+ORBIT_STATUS_MAP: dict[str, str] = {
+    "review": "for-review",
+}
+
+
+def map_orbit_status(status: str) -> str | None:
+    """Map Orbit status → Agentized; None if empty/unknown (fail loudly)."""
+    from .status_gates import is_known_status, normalize_status
+
+    key = status.strip().lower()
+    if not key:
+        return None
+    if key in ORBIT_STATUS_MAP:
+        return ORBIT_STATUS_MAP[key]
+    norm = normalize_status(key)
+    if is_known_status(norm):
+        return norm
+    return None
+
+
 def validate_kind_priority(kind: str, priority: str) -> list[str]:
     errs: list[str] = []
     if kind and kind not in KINDS:

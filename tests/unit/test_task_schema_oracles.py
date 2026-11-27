@@ -42,7 +42,6 @@ from agentized.task_schema import (
     validate_task_status,
 )
 
-# fmt: off
 FIXED = datetime(2020, 1, 2, 3, 4, tzinfo=UTC)
 
 
