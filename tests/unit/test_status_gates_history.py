@@ -158,15 +158,32 @@ def test_decision_log_and_both_sections_report_exact_errors(tmp_path: Path):
 def test_only_task_files_in_tasks_dir_are_judged(tmp_path: Path):
     root, tasks, base = _repo(tmp_path)
     big, small = _doc(["A", "B"]), _doc(["A"])
+    real = "context/tasks/T-zzz.md"
     others = [
         "context/tasks/INDEX.md",
         "context/tasks/T-note.txt",
         "context/tasks/notes-T-x.md",
         "docs/T-outside.md",
     ]
-    _commit(root, {rel: big for rel in others}, "add")
-    _commit(root, {rel: small for rel in others}, "shrink")
-    assert branch_history_errors(tasks, repo_root=root, ref=base) == ()
+    c1 = _commit(root, {rel: big for rel in [*others, real]}, "add")
+    c2 = _commit(root, {rel: small for rel in [*others, real]}, "shrink")
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == (
+        MSG_HISTORY_PAIR.format(name="T-zzz.md", old=c1[:7], new=c2[:7], err=MSG_PROGRESS_PREFIX),
+    )
+
+
+def test_every_changed_task_file_in_a_commit_is_judged(tmp_path: Path):
+    root, tasks, base = _repo(tmp_path)
+    a, b = "context/tasks/T-a.md", "context/tasks/T-b.md"
+    c1 = _commit(root, {a: _doc(["A", "B"]), b: _doc(["A", "B"])}, "add both")
+    c2 = _commit(root, {a: None, b: _doc(["A"])}, "delete a, shrink b")
+    c3 = _commit(root, {a: _doc(["A", "B"], ["d"]), b: _doc(["A", "C"])}, "re-add a, append b")
+    c4 = _commit(root, {a: _doc(["A", "B", "C"], ["d"]), b: _doc(["Z"])}, "mixed")
+    pair = MSG_HISTORY_PAIR
+    assert branch_history_errors(tasks, repo_root=root, ref=base) == (
+        pair.format(name="T-b.md", old=c1[:7], new=c2[:7], err=MSG_PROGRESS_PREFIX),
+        pair.format(name="T-b.md", old=c3[:7], new=c4[:7], err=MSG_PROGRESS_PREFIX),
+    )
 
 
 def test_merge_commits_are_not_pair_endpoints_but_successors_are(tmp_path: Path):

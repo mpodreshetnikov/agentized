@@ -573,7 +573,6 @@ def branch_history_errors(tasks_dir: Path, *, repo_root: Path, ref: str) -> tupl
                     errors.append(
                         MSG_HISTORY_PAIR.format(name=name, old=parent[:7], new=commit[:7], err=err)
                     )
-            last[name] = new
     return tuple(errors)
 
 
