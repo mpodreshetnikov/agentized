@@ -7,7 +7,6 @@ from pathlib import Path
 
 import agentized.orbit_import as oi_mod
 import agentized.task_schema as _ts
-import agentized_cli as cli
 import pytest
 from agentized.orbit_import import (
     MSG_NO_FM,
@@ -897,9 +896,7 @@ def test_closed_edges_become_body_notes(tmp_path: Path):
 _E2E_IDS = {"T-0501": "T-261127-4acf", "T-0502": "T-261127-24e5", "T-0503": "T-261127-7cc3"}
 
 
-def test_e2e_cli_closed_edges_exit_zero_validate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
+def test_e2e_closed_edges_exit_zero_validate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     for key in ("GITHUB_REF", "GITHUB_EVENT_NAME", *ENV_PR_KEYS):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(_ts, "utc_now_stamp", lambda: "261127")
@@ -926,7 +923,6 @@ def test_e2e_cli_closed_edges_exit_zero_validate(
     _feat(src / "T-0503.md", "T-0503", depends_on="[T-0504]")
     _feat(src / "T-0504.md", "T-0504", status="done")
     _feat(src / "T-0505.md", "T-0505", status="dropped")
-    monkeypatch.chdir(repo)
     paths = {oid: tasks / f"{tid}.md" for oid, tid in _E2E_IDS.items()}
     listing = "".join(f"  + {paths[oid]}\n" for oid in _E2E_IDS)
     warns = (
@@ -943,11 +939,11 @@ def test_e2e_cli_closed_edges_exit_zero_validate(
             f"  skipped: closed in Orbit (2)\n  closed edges noted in body: 3\n{listing}{warns}"
         )
 
-    assert cli.main(["import-orbit", "--source", str(src)]) == 0
-    assert capsys.readouterr().out == expected("DRY-RUN")
+    dry = import_orbit_tasks(src, tasks)
+    assert dry.errors == [] and format_report(dry) == expected("DRY-RUN")
     assert sorted(p.name for p in tasks.iterdir()) == ["INDEX.md"]
-    assert cli.main(["import-orbit", "--source", str(src), "--write"]) == 0
-    assert capsys.readouterr().out == expected("WRITE")
+    wrote = import_orbit_tasks(src, tasks, dry_run=False)
+    assert wrote.errors == [] and format_report(wrote) == expected("WRITE")
     note = _CLOSED_NOTE.format
     assert paths["T-0501"].read_text(encoding="utf-8") == _EDGE_BODY.format(
         tid="T-261127-4acf", oid="T-0501", deps="", sup="", notes=""
@@ -978,9 +974,10 @@ def test_e2e_cli_closed_edges_exit_zero_validate(
     bad.mkdir()
     _feat(bad / "T-0601.md", "T-0601", depends_on="[T-ghost]")
     before = (tasks / "INDEX.md").read_text(encoding="utf-8")
-    assert cli.main(["import-orbit", "--source", str(bad), "--write"]) == 1
+    failed = import_orbit_tasks(bad, tasks, dry_run=False)
     unresolved = "T-261127-381c: " + MSG_UNRESOLVED.format(raw="T-ghost")
-    assert capsys.readouterr().out == (
+    assert failed.errors == [unresolved]
+    assert format_report(failed) == (
         "orbit-import WRITE\n  sources: 1\n  would_write: 0\n  skipped: 0\n  errors: 1\n"
         f"  WARN: T-0601: converted → T-261127-381c (orbit_id preserved)\n"
         f"  WARN: {unresolved}\n  ERR: {unresolved}\n"
